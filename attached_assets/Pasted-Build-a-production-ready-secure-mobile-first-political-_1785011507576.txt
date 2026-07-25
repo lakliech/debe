@@ -1,0 +1,1029 @@
+Build a production-ready, secure, mobile-first political campaign management platform for a Kenyan presidential campaign in the 2027 General Election. The platform should be called Ushindi 2027 and should operate as a complete national campaign management, volunteer mobilisation, crowdfunding, communications, field operations and polling-station vote tally system.
+
+The platform must be designed for Kenya’s administrative and electoral structure:
+
+National → County → Constituency → Ward → Polling Centre → Polling Station.
+
+Use a modern, scalable architecture. Build the web application using Next.js with TypeScript, Tailwind CSS and a clean professional user interface. Use PostgreSQL with Prisma ORM for the database. Use secure server-side APIs, role-based access control, audit logs, encryption, two-factor authentication support and configurable integrations for M-Pesa Daraja, SMS, email, WhatsApp Business, USSD, cloud storage and mapping services.
+
+Create a fully functional application, not merely static mock-ups. Where external credentials are unavailable, implement working sandbox adapters, configuration screens and clear environment-variable placeholders.
+
+Core user roles
+
+Create the following user roles with configurable permissions:
+
+1. Super Administrator.
+2. Presidential Candidate.
+3. Campaign Executive Director.
+4. National Campaign Manager.
+5. National Organising Director.
+6. County Coordinator.
+7. Constituency Coordinator.
+8. Ward Coordinator.
+9. Polling Centre Coordinator.
+10. Polling Station Agent.
+11. Backup Polling Agent.
+12. Volunteer.
+13. Donor.
+14. Finance Officer.
+15. Treasurer.
+16. Communications Officer.
+17. Content Approver.
+18. Legal Officer.
+19. Verification Officer.
+20. Data Protection Officer.
+21. Security Administrator.
+22. Auditor.
+23. Call Centre Agent.
+24. Public Supporter.
+
+Implement granular permissions so that users only access information relevant to their assigned role and geographical jurisdiction.
+
+Public campaign portal
+
+Create a public-facing website containing:
+
+* Candidate biography, leadership record and values.
+* National vision.
+* Manifesto organised by sector.
+* County-specific priorities.
+* News, speeches, statements and videos.
+* Events, rallies and town halls.
+* Volunteer registration.
+* Supporter registration.
+* Crowdfunding.
+* Merchandise placeholder.
+* Citizen policy submissions.
+* Issue reporting.
+* Frequently asked questions.
+* Fact-check and clarification centre.
+* Media resources.
+* Contact information.
+* English and Kiswahili language support.
+* Accessibility controls.
+* Low-bandwidth mode.
+* Progressive Web App functionality.
+
+The site must be fast on low-cost Android devices and unreliable mobile networks.
+
+Volunteer management
+
+Create a volunteer registration and mobilisation module.
+
+Capture:
+
+* Full name.
+* Telephone number.
+* Email address where available.
+* National ID or other identification only where legally required.
+* County.
+* Constituency.
+* Ward.
+* Polling centre.
+* Preferred role.
+* Skills.
+* Languages.
+* Availability.
+* Emergency contact where operationally necessary.
+* Consent to data processing and communications.
+
+Volunteer roles should include:
+
+* Door-to-door mobilisation.
+* Event support.
+* Digital communications.
+* Call centre.
+* Fundraising.
+* Policy research.
+* Logistics.
+* Legal support.
+* Youth mobilisation.
+* Women mobilisation.
+* Professional networks.
+* Disability inclusion.
+* Polling-agent support.
+* Election observation.
+* Incident reporting.
+
+Implement:
+
+* Verification.
+* Approval.
+* Assignment.
+* Digital induction.
+* Training courses.
+* Quizzes.
+* Certificates.
+* Task assignment.
+* Attendance.
+* Activity reporting.
+* Supervisor approval.
+* Performance dashboards.
+* Volunteer recognition badges.
+* Promotion to coordinator roles.
+* Suspension and deactivation.
+* Complete audit history.
+
+Do not create features that reward intimidation, harassment, misinformation or unlawful collection of citizens’ personal information.
+
+Campaign organisation and field operations
+
+Create hierarchical dashboards for:
+
+* National headquarters.
+* Counties.
+* Constituencies.
+* Wards.
+* Polling centres.
+* Polling stations.
+
+Each dashboard should show:
+
+* Number of registered volunteers.
+* Number of active volunteers.
+* Organisers assigned.
+* Activities planned.
+* Activities completed.
+* Events.
+* Attendance.
+* Materials distributed.
+* Volunteer training completion.
+* Local issues raised.
+* Fundraising performance.
+* Polling-agent coverage.
+* Incident reports.
+* Unresolved tasks.
+* Organisational gaps.
+
+Create interactive maps and heat maps showing organisational coverage and reporting progress. Heat maps should not be based on ethnicity, religion or hidden psychological profiling.
+
+Supporter CRM
+
+Create an ethical political supporter relationship management system.
+
+Each supporter profile may include:
+
+* Contact details.
+* Location.
+* Volunteer status.
+* Donation history.
+* Event attendance.
+* Communication preferences.
+* Voluntarily selected policy interests.
+* Membership status.
+* Engagement history.
+* Consent records.
+* Opt-out status.
+
+The system must not create hidden psychological profiles or classify citizens using sensitive characteristics such as ethnicity, religion, health status, sexual orientation or other protected personal information.
+
+Implement duplicate detection, consent management, data correction, deletion requests, restricted exports and complete access logs.
+
+Crowdfunding and campaign finance
+
+Create a campaign fundraising module supporting:
+
+* M-Pesa.
+* Card payments.
+* Bank transfer.
+* Recurring contributions.
+* Fundraising events.
+* Merchandise.
+* In-kind contributions.
+* Approved diaspora contributions, subject to compliance configuration.
+
+Each contribution should capture:
+
+* Donor identity.
+* Contact information.
+* Amount.
+* Date.
+* Payment channel.
+* Transaction reference.
+* Campaign purpose.
+* Contribution type.
+* Source declaration where required.
+* Receipt.
+* Verification status.
+* Refund status.
+* Compliance flags.
+
+Implement:
+
+* Digital receipts.
+* Unique transaction references.
+* M-Pesa reconciliation.
+* Bank reconciliation.
+* Duplicate-payment alerts.
+* Suspicious-payment alerts.
+* Donor concentration alerts.
+* Configurable contribution limits.
+* Campaign expenditure categories.
+* Budgets.
+* Approval workflows.
+* Payment vouchers.
+* In-kind contribution valuation.
+* Financial dashboards.
+* Daily collection reports.
+* County fundraising reports.
+* Cash-flow reports.
+* Donor reports.
+* Compliance reports.
+* Immutable audit records.
+
+Funds must be directed only to configured official campaign accounts. Do not allow volunteers to collect donations into personal mobile-money accounts.
+
+Separate candidate campaign finances from political-party finances through configurable accounting ledgers.
+
+Communications command centre
+
+Create a communications module supporting:
+
+* SMS.
+* Email.
+* WhatsApp Business.
+* Push notifications.
+* Website notifications.
+* USSD.
+* Interactive Voice Response.
+* Call-centre campaigns.
+* Social-media publishing integrations.
+
+Implement:
+
+* Approved message templates.
+* Audience segmentation based only on consent, geography and voluntarily selected interests.
+* English, Kiswahili and configurable local-language content.
+* Scheduling.
+* Approval workflows.
+* Emergency message suspension.
+* Link tracking.
+* Delivery tracking.
+* Opt-out processing.
+* Communication frequency controls.
+* Official spokesperson directory.
+* Speech and statement version control.
+* Publication archive.
+* Correction and retraction workflows.
+
+No unauthorised user should be able to publish national campaign communications.
+
+Digital content library
+
+Create a campaign digital asset management module containing:
+
+* Logos.
+* Brand guidelines.
+* Candidate photographs.
+* Posters.
+* Videos.
+* Social-media templates.
+* Radio scripts.
+* Speeches.
+* Manifesto summaries.
+* County-specific materials.
+* Translations.
+* Fact sheets.
+* Press releases.
+
+Allow county teams to modify only approved fields such as date, venue, county, organiser and local-language translation.
+
+All content must have:
+
+* Owner.
+* Version.
+* Approval status.
+* Expiry date.
+* Publishing rights.
+* Download history.
+* Audit history.
+
+Policy and manifesto participation
+
+Create a public participation module where citizens can:
+
+* Submit problems.
+* Suggest solutions.
+* Rank priorities.
+* Participate in surveys.
+* Register for sector roundtables.
+* Review manifesto commitments.
+* Submit county priorities.
+* Track responses where appropriate.
+
+Organise submissions by sectors including:
+
+* Cost of living.
+* Jobs.
+* Business.
+* Agriculture.
+* Healthcare.
+* Education.
+* Housing.
+* Devolution.
+* Infrastructure.
+* Security.
+* Digital economy.
+* Governance.
+* Anti-corruption.
+* Youth.
+* Sports.
+* Women.
+* Social protection.
+* Water.
+* Climate.
+* Environment.
+
+Display only aggregated public findings. Protect the identities of people submitting politically sensitive opinions.
+
+Events and rally management
+
+Create an event-management module covering:
+
+* Event proposal.
+* Approval.
+* Venue.
+* Date.
+* County.
+* Constituency.
+* Ward.
+* Budget.
+* Transport.
+* Security coordination.
+* Volunteers.
+* Speakers.
+* Invitations.
+* Media accreditation.
+* Equipment.
+* Attendance.
+* QR-code registration.
+* Manual check-in.
+* Incident reporting.
+* Post-event reconciliation.
+* Photographs.
+* Media coverage.
+* Lessons learned.
+
+Sensitive candidate movement and route information must be restricted to explicitly authorised users.
+
+Polling-station database
+
+Create a complete configurable database for all Kenyan polling stations.
+
+Each station should contain:
+
+* Official station code.
+* Polling-station name.
+* Polling-centre name.
+* Ward.
+* Constituency.
+* County.
+* Registered voters.
+* GPS coordinates.
+* Assigned primary agent.
+* Backup agent.
+* Polling-centre coordinator.
+* Accreditation status.
+* Training status.
+* Contact status.
+* Reporting status.
+
+Provide CSV and Excel import templates for loading officially gazetted electoral units and polling stations.
+
+Polling-agent management
+
+Create an agent recruitment and deployment module supporting:
+
+* Registration.
+* Identity verification.
+* Photograph.
+* Contact information.
+* Polling-station assignment.
+* Backup assignment.
+* Training.
+* Quizzes.
+* Accreditation tracking.
+* Code-of-conduct acceptance.
+* Deployment confirmation.
+* Election-day attendance.
+* Allowance administration.
+* Replacement agents.
+* Legal hotline.
+* Supervisor escalation.
+
+Prevent one agent from being assigned to conflicting polling stations unless expressly approved.
+
+Polling-station vote tally system
+
+Create a secure campaign Parallel Results Management System based on official polling-station result forms submitted by authorised campaign agents.
+
+The system must recognise that presidential votes are counted and recorded at polling-station level. However, the application must clearly distinguish the campaign’s independently collected and verified tally from the official results declared by the constitutionally authorised electoral body.
+
+Never label campaign totals as official national election results.
+
+Agent result submission
+
+The polling agent application must work online and offline.
+
+For each polling station, allow the assigned agent to enter:
+
+* Poll opening time.
+* Poll closing time.
+* Registered voters.
+* Ballot papers received.
+* Ballot papers issued.
+* Unused ballots.
+* Spoilt ballots.
+* Rejected ballots.
+* Total valid votes.
+* Total votes cast.
+* Votes received by each presidential candidate.
+* Presiding officer name where captured on the official form.
+* Agent comments.
+* Whether the agent signed the official form.
+* Whether the agent received a copy.
+* Whether the form was publicly displayed.
+* Any objection raised.
+
+Allow upload of:
+
+* Clear photographs of every page of the official polling-station presidential result form.
+* Optional video showing the publicly displayed result.
+* Photographs of the station result notice.
+* Supporting incident evidence.
+
+Capture:
+
+* Submission time.
+* Device ID.
+* User ID.
+* GPS coordinates where permission is granted.
+* Offline capture time.
+* Synchronisation time.
+* File hashes.
+* Submission version.
+
+Automatic validation rules
+
+Before accepting a submission, validate that:
+
+* Candidate vote totals equal total valid votes.
+* Valid votes plus rejected ballots reconcile to total votes cast where applicable.
+* Ballot-accounting figures reconcile or are clearly flagged.
+* Votes do not exceed registered voters.
+* Candidate names match the configured election.
+* The polling-station code is valid.
+* The submitting user is assigned to that polling station.
+* Required form images are attached.
+* Duplicate submissions are detected.
+* Images meet minimum readability requirements.
+* Unusual values are flagged.
+
+Do not automatically reject a legally valid result solely because of an arithmetic inconsistency. Place inconsistent submissions in an exception workflow for human verification.
+
+Verification workflow
+
+Implement this workflow:
+
+Agent submission → Automatic validation → Polling-centre review → Constituency verification → County verification where required → National verification → Legal review for disputed submissions → Verified tally.
+
+Every submission should have one of these statuses:
+
+* Not reported.
+* Draft.
+* Submitted.
+* Synchronising.
+* Validation failed.
+* Pending verification.
+* Image unclear.
+* Duplicate suspected.
+* Arithmetic exception.
+* Agent dispute.
+* Verified.
+* Legally escalated.
+* Superseded.
+* Rejected with reason.
+
+A verifier must compare entered figures against the uploaded official form.
+
+Allow a second verifier for sensitive or disputed stations.
+
+Every correction must preserve:
+
+* Original value.
+* Corrected value.
+* User making the correction.
+* Date and time.
+* Reason.
+* Supporting evidence.
+* Approver.
+
+Never overwrite the original agent submission.
+
+Form image review
+
+Create a verification screen showing:
+
+* Uploaded form image.
+* Zoom.
+* Rotation.
+* Brightness and contrast controls.
+* Entered figures beside the image.
+* Candidate-by-candidate comparison.
+* Validation alerts.
+* Previous submissions.
+* Agent details.
+* Approve, query, escalate or reject actions.
+
+Optional OCR may suggest figures, but OCR must never automatically approve or replace verified human-entered results.
+
+Campaign tally aggregation
+
+Aggregate only verified polling-station results.
+
+Create views for:
+
+* Polling station.
+* Polling centre.
+* Ward.
+* Constituency.
+* County.
+* National total.
+
+Show:
+
+* Candidate votes.
+* Total verified votes.
+* Percentage share of verified votes.
+* Polling stations received.
+* Polling stations verified.
+* Polling stations pending.
+* Percentage reporting.
+* Percentage verification.
+* Registered voters covered.
+* Outstanding stations.
+* Disputed stations.
+
+All percentage calculations must clearly state their denominator.
+
+For example, distinguish:
+
+* Percentage of polling stations reporting.
+* Percentage of registered voters represented.
+* Percentage of verified valid votes.
+* Percentage vote share within verified stations.
+
+Do not make projections or declare a winner by default.
+
+Tally dashboard
+
+Create an executive election-night dashboard with:
+
+* National campaign tally.
+* County totals.
+* Constituency totals.
+* Ward totals.
+* Polling-station drill-down.
+* Reporting progress.
+* Verification progress.
+* Outstanding stations.
+* Disputed forms.
+* Incident alerts.
+* Agent response status.
+* Data synchronisation status.
+* Legal escalations.
+* Comparison between agent-entered values and form-verified values.
+
+Every results screen must prominently display:
+
+“Campaign tally based on polling-station forms received and verified by the campaign. This is not an official declaration by the electoral commission.”
+
+Form publication and public transparency portal
+
+Create an optional public transparency portal where approved users can publish:
+
+* Polling-station result figures.
+* Redacted result-form images.
+* Reporting status.
+* Verification status.
+* County and constituency aggregates.
+
+Before publication:
+
+* Remove unnecessary personal data.
+* Apply legal and communications approval.
+* Preserve the original unredacted evidence internally.
+* Clearly label the source and verification status.
+* Display the campaign tally disclaimer.
+
+Dispute and reconciliation centre
+
+Create a discrepancy module that identifies:
+
+* Different figures submitted for the same polling station.
+* Differences between entered figures and uploaded forms.
+* Duplicate form images.
+* Altered or suspicious images.
+* Missing signatures.
+* Missing pages.
+* Unclear forms.
+* Results exceeding registered voters.
+* Inconsistent ballot accounting.
+* Polling-station codes assigned to the wrong location.
+
+Allow legal officers to:
+
+* Open a case.
+* Assign investigators.
+* Attach evidence.
+* Record communications.
+* Add witness statements.
+* Track deadlines.
+* Export an evidence bundle.
+* Record resolution.
+* Link the case to the relevant polling station.
+
+Election incident centre
+
+Allow agents and authorised volunteers to report:
+
+* Delayed opening.
+* Delayed closing.
+* Missing election materials.
+* Violence.
+* Intimidation.
+* Agent exclusion.
+* Counting disputes.
+* Technology failure.
+* Power outage.
+* Network failure.
+* Unauthorised persons.
+* Bribery allegations.
+* Result-form refusal.
+* Failure to display results.
+* Security emergency.
+* Medical emergency.
+
+Each incident should capture:
+
+* Category.
+* Severity.
+* Time.
+* Location.
+* Description.
+* Evidence.
+* Reporter.
+* Assigned officer.
+* Escalation level.
+* Resolution status.
+* Legal action.
+* Communications action.
+
+Election-day command centre
+
+Create dashboards for national, county and constituency election command centres.
+
+Show:
+
+* Polling stations opened.
+* Polling stations closed.
+* Agents present.
+* Agents missing.
+* Results submitted.
+* Results verified.
+* Results outstanding.
+* Incidents by severity.
+* Legal cases.
+* Network outages.
+* Synchronisation backlog.
+* County performance.
+* Constituency performance.
+* Stations needing immediate follow-up.
+
+Add a command-centre tasking system so officials can assign follow-up calls and escalation actions.
+
+Offline-first field application
+
+Create a Progressive Web App suitable for polling agents and field volunteers.
+
+It must:
+
+* Install on Android devices.
+* Work offline.
+* Store encrypted drafts locally.
+* Queue submissions.
+* Capture photographs offline.
+* Prevent accidental duplicate submissions.
+* Synchronise when connectivity returns.
+* Display successful server confirmation.
+* Preserve local copies until server verification.
+* Allow emergency SMS fallback using a structured result code.
+* Allow supervisors to identify unsynchronised devices.
+
+Misinformation and rapid response
+
+Create a rapid-response module to:
+
+* Receive claims.
+* Capture URLs and screenshots.
+* Identify sources.
+* Categorise urgency.
+* Assign fact-checkers.
+* Attach evidence.
+* Obtain legal review.
+* Approve responses.
+* Publish corrections.
+* Track distribution.
+* Archive resolved claims.
+
+Do not create automated harassment, mass-reporting or deceptive impersonation tools.
+
+Analytics
+
+Create operational dashboards covering:
+
+* Volunteer registration.
+* Volunteer activity.
+* Training completion.
+* Field coverage.
+* Events.
+* Fundraising.
+* Donor concentration.
+* Communications.
+* Public issues.
+* Polling-agent recruitment.
+* Polling-station coverage.
+* Result reporting.
+* Result verification.
+* Incident resolution.
+* Budget versus expenditure.
+* System security.
+* Data-protection requests.
+
+Analytics must focus on campaign execution and verified electoral records, not covert manipulation or sensitive voter profiling.
+
+Data protection and compliance
+
+Implement privacy by design.
+
+Include:
+
+* Explicit consent collection.
+* Purpose limitation.
+* Data minimisation.
+* Separate communication consents.
+* Consent withdrawal.
+* Access requests.
+* Correction requests.
+* Deletion requests.
+* Data-retention rules.
+* Data-export restrictions.
+* Data-processing records.
+* Vendor register.
+* Data breach register.
+* Data Protection Impact Assessment register.
+* Configurable cross-border transfer controls.
+* Privacy notices.
+* Cookie consent.
+* Complete access logs.
+
+Prohibit bulk uploads of unexplained voter databases or unlawfully acquired telephone numbers.
+
+Security requirements
+
+Implement:
+
+* Secure authentication.
+* Two-factor authentication.
+* Passkey-ready architecture.
+* Password hashing.
+* Role-based access control.
+* Geographic restrictions where configured.
+* Session management.
+* Device registration.
+* Rate limiting.
+* CSRF protection.
+* Input validation.
+* Secure headers.
+* Encryption in transit and at rest.
+* Signed upload URLs.
+* Malware scanning hooks.
+* Immutable audit logs.
+* File hashing.
+* Database backups.
+* Point-in-time recovery configuration.
+* Security alerts.
+* Suspicious-login alerts.
+* Privileged-access review.
+* Account suspension.
+* Export controls.
+* Disaster-recovery documentation.
+
+The tally database and campaign finance database should have additional access restrictions.
+
+No single administrator should be able to alter verified results, approve financial payments and erase audit records.
+
+Database design
+
+Create a complete Prisma schema covering at minimum:
+
+* Users.
+* Roles.
+* Permissions.
+* User roles.
+* Geographic units.
+* Counties.
+* Constituencies.
+* Wards.
+* Polling centres.
+* Polling stations.
+* Volunteers.
+* Supporters.
+* Consent records.
+* Training courses.
+* Training completion.
+* Tasks.
+* Events.
+* Attendance.
+* Donations.
+* Transactions.
+* Receipts.
+* Budgets.
+* Expenses.
+* Approvals.
+* Communications.
+* Templates.
+* Content assets.
+* Policy submissions.
+* Surveys.
+* Polling agents.
+* Agent assignments.
+* Elections.
+* Candidates.
+* Polling-station result submissions.
+* Candidate vote entries.
+* Result-form images.
+* Verification records.
+* Result corrections.
+* Result disputes.
+* Incidents.
+* Legal cases.
+* Evidence files.
+* Audit logs.
+* Security events.
+* Data-subject requests.
+* Notifications.
+* System configurations.
+
+Use UUIDs, created and updated timestamps, soft deletion where appropriate, version fields for critical records and immutable history tables for results and finances.
+
+User-interface requirements
+
+Use a polished, modern Kenyan campaign visual identity.
+
+The interface should include:
+
+* Responsive navigation.
+* Dashboard cards.
+* Maps.
+* Progress indicators.
+* Search.
+* Filters.
+* Data tables.
+* Export controls.
+* Mobile-friendly forms.
+* Offline indicators.
+* Verification queues.
+* Alert banners.
+* Activity feeds.
+* Role-specific homepages.
+* Light and dark mode.
+* Accessible contrast.
+* Keyboard navigation.
+* Loading states.
+* Empty states.
+* Error states.
+* Confirmation dialogs.
+* Toast notifications.
+
+Use sample campaign branding that can easily be replaced through an administration screen. Do not use the logos, slogans or identity of an actual candidate unless later supplied by the authorised campaign.
+
+Reports and exports
+
+Create downloadable CSV, Excel and PDF-ready report views for:
+
+* Volunteer register.
+* Organisational coverage.
+* Donor register.
+* Donation reconciliation.
+* Campaign expenditure.
+* Event reports.
+* Communications.
+* Agent deployment.
+* Polling-station coverage.
+* Polling-station results.
+* County tally.
+* Constituency tally.
+* National campaign tally.
+* Outstanding forms.
+* Verification exceptions.
+* Disputed stations.
+* Incident reports.
+* Legal evidence bundles.
+* Audit logs.
+
+Restrict exports according to role and record every export in the audit log.
+
+Seed data and demonstration
+
+Seed the system with realistic but fictional demonstration data for:
+
+* Several Kenyan counties.
+* Constituencies.
+* Wards.
+* Polling centres.
+* Polling stations.
+* Campaign officials.
+* Volunteers.
+* Donors.
+* Events.
+* Presidential candidates.
+* Polling-station result forms.
+* Verified and disputed submissions.
+* Incidents.
+
+Clearly label all seed data as fictional demonstration data.
+
+Create demo accounts for each major role and provide their credentials in the README for local development only.
+
+Testing
+
+Add automated tests for:
+
+* Authentication.
+* Role permissions.
+* Volunteer registration.
+* Donations.
+* Reconciliation.
+* Polling-agent assignments.
+* Offline result submission.
+* Arithmetic validation.
+* Duplicate result detection.
+* Verification workflow.
+* Tally aggregation.
+* Result correction history.
+* Incident escalation.
+* Audit logging.
+* Data-protection requests.
+
+Critical tally calculations must have comprehensive unit tests.
+
+Documentation
+
+Create:
+
+* README.
+* Local setup guide.
+* Environment-variable template.
+* Database migration instructions.
+* Deployment guide.
+* Security architecture document.
+* Role and permission matrix.
+* Data-protection guide.
+* Election-day operations guide.
+* Results verification guide.
+* Backup and disaster-recovery guide.
+* API documentation.
+* Administrator guide.
+* Polling-agent quick-start guide.
+
+Initial implementation priorities
+
+Build the application in this order:
+
+1. Authentication and role-based permissions.
+2. Kenya geographic hierarchy.
+3. Public campaign portal.
+4. Volunteer registration and management.
+5. Supporter CRM.
+6. Crowdfunding and finance.
+7. Communications.
+8. Events and field operations.
+9. Polling-agent recruitment and deployment.
+10. Offline polling-agent application.
+11. Polling-station result submission.
+12. Verification workflow.
+13. Tally aggregation and dashboards.
+14. Incident and legal case management.
+15. Reporting, auditing and compliance.
+16. Security hardening.
+17. Automated tests.
+18. Documentation.
+
+Start by generating the project structure, Prisma schema, migrations, authentication, reusable dashboard layout and seeded demonstration database. Then implement each functional module with working navigation, forms, APIs, validations and tests.
+
+Do not stop after creating a landing page or a visual prototype. Continue until there is a coherent, runnable full-stack minimum viable product covering the major workflows described above.
+
+Where legal rules, election regulations, financing limits or electoral forms may change, implement them as administrator-configurable settings instead of hard-coding them.
+
+Place visible disclaimers throughout the tally module explaining that the platform provides a campaign-generated aggregation of verified polling-station forms and does not replace the official electoral authority’s declaration process.
