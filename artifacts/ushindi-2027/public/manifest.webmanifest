@@ -1,0 +1,26 @@
+{
+  "name": "Linda Mwananchi — Campaign Command Centre",
+  "short_name": "Linda Mwananchi",
+  "description": "It's Time. Be Part of the Change. — Linda Mwananchi 2027 Campaign Platform",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1D9BF0",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logo.svg",
+      "type": "image/svg+xml",
+      "sizes": "any"
+    }
+  ],
+  "categories": ["politics", "campaign"],
+  "lang": "en",
+  "dir": "ltr"
+}

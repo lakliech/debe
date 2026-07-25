@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/"
+title = "Ushindi 2027"
+version = "1.0.0"
+id = "artifacts/ushindi-2027"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21266
+
+[services.development]
+run = "pnpm --filter @workspace/ushindi-2027 run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/ushindi-2027", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/ushindi-2027/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21266"
+BASE_PATH = "/"

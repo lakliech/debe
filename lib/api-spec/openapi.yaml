@@ -3,20 +3,44 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Ushindi 2027 - Campaign Management Platform API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: users
+    description: User management
+  - name: roles
+    description: Role and permission management
+  - name: geography
+    description: Kenya administrative hierarchy
+  - name: dashboard
+    description: Dashboard summaries
+  - name: config
+    description: System configuration and branding
+  - name: audit
+    description: Audit log
+  - name: public
+    description: Public portal endpoints (no auth required)
+  - name: volunteers
+    description: Volunteer lifecycle management
+  - name: supporters
+    description: Supporter CRM
+  - name: training
+    description: Training courses and enrollments
+  - name: coordinator
+    description: Coordinator-level dashboards and field ops
+  - name: dataRequests
+    description: Data subject request (GDPR/DPA) workflow
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,13 +48,3034 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /users:
+    get:
+      operationId: listUsers
+      tags: [users]
+      summary: List users
+      parameters:
+        - name: role
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: countyId
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: User list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+    post:
+      operationId: createUser
+      tags: [users]
+      summary: Create user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /users/me:
+    get:
+      operationId: getMe
+      tags: [users]
+      summary: Get authenticated user profile
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /users/{id}:
+    get:
+      operationId: getUser
+      tags: [users]
+      summary: Get user by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+    patch:
+      operationId: updateUser
+      tags: [users]
+      summary: Update user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserUpdate"
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /users/{id}/roles:
+    post:
+      operationId: assignUserRole
+      tags: [users]
+      summary: Assign role to user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoleAssignment"
+      responses:
+        "200":
+          description: Role assigned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /users/{id}/suspend:
+    post:
+      operationId: suspendUser
+      tags: [users]
+      summary: Suspend a user account
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SuspendInput"
+      responses:
+        "200":
+          description: User suspended
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /roles:
+    get:
+      operationId: listRoles
+      tags: [roles]
+      summary: List all roles
+      responses:
+        "200":
+          description: Role list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Role"
+
+  /roles/{id}/permissions:
+    get:
+      operationId: getRolePermissions
+      tags: [roles]
+      summary: Get permissions for a role
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Permissions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Permission"
+    put:
+      operationId: setRolePermissions
+      tags: [roles]
+      summary: Set permissions for a role
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PermissionSet"
+      responses:
+        "200":
+          description: Updated permissions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Permission"
+
+  /geography/counties:
+    get:
+      operationId: listCounties
+      tags: [geography]
+      summary: List all 47 counties
+      responses:
+        "200":
+          description: Counties
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/County"
+
+  /geography/counties/{id}:
+    get:
+      operationId: getCounty
+      tags: [geography]
+      summary: Get county with detail
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: County detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountyDetail"
+
+  /geography/constituencies:
+    get:
+      operationId: listConstituencies
+      tags: [geography]
+      summary: List constituencies
+      parameters:
+        - name: countyId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Constituencies
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Constituency"
+
+  /geography/wards:
+    get:
+      operationId: listWards
+      tags: [geography]
+      summary: List wards
+      parameters:
+        - name: constituencyId
+          in: query
+          schema:
+            type: string
+        - name: countyId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Wards
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Ward"
+
+  /geography/polling-centres:
+    get:
+      operationId: listPollingCentres
+      tags: [geography]
+      summary: List polling centres
+      parameters:
+        - name: wardId
+          in: query
+          schema:
+            type: string
+        - name: constituencyId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Polling centres
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PollingCentre"
+
+  /geography/polling-stations:
+    get:
+      operationId: listPollingStations
+      tags: [geography]
+      summary: List polling stations
+      parameters:
+        - name: centreId
+          in: query
+          schema:
+            type: string
+        - name: wardId
+          in: query
+          schema:
+            type: string
+        - name: constituencyId
+          in: query
+          schema:
+            type: string
+        - name: countyId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Polling stations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PollingStation"
+
+  /geography/stats:
+    get:
+      operationId: getGeographyStats
+      tags: [geography]
+      summary: Get geographic hierarchy stats
+      responses:
+        "200":
+          description: Stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeographyStats"
+
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Get executive dashboard summary
+      responses:
+        "200":
+          description: Summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  /dashboard/coverage:
+    get:
+      operationId: getCoverageSummary
+      tags: [dashboard]
+      summary: County-level campaign coverage data
+      responses:
+        "200":
+          description: Coverage
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CountyCoverage"
+
+  /dashboard/recent-activity:
+    get:
+      operationId: getRecentActivity
+      tags: [dashboard]
+      summary: Recent platform activity feed
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Activity items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActivityItem"
+
+  /dashboard/role-breakdown:
+    get:
+      operationId: getRoleBreakdown
+      tags: [dashboard]
+      summary: User counts grouped by role
+      responses:
+        "200":
+          description: Role counts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RoleCount"
+
+  /config/branding:
+    get:
+      operationId: getBranding
+      tags: [config]
+      summary: Get campaign branding settings
+      responses:
+        "200":
+          description: Branding
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Branding"
+    patch:
+      operationId: updateBranding
+      tags: [config]
+      summary: Update campaign branding settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrandingUpdate"
+      responses:
+        "200":
+          description: Updated branding
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Branding"
+
+  /config/system:
+    get:
+      operationId: getSystemConfig
+      tags: [config]
+      summary: Get system configuration
+      responses:
+        "200":
+          description: System config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemConfig"
+
+  /audit/logs:
+    get:
+      operationId: listAuditLogs
+      tags: [audit]
+      summary: List audit log entries
+      parameters:
+        - name: userId
+          in: query
+          schema:
+            type: string
+        - name: action
+          in: query
+          schema:
+            type: string
+        - name: resource
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Audit logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AuditLog"
+
+  /public/stats:
+    get:
+      operationId: getPublicStats
+      tags: [public]
+      summary: Public portal statistics
+      responses:
+        "200":
+          description: Portal stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicStats"
+
+  /public/manifesto/sectors:
+    get:
+      operationId: listManifestoSectors
+      tags: [public]
+      summary: List manifesto sectors
+      responses:
+        "200":
+          description: Manifesto sectors
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ManifestoSector"
+
+  /public/manifesto/sectors/{slug}:
+    get:
+      operationId: getManifestoSector
+      tags: [public]
+      summary: Get manifesto sector by slug
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Sector detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManifestoSectorDetail"
+
+  /public/county-priorities/{countyCode}:
+    get:
+      operationId: getCountyPriorities
+      tags: [public]
+      summary: Get priorities for a specific county
+      parameters:
+        - name: countyCode
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: County priorities
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountyPrioritiesResponse"
+
+  /public/events:
+    get:
+      operationId: listPublicEvents
+      tags: [public]
+      summary: List published events
+      parameters:
+        - name: countyId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Events list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PublicEvent"
+
+  /public/news:
+    get:
+      operationId: listPublicNews
+      tags: [public]
+      summary: List published news
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: News articles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NewsArticle"
+
+  /public/news/{slug}:
+    get:
+      operationId: getPublicNewsArticle
+      tags: [public]
+      summary: Get a news article by slug
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Article detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NewsArticle"
+
+  /public/faq:
+    get:
+      operationId: listFaqItems
+      tags: [public]
+      summary: List FAQ items
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: FAQ items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FaqItem"
+
+  /public/fact-check:
+    get:
+      operationId: listFactCheckItems
+      tags: [public]
+      summary: List fact check items
+      responses:
+        "200":
+          description: Fact checks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FactCheckItem"
+
+  /public/volunteer-register:
+    post:
+      operationId: registerVolunteer
+      tags: [public]
+      summary: Self-register as a volunteer (no auth required)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VolunteerRegistrationInput"
+      responses:
+        "201":
+          description: Registration received
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegistrationResponse"
+
+  /public/supporter-register:
+    post:
+      operationId: registerSupporter
+      tags: [public]
+      summary: Self-register as a supporter (no auth required)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupporterRegistrationInput"
+      responses:
+        "201":
+          description: Registration received
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegistrationResponse"
+
+  /public/policy-submit:
+    post:
+      operationId: submitCitizenPolicy
+      tags: [public]
+      summary: Submit a citizen policy idea (no auth required)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PolicySubmissionInput"
+      responses:
+        "201":
+          description: Submission received
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegistrationResponse"
+
+  /volunteers:
+    get:
+      operationId: listVolunteers
+      tags: [volunteers]
+      summary: List volunteers with filters
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: countyId
+          in: query
+          schema:
+            type: string
+        - name: constituencyId
+          in: query
+          schema:
+            type: string
+        - name: wardId
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Volunteers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VolunteerListResponse"
+
+  /volunteers/stats:
+    get:
+      operationId: getVolunteerStats
+      tags: [volunteers]
+      summary: Get volunteer status breakdown counts
+      responses:
+        "200":
+          description: Stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VolunteerStats"
+
+  /volunteers/{id}:
+    get:
+      operationId: getVolunteer
+      tags: [volunteers]
+      summary: Get volunteer by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Volunteer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VolunteerDetail"
+    patch:
+      operationId: updateVolunteer
+      tags: [volunteers]
+      summary: Update volunteer details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VolunteerUpdate"
+      responses:
+        "200":
+          description: Updated volunteer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VolunteerDetail"
+
+  /volunteers/{id}/verify:
+    post:
+      operationId: verifyVolunteer
+      tags: [volunteers]
+      summary: Mark volunteer as verified
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Updated volunteer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VolunteerDetail"
+
+  /volunteers/{id}/approve:
+    post:
+      operationId: approveVolunteer
+      tags: [volunteers]
+      summary: Approve and activate volunteer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                assignedRole:
+                  type: string
+      responses:
+        "200":
+          description: Updated volunteer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VolunteerDetail"
+
+  /volunteers/{id}/reject:
+    post:
+      operationId: rejectVolunteer
+      tags: [volunteers]
+      summary: Reject volunteer application
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Updated volunteer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VolunteerDetail"
+
+  /volunteers/{id}/suspend:
+    post:
+      operationId: suspendVolunteer
+      tags: [volunteers]
+      summary: Suspend a volunteer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        "200":
+          description: Updated volunteer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VolunteerDetail"
+
+  /volunteers/{id}/badges:
+    get:
+      operationId: getVolunteerBadges
+      tags: [volunteers]
+      summary: Get badges awarded to a volunteer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Badge awards
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BadgeAward"
+    post:
+      operationId: awardVolunteerBadge
+      tags: [volunteers]
+      summary: Award a badge to a volunteer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - badgeId
+              properties:
+                badgeId:
+                  type: string
+                reason:
+                  type: string
+      responses:
+        "201":
+          description: Badge awarded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BadgeAward"
+
+  /volunteers/{id}/tasks:
+    get:
+      operationId: getVolunteerTasks
+      tags: [volunteers]
+      summary: Get task assignments for a volunteer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Task assignments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TaskAssignment"
+
+  /volunteers/{id}/attendance:
+    get:
+      operationId: getVolunteerAttendance
+      tags: [volunteers]
+      summary: Get attendance records for a volunteer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Attendance records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AttendanceRecord"
+    post:
+      operationId: markVolunteerAttendance
+      tags: [volunteers]
+      summary: Mark attendance for a volunteer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AttendanceInput"
+      responses:
+        "201":
+          description: Attendance marked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttendanceRecord"
+
+  /volunteers/{id}/training:
+    get:
+      operationId: getVolunteerTraining
+      tags: [volunteers]
+      summary: Get training enrollments for a volunteer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Training enrollments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TrainingEnrollmentSummary"
+
+  /supporters:
+    get:
+      operationId: listSupporters
+      tags: [supporters]
+      summary: List supporters
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: countyId
+          in: query
+          schema:
+            type: string
+        - name: optedOut
+          in: query
+          schema:
+            type: boolean
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Supporters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupporterListResponse"
+
+  /supporters/stats:
+    get:
+      operationId: getSupporterStats
+      tags: [supporters]
+      summary: Get supporter statistics
+      responses:
+        "200":
+          description: Stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupporterStats"
+
+  /supporters/{id}:
+    get:
+      operationId: getSupporter
+      tags: [supporters]
+      summary: Get supporter by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Supporter
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupporterDetail"
+    patch:
+      operationId: updateSupporter
+      tags: [supporters]
+      summary: Update supporter profile
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupporterUpdate"
+      responses:
+        "200":
+          description: Updated supporter
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupporterDetail"
+    delete:
+      operationId: deleteSupporter
+      tags: [supporters]
+      summary: Delete supporter record (DPO/admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /supporters/{id}/consents:
+    get:
+      operationId: getSupporterConsents
+      tags: [supporters]
+      summary: Get consent records for a supporter
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Consent records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ConsentRecord"
+    post:
+      operationId: addSupporterConsent
+      tags: [supporters]
+      summary: Record a new consent
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConsentInput"
+      responses:
+        "201":
+          description: Consent recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsentRecord"
+
+  /supporters/{id}/consents/withdraw:
+    post:
+      operationId: withdrawSupporterConsent
+      tags: [supporters]
+      summary: Withdraw consent(s) for a supporter
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                consentType:
+                  type: string
+      responses:
+        "200":
+          description: Consent withdrawn
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /supporters/{id}/opt-out:
+    post:
+      operationId: optOutSupporter
+      tags: [supporters]
+      summary: Opt out a supporter from all communications
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Opted out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupporterDetail"
+
+  /training/courses:
+    get:
+      operationId: listTrainingCourses
+      tags: [training]
+      summary: List training courses
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Courses
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TrainingCourse"
+    post:
+      operationId: createTrainingCourse
+      tags: [training]
+      summary: Create a training course
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TrainingCourseInput"
+      responses:
+        "201":
+          description: Created course
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrainingCourse"
+
+  /training/courses/{id}:
+    get:
+      operationId: getTrainingCourse
+      tags: [training]
+      summary: Get training course with modules
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Course detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrainingCourseDetail"
+    patch:
+      operationId: updateTrainingCourse
+      tags: [training]
+      summary: Update training course
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TrainingCourseInput"
+      responses:
+        "200":
+          description: Updated course
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrainingCourse"
+
+  /training/courses/{id}/enroll:
+    post:
+      operationId: enrollInCourse
+      tags: [training]
+      summary: Enroll a volunteer in a course
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                volunteerId:
+                  type: string
+                userId:
+                  type: string
+      responses:
+        "201":
+          description: Enrolled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrainingEnrollment"
+
+  /training/enrollments/{id}:
+    get:
+      operationId: getTrainingEnrollment
+      tags: [training]
+      summary: Get enrollment with module progress
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Enrollment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrainingEnrollment"
+
+  /training/enrollments/{id}/certificate:
+    get:
+      operationId: getEnrollmentCertificate
+      tags: [training]
+      summary: Get certificate for a completed enrollment
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Certificate
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Certificate"
+
+  /coordinator/dashboard:
+    get:
+      operationId: getCoordinatorDashboard
+      tags: [coordinator]
+      summary: Get coordinator dashboard (national/county/constituency/ward scope)
+      parameters:
+        - name: scope
+          in: query
+          schema:
+            type: string
+            enum: [national, county, constituency, ward]
+        - name: id
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Dashboard data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoordinatorDashboard"
+
+  /coordinator/coverage:
+    get:
+      operationId: getVolunteerCoverage
+      tags: [coordinator]
+      summary: Get per-county volunteer coverage for heatmap
+      responses:
+        "200":
+          description: Coverage data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CountyCoverage2"
+
+  /coordinator/gap-alerts:
+    get:
+      operationId: getCoverageGapAlerts
+      tags: [coordinator]
+      summary: Get counties with coverage gaps
+      responses:
+        "200":
+          description: Gap alerts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GapAlerts"
+
+  /coordinator/volunteers:
+    get:
+      operationId: listCoordinatorVolunteers
+      tags: [coordinator]
+      summary: List volunteers scoped to coordinator area
+      parameters:
+        - name: countyId
+          in: query
+          schema:
+            type: string
+        - name: constituencyId
+          in: query
+          schema:
+            type: string
+        - name: wardId
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Volunteers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VolunteerListResponse"
+
+  /data-requests:
+    get:
+      operationId: listDataRequests
+      tags: [dataRequests]
+      summary: List data subject requests
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Data requests
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataRequestListResponse"
+    post:
+      operationId: createDataRequest
+      tags: [dataRequests]
+      summary: Submit a data subject request (public)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DataRequestInput"
+      responses:
+        "201":
+          description: Request submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegistrationResponse"
+
+  /data-requests/{id}:
+    get:
+      operationId: getDataRequest
+      tags: [dataRequests]
+      summary: Get a data request by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Data request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataRequest"
+    patch:
+      operationId: updateDataRequest
+      tags: [dataRequests]
+      summary: Update data request status/notes
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DataRequestUpdate"
+      responses:
+        "200":
+          description: Updated request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataRequest"
+
+  /data-requests/{id}/resolve:
+    post:
+      operationId: resolveDataRequest
+      tags: [dataRequests]
+      summary: Resolve/close a data request
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                resolutionNotes:
+                  type: string
+                action:
+                  type: string
+      responses:
+        "200":
+          description: Resolved request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataRequest"
+
 components:
   schemas:
     HealthStatus:
       type: object
+      required:
+        - status
       properties:
         status:
           type: string
-      required:
-        - status
 
+    User:
+      type: object
+      required:
+        - id
+        - clerkId
+        - email
+        - fullName
+        - roles
+        - status
+        - createdAt
+      properties:
+        id:
+          type: string
+        clerkId:
+          type: string
+        email:
+          type: string
+        fullName:
+          type: string
+        phoneNumber:
+          type: ["string", "null"]
+        photoUrl:
+          type: ["string", "null"]
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/UserRole"
+        status:
+          type: string
+          enum: [active, suspended, pending, inactive]
+        countyId:
+          type: ["string", "null"]
+        constituencyId:
+          type: ["string", "null"]
+        wardId:
+          type: ["string", "null"]
+        lastLoginAt:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    UserRole:
+      type: object
+      required:
+        - roleId
+        - roleName
+        - roleSlug
+      properties:
+        roleId:
+          type: string
+        roleName:
+          type: string
+        roleSlug:
+          type: string
+        countyId:
+          type: ["string", "null"]
+        constituencyId:
+          type: ["string", "null"]
+        wardId:
+          type: ["string", "null"]
+
+    UserInput:
+      type: object
+      required:
+        - email
+        - fullName
+        - roleId
+      properties:
+        email:
+          type: string
+        fullName:
+          type: string
+        phoneNumber:
+          type: string
+        roleId:
+          type: string
+        countyId:
+          type: string
+        constituencyId:
+          type: string
+        wardId:
+          type: string
+
+    UserUpdate:
+      type: object
+      properties:
+        fullName:
+          type: string
+        phoneNumber:
+          type: string
+        photoUrl:
+          type: string
+        status:
+          type: string
+        countyId:
+          type: string
+        constituencyId:
+          type: string
+        wardId:
+          type: string
+
+    RoleAssignment:
+      type: object
+      required:
+        - roleId
+      properties:
+        roleId:
+          type: string
+        countyId:
+          type: string
+        constituencyId:
+          type: string
+        wardId:
+          type: string
+
+    SuspendInput:
+      type: object
+      required:
+        - reason
+      properties:
+        reason:
+          type: string
+
+    Role:
+      type: object
+      required:
+        - id
+        - name
+        - slug
+        - level
+        - userCount
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        slug:
+          type: string
+        description:
+          type: ["string", "null"]
+        level:
+          type: integer
+        color:
+          type: ["string", "null"]
+        userCount:
+          type: integer
+
+    Permission:
+      type: object
+      required:
+        - id
+        - resource
+        - action
+      properties:
+        id:
+          type: string
+        resource:
+          type: string
+        action:
+          type: string
+        scope:
+          type: ["string", "null"]
+
+    PermissionSet:
+      type: object
+      required:
+        - permissionIds
+      properties:
+        permissionIds:
+          type: array
+          items:
+            type: string
+
+    County:
+      type: object
+      required:
+        - id
+        - code
+        - name
+        - constituencyCount
+        - wardCount
+      properties:
+        id:
+          type: string
+        code:
+          type: integer
+        name:
+          type: string
+        capital:
+          type: ["string", "null"]
+        constituencyCount:
+          type: integer
+        wardCount:
+          type: integer
+        registeredVoters:
+          type: ["integer", "null"]
+        latitude:
+          type: ["number", "null"]
+        longitude:
+          type: ["number", "null"]
+
+    CountyDetail:
+      type: object
+      required:
+        - id
+        - code
+        - name
+        - constituencyCount
+        - wardCount
+        - pollingStationCount
+      properties:
+        id:
+          type: string
+        code:
+          type: integer
+        name:
+          type: string
+        capital:
+          type: ["string", "null"]
+        constituencyCount:
+          type: integer
+        wardCount:
+          type: integer
+        pollingStationCount:
+          type: integer
+        registeredVoters:
+          type: ["integer", "null"]
+        latitude:
+          type: ["number", "null"]
+        longitude:
+          type: ["number", "null"]
+        constituencies:
+          type: array
+          items:
+            $ref: "#/components/schemas/Constituency"
+
+    Constituency:
+      type: object
+      required:
+        - id
+        - code
+        - name
+        - countyId
+        - countyName
+        - wardCount
+      properties:
+        id:
+          type: string
+        code:
+          type: integer
+        name:
+          type: string
+        countyId:
+          type: string
+        countyName:
+          type: string
+        wardCount:
+          type: integer
+        registeredVoters:
+          type: ["integer", "null"]
+
+    Ward:
+      type: object
+      required:
+        - id
+        - code
+        - name
+        - constituencyId
+        - constituencyName
+        - countyId
+        - countyName
+      properties:
+        id:
+          type: string
+        code:
+          type: integer
+        name:
+          type: string
+        constituencyId:
+          type: string
+        constituencyName:
+          type: string
+        countyId:
+          type: string
+        countyName:
+          type: string
+        registeredVoters:
+          type: ["integer", "null"]
+
+    PollingCentre:
+      type: object
+      required:
+        - id
+        - name
+        - wardId
+        - wardName
+        - constituencyId
+        - countyId
+        - stationCount
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        wardId:
+          type: string
+        wardName:
+          type: string
+        constituencyId:
+          type: string
+        countyId:
+          type: string
+        stationCount:
+          type: integer
+        latitude:
+          type: ["number", "null"]
+        longitude:
+          type: ["number", "null"]
+
+    PollingStation:
+      type: object
+      required:
+        - id
+        - code
+        - name
+        - centreId
+        - wardId
+        - constituencyId
+        - countyId
+        - registeredVoters
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+        name:
+          type: string
+        centreId:
+          type: string
+        centreName:
+          type: string
+        wardId:
+          type: string
+        wardName:
+          type: string
+        constituencyId:
+          type: string
+        countyId:
+          type: string
+        registeredVoters:
+          type: integer
+        latitude:
+          type: ["number", "null"]
+        longitude:
+          type: ["number", "null"]
+        primaryAgentId:
+          type: ["string", "null"]
+        backupAgentId:
+          type: ["string", "null"]
+
+    GeographyStats:
+      type: object
+      required:
+        - countyCount
+        - constituencyCount
+        - wardCount
+        - pollingCentreCount
+        - pollingStationCount
+        - totalRegisteredVoters
+      properties:
+        countyCount:
+          type: integer
+        constituencyCount:
+          type: integer
+        wardCount:
+          type: integer
+        pollingCentreCount:
+          type: integer
+        pollingStationCount:
+          type: integer
+        totalRegisteredVoters:
+          type: integer
+
+    DashboardSummary:
+      type: object
+      required:
+        - totalUsers
+        - totalVolunteers
+        - totalSupporters
+        - totalCountiesCovered
+        - totalPollingStations
+        - agentsDeployed
+        - pendingTasks
+        - recentActivityCount
+      properties:
+        totalUsers:
+          type: integer
+        totalVolunteers:
+          type: integer
+        totalSupporters:
+          type: integer
+        totalCountiesCovered:
+          type: integer
+        totalPollingStations:
+          type: integer
+        agentsDeployed:
+          type: integer
+        pendingTasks:
+          type: integer
+        recentActivityCount:
+          type: integer
+        userGrowthPercent:
+          type: ["number", "null"]
+
+    CountyCoverage:
+      type: object
+      required:
+        - countyId
+        - countyName
+        - code
+        - volunteerCount
+        - agentCount
+        - pollingStationCount
+        - coveragePercent
+      properties:
+        countyId:
+          type: string
+        countyName:
+          type: string
+        code:
+          type: integer
+        volunteerCount:
+          type: integer
+        agentCount:
+          type: integer
+        pollingStationCount:
+          type: integer
+        coveragePercent:
+          type: number
+        latitude:
+          type: ["number", "null"]
+        longitude:
+          type: ["number", "null"]
+
+    ActivityItem:
+      type: object
+      required:
+        - id
+        - type
+        - description
+        - userId
+        - userName
+        - createdAt
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        description:
+          type: string
+        userId:
+          type: string
+        userName:
+          type: string
+        resource:
+          type: ["string", "null"]
+        resourceId:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    RoleCount:
+      type: object
+      required:
+        - roleId
+        - roleName
+        - roleSlug
+        - userCount
+      properties:
+        roleId:
+          type: string
+        roleName:
+          type: string
+        roleSlug:
+          type: string
+        userCount:
+          type: integer
+
+    Branding:
+      type: object
+      required:
+        - campaignName
+        - candidateName
+        - primaryColor
+        - secondaryColor
+        - tagline
+        - electionYear
+        - updatedAt
+      properties:
+        campaignName:
+          type: string
+        candidateName:
+          type: string
+        primaryColor:
+          type: string
+        secondaryColor:
+          type: string
+        accentColor:
+          type: ["string", "null"]
+        logoUrl:
+          type: ["string", "null"]
+        faviconUrl:
+          type: ["string", "null"]
+        tagline:
+          type: string
+        electionYear:
+          type: integer
+        websiteUrl:
+          type: ["string", "null"]
+        socialTwitter:
+          type: ["string", "null"]
+        socialFacebook:
+          type: ["string", "null"]
+        socialInstagram:
+          type: ["string", "null"]
+        updatedAt:
+          type: string
+
+    BrandingUpdate:
+      type: object
+      properties:
+        campaignName:
+          type: string
+        candidateName:
+          type: string
+        primaryColor:
+          type: string
+        secondaryColor:
+          type: string
+        accentColor:
+          type: string
+        logoUrl:
+          type: string
+        faviconUrl:
+          type: string
+        tagline:
+          type: string
+        electionYear:
+          type: integer
+        websiteUrl:
+          type: string
+        socialTwitter:
+          type: string
+        socialFacebook:
+          type: string
+        socialInstagram:
+          type: string
+
+    SystemConfig:
+      type: object
+      required:
+        - maintenanceMode
+        - registrationOpen
+        - twoFactorRequired
+        - sessionTimeoutMinutes
+      properties:
+        maintenanceMode:
+          type: boolean
+        registrationOpen:
+          type: boolean
+        twoFactorRequired:
+          type: boolean
+        sessionTimeoutMinutes:
+          type: integer
+        maxLoginAttempts:
+          type: integer
+        passwordMinLength:
+          type: integer
+        auditRetentionDays:
+          type: integer
+
+    AuditLog:
+      type: object
+      required:
+        - id
+        - userId
+        - userEmail
+        - action
+        - resource
+        - createdAt
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        userEmail:
+          type: string
+        userFullName:
+          type: ["string", "null"]
+        action:
+          type: string
+        resource:
+          type: string
+        resourceId:
+          type: ["string", "null"]
+        oldValue:
+          type: ["string", "null"]
+        newValue:
+          type: ["string", "null"]
+        ipAddress:
+          type: ["string", "null"]
+        userAgent:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+
+    PublicStats:
+      type: object
+      properties:
+        volunteers:
+          type: integer
+        supporters:
+          type: integer
+        campaignName:
+          type: string
+        tagline:
+          type: string
+
+    ManifestoSector:
+      type: object
+      required:
+        - id
+        - slug
+        - titleEn
+        - titleSw
+      properties:
+        id:
+          type: string
+        slug:
+          type: string
+        titleEn:
+          type: string
+        titleSw:
+          type: string
+        descriptionEn:
+          type: ["string", "null"]
+        descriptionSw:
+          type: ["string", "null"]
+        iconName:
+          type: ["string", "null"]
+        displayOrder:
+          type: integer
+
+    ManifestoItem:
+      type: object
+      properties:
+        id:
+          type: string
+        sectorId:
+          type: string
+        titleEn:
+          type: string
+        titleSw:
+          type: string
+        bodyEn:
+          type: ["string", "null"]
+        bodySw:
+          type: ["string", "null"]
+        priority:
+          type: integer
+
+    ManifestoSectorDetail:
+      type: object
+      properties:
+        sector:
+          $ref: "#/components/schemas/ManifestoSector"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ManifestoItem"
+        recentSubmissions:
+          type: array
+          items:
+            type: object
+
+    CountyPrioritiesResponse:
+      type: object
+      properties:
+        county:
+          type: object
+        priorities:
+          type: array
+          items:
+            type: object
+
+    PublicEvent:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        description:
+          type: ["string", "null"]
+        eventType:
+          type: string
+        venue:
+          type: ["string", "null"]
+        countyId:
+          type: ["string", "null"]
+        eventDate:
+          type: ["string", "null"]
+        startTime:
+          type: ["string", "null"]
+        endTime:
+          type: ["string", "null"]
+        expectedAttendance:
+          type: ["integer", "null"]
+        status:
+          type: string
+
+    NewsArticle:
+      type: object
+      properties:
+        id:
+          type: string
+        slug:
+          type: string
+        category:
+          type: string
+        titleEn:
+          type: string
+        titleSw:
+          type: ["string", "null"]
+        excerptEn:
+          type: ["string", "null"]
+        excerptSw:
+          type: ["string", "null"]
+        bodyEn:
+          type: ["string", "null"]
+        bodySw:
+          type: ["string", "null"]
+        imageUrl:
+          type: ["string", "null"]
+        publishedAt:
+          type: ["string", "null"]
+
+    FaqItem:
+      type: object
+      properties:
+        id:
+          type: string
+        category:
+          type: ["string", "null"]
+        questionEn:
+          type: string
+        questionSw:
+          type: ["string", "null"]
+        answerEn:
+          type: string
+        answerSw:
+          type: ["string", "null"]
+        displayOrder:
+          type: integer
+
+    FactCheckItem:
+      type: object
+      properties:
+        id:
+          type: string
+        claimEn:
+          type: string
+        claimSw:
+          type: ["string", "null"]
+        verdictEn:
+          type: string
+        verdictSw:
+          type: ["string", "null"]
+        rating:
+          type: string
+        sourceUrl:
+          type: ["string", "null"]
+        publishedAt:
+          type: ["string", "null"]
+
+    VolunteerRegistrationInput:
+      type: object
+      required:
+        - fullName
+        - phoneNumber
+        - consentGiven
+      properties:
+        fullName:
+          type: string
+        phoneNumber:
+          type: string
+        email:
+          type: string
+        countyId:
+          type: string
+        constituencyId:
+          type: string
+        wardId:
+          type: string
+        preferredRole:
+          type: string
+        skills:
+          type: array
+          items:
+            type: string
+        languages:
+          type: array
+          items:
+            type: string
+        availability:
+          type: string
+        consentGiven:
+          type: boolean
+
+    SupporterRegistrationInput:
+      type: object
+      required:
+        - fullName
+      properties:
+        fullName:
+          type: string
+        phoneNumber:
+          type: string
+        email:
+          type: string
+        countyId:
+          type: string
+        constituencyId:
+          type: string
+        consentMarketing:
+          type: boolean
+        consentSms:
+          type: boolean
+        consentEmail:
+          type: boolean
+        policyInterests:
+          type: array
+          items:
+            type: string
+
+    PolicySubmissionInput:
+      type: object
+      required:
+        - content
+      properties:
+        title:
+          type: string
+        content:
+          type: string
+        sectorId:
+          type: string
+        countyId:
+          type: string
+        anonymous:
+          type: boolean
+        submitterName:
+          type: string
+        submitterEmail:
+          type: string
+
+    RegistrationResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        volunteer:
+          type: object
+        supporter:
+          type: object
+        submissionId:
+          type: string
+        requestId:
+          type: string
+
+    VolunteerDetail:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: ["string", "null"]
+        fullName:
+          type: string
+        phoneNumber:
+          type: string
+        email:
+          type: ["string", "null"]
+        countyId:
+          type: ["string", "null"]
+        constituencyId:
+          type: ["string", "null"]
+        wardId:
+          type: ["string", "null"]
+        preferredRole:
+          type: ["string", "null"]
+        skills:
+          type: ["array", "null"]
+          items:
+            type: string
+        languages:
+          type: ["array", "null"]
+          items:
+            type: string
+        availability:
+          type: ["string", "null"]
+        status:
+          type: string
+        consentGiven:
+          type: boolean
+        createdAt:
+          type: string
+
+    VolunteerListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/VolunteerDetail"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+
+    VolunteerStats:
+      type: object
+      properties:
+        total:
+          type: integer
+        byStatus:
+          type: object
+
+    VolunteerUpdate:
+      type: object
+      properties:
+        preferredRole:
+          type: string
+        skills:
+          type: array
+          items:
+            type: string
+        languages:
+          type: array
+          items:
+            type: string
+        availability:
+          type: string
+        countyId:
+          type: string
+        constituencyId:
+          type: string
+        wardId:
+          type: string
+
+    BadgeAward:
+      type: object
+      properties:
+        id:
+          type: string
+        awardedAt:
+          type: string
+        reason:
+          type: ["string", "null"]
+        badge:
+          type: object
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            nameSw:
+              type: ["string", "null"]
+            description:
+              type: ["string", "null"]
+            level:
+              type: ["string", "null"]
+            category:
+              type: ["string", "null"]
+
+    TaskAssignment:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+        hoursLogged:
+          type: integer
+        notes:
+          type: ["string", "null"]
+        completedAt:
+          type: ["string", "null"]
+        task:
+          type: object
+
+    AttendanceRecord:
+      type: object
+      properties:
+        id:
+          type: string
+        activityType:
+          type: string
+        activityName:
+          type: ["string", "null"]
+        checkInAt:
+          type: string
+        checkOutAt:
+          type: ["string", "null"]
+        notes:
+          type: ["string", "null"]
+
+    AttendanceInput:
+      type: object
+      required:
+        - activityType
+      properties:
+        activityType:
+          type: string
+        activityName:
+          type: string
+        activityId:
+          type: string
+        latitude:
+          type: string
+        longitude:
+          type: string
+        notes:
+          type: string
+
+    TrainingEnrollmentSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+        score:
+          type: ["integer", "null"]
+        startedAt:
+          type: ["string", "null"]
+        completedAt:
+          type: ["string", "null"]
+        certificateCode:
+          type: ["string", "null"]
+        course:
+          type: object
+
+    TrainingEnrollment:
+      type: object
+      properties:
+        id:
+          type: string
+        courseId:
+          type: string
+        volunteerId:
+          type: ["string", "null"]
+        userId:
+          type: ["string", "null"]
+        status:
+          type: string
+        score:
+          type: ["integer", "null"]
+        startedAt:
+          type: ["string", "null"]
+        completedAt:
+          type: ["string", "null"]
+        certificateCode:
+          type: ["string", "null"]
+        certificateIssuedAt:
+          type: ["string", "null"]
+        progress:
+          type: array
+          items:
+            type: object
+
+    TrainingCourse:
+      type: object
+      required:
+        - id
+        - title
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        titleSw:
+          type: ["string", "null"]
+        description:
+          type: ["string", "null"]
+        targetRoles:
+          type: ["array", "null"]
+          items:
+            type: string
+        estimatedHours:
+          type: integer
+        mandatory:
+          type: boolean
+        passMark:
+          type: integer
+        status:
+          type: string
+        enrollmentCount:
+          type: integer
+
+    TrainingCourseDetail:
+      allOf:
+        - $ref: "#/components/schemas/TrainingCourse"
+      type: object
+      properties:
+        modules:
+          type: array
+          items:
+            type: object
+
+    TrainingCourseInput:
+      type: object
+      required:
+        - title
+      properties:
+        title:
+          type: string
+        titleSw:
+          type: string
+        description:
+          type: string
+        targetRoles:
+          type: array
+          items:
+            type: string
+        estimatedHours:
+          type: integer
+        mandatory:
+          type: boolean
+        passMark:
+          type: integer
+        status:
+          type: string
+
+    Certificate:
+      type: object
+      properties:
+        certificateCode:
+          type: ["string", "null"]
+        issuedAt:
+          type: ["string", "null"]
+        courseName:
+          type: ["string", "null"]
+        volunteerId:
+          type: ["string", "null"]
+
+    SupporterDetail:
+      type: object
+      properties:
+        id:
+          type: string
+        fullName:
+          type: string
+        email:
+          type: ["string", "null"]
+        phoneNumber:
+          type: ["string", "null"]
+        countyId:
+          type: ["string", "null"]
+        constituencyId:
+          type: ["string", "null"]
+        wardId:
+          type: ["string", "null"]
+        membershipStatus:
+          type: ["string", "null"]
+        consentMarketing:
+          type: boolean
+        consentSms:
+          type: boolean
+        consentEmail:
+          type: boolean
+        optedOut:
+          type: boolean
+        optedOutAt:
+          type: ["string", "null"]
+        policyInterests:
+          type: ["array", "null"]
+          items:
+            type: string
+        createdAt:
+          type: string
+        countyName:
+          type: ["string", "null"]
+
+    SupporterListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/SupporterDetail"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+
+    SupporterStats:
+      type: object
+      properties:
+        total:
+          type: integer
+        optedOut:
+          type: integer
+        consentSms:
+          type: integer
+        consentEmail:
+          type: integer
+
+    SupporterUpdate:
+      type: object
+      properties:
+        fullName:
+          type: string
+        email:
+          type: string
+        phoneNumber:
+          type: string
+        countyId:
+          type: string
+        constituencyId:
+          type: string
+        wardId:
+          type: string
+        membershipStatus:
+          type: string
+        policyInterests:
+          type: array
+          items:
+            type: string
+        consentMarketing:
+          type: boolean
+        consentSms:
+          type: boolean
+        consentEmail:
+          type: boolean
+
+    ConsentRecord:
+      type: object
+      properties:
+        id:
+          type: string
+        subjectType:
+          type: string
+        subjectId:
+          type: string
+        consentType:
+          type: string
+        granted:
+          type: boolean
+        grantedAt:
+          type: ["string", "null"]
+        withdrawnAt:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    ConsentInput:
+      type: object
+      required:
+        - consentType
+      properties:
+        consentType:
+          type: string
+        granted:
+          type: boolean
+        ipAddress:
+          type: string
+
+    CoordinatorDashboard:
+      type: object
+      properties:
+        scope:
+          type: string
+        scopeId:
+          type: ["string", "null"]
+        volunteers:
+          type: object
+          properties:
+            total:
+              type: integer
+            active:
+              type: integer
+            pending:
+              type: integer
+            byStatus:
+              type: object
+            byRole:
+              type: object
+        supporters:
+          type: object
+          properties:
+            total:
+              type: integer
+        recentVolunteers:
+          type: array
+          items:
+            type: object
+
+    CountyCoverage2:
+      type: object
+      properties:
+        countyId:
+          type: string
+        countyName:
+          type: string
+        countyCode:
+          type: string
+        lat:
+          type: ["number", "null"]
+        lng:
+          type: ["number", "null"]
+        total:
+          type: integer
+        active:
+          type: integer
+
+    GapAlerts:
+      type: object
+      properties:
+        lowCoverageCounties:
+          type: array
+          items:
+            type: object
+        stalePendingCount:
+          type: integer
+
+    DataRequest:
+      type: object
+      properties:
+        id:
+          type: string
+        requestType:
+          type: string
+        subjectEmail:
+          type: ["string", "null"]
+        subjectName:
+          type: ["string", "null"]
+        fullName:
+          type: ["string", "null"]
+        phoneNumber:
+          type: ["string", "null"]
+        description:
+          type: ["string", "null"]
+        resolutionNotes:
+          type: ["string", "null"]
+        status:
+          type: string
+        dueDate:
+          type: ["string", "null"]
+        resolvedAt:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    DataRequestListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/DataRequest"
+        total:
+          type: integer
+        page:
+          type: integer
+
+    DataRequestInput:
+      type: object
+      required:
+        - requestType
+        - fullName
+      properties:
+        requestType:
+          type: string
+        fullName:
+          type: string
+        email:
+          type: string
+        phoneNumber:
+          type: string
+        description:
+          type: string
+        subjectType:
+          type: string
+        subjectId:
+          type: string
+
+    DataRequestUpdate:
+      type: object
+      properties:
+        status:
+          type: string
+        resolutionNotes:
+          type: string
+        resolvedAt:
+          type: string
