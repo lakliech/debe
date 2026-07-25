@@ -1882,3 +1882,1952 @@ export const ResolveDataRequestResponse = zod.object({
 })
 
 
+/**
+ * @summary Finance dashboard stats
+ */
+export const GetFinanceDashboardResponse = zod.object({
+  "totalRaisedKes": zod.string().optional(),
+  "totalContributions": zod.number().optional(),
+  "todayRaisedKes": zod.string().optional(),
+  "todayContributions": zod.number().optional(),
+  "byChannel": zod.array(zod.object({
+  "channel": zod.string().optional(),
+  "total": zod.string().optional(),
+  "count": zod.number().optional()
+})).optional(),
+  "openAlerts": zod.number().optional(),
+  "pendingVerification": zod.number().optional()
+})
+
+
+/**
+ * @summary Initiate M-Pesa STK push
+ */
+export const PostFinanceMpesaStkPushBody = zod.object({
+  "phoneNumber": zod.string(),
+  "amount": zod.number(),
+  "accountReference": zod.string().optional(),
+  "transactionDesc": zod.string().optional()
+})
+
+export const PostFinanceMpesaStkPushResponse = zod.object({
+  "success": zod.boolean().optional(),
+  "checkoutRequestId": zod.string().optional(),
+  "transactionId": zod.string().optional(),
+  "customerMessage": zod.string().optional(),
+  "error": zod.string().optional()
+})
+
+
+/**
+ * @summary List contributions
+ */
+export const GetFinanceContributionsQueryParams = zod.object({
+  "channel": zod.coerce.string().optional(),
+  "verificationStatus": zod.coerce.string().optional(),
+  "complianceFlag": zod.coerce.string().optional(),
+  "ledger": zod.coerce.string().optional(),
+  "search": zod.coerce.string().optional(),
+  "page": zod.coerce.number().optional(),
+  "limit": zod.coerce.number().optional()
+})
+
+export const GetFinanceContributionsResponse = zod.object({
+  "data": zod.array(zod.object({
+  "id": zod.string().optional(),
+  "referenceNumber": zod.string().optional(),
+  "donorFullName": zod.string().optional(),
+  "donorEmail": zod.string().optional(),
+  "donorPhone": zod.string().optional(),
+  "donorIdNumber": zod.string().optional(),
+  "donorEntityType": zod.string().optional(),
+  "amount": zod.string().optional(),
+  "currency": zod.string().optional(),
+  "channel": zod.string().optional(),
+  "purpose": zod.string().optional(),
+  "contributionType": zod.string().optional(),
+  "ledger": zod.string().optional(),
+  "mpesaReceiptNumber": zod.string().optional(),
+  "bankTransactionRef": zod.string().optional(),
+  "complianceFlag": zod.string().optional(),
+  "verificationStatus": zod.string().optional(),
+  "verifiedAt": zod.string().optional(),
+  "notes": zod.string().optional(),
+  "createdAt": zod.string().optional(),
+  "updatedAt": zod.string().optional()
+})).optional(),
+  "total": zod.number().optional(),
+  "page": zod.number().optional(),
+  "pageSize": zod.number().optional()
+})
+
+
+/**
+ * @summary Record a contribution
+ */
+export const PostFinanceContributionsBody = zod.object({
+  "donorFullName": zod.string(),
+  "donorEmail": zod.string().optional(),
+  "donorPhone": zod.string().optional(),
+  "donorIdNumber": zod.string().optional(),
+  "amount": zod.number(),
+  "channel": zod.string(),
+  "purpose": zod.string().optional(),
+  "ledger": zod.string().optional(),
+  "sourceDeclaration": zod.string().optional(),
+  "notes": zod.string().optional()
+})
+
+export const PostFinanceContributionsResponse = zod.object({
+  "id": zod.string().optional(),
+  "referenceNumber": zod.string().optional(),
+  "donorFullName": zod.string().optional(),
+  "donorEmail": zod.string().optional(),
+  "donorPhone": zod.string().optional(),
+  "donorIdNumber": zod.string().optional(),
+  "donorEntityType": zod.string().optional(),
+  "amount": zod.string().optional(),
+  "currency": zod.string().optional(),
+  "channel": zod.string().optional(),
+  "purpose": zod.string().optional(),
+  "contributionType": zod.string().optional(),
+  "ledger": zod.string().optional(),
+  "mpesaReceiptNumber": zod.string().optional(),
+  "bankTransactionRef": zod.string().optional(),
+  "complianceFlag": zod.string().optional(),
+  "verificationStatus": zod.string().optional(),
+  "verifiedAt": zod.string().optional(),
+  "notes": zod.string().optional(),
+  "createdAt": zod.string().optional(),
+  "updatedAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Get contribution by ID
+ */
+export const GetFinanceContributionsIdParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const GetFinanceContributionsIdResponse = zod.object({
+  "id": zod.string().optional(),
+  "referenceNumber": zod.string().optional(),
+  "donorFullName": zod.string().optional(),
+  "donorEmail": zod.string().optional(),
+  "donorPhone": zod.string().optional(),
+  "donorIdNumber": zod.string().optional(),
+  "donorEntityType": zod.string().optional(),
+  "amount": zod.string().optional(),
+  "currency": zod.string().optional(),
+  "channel": zod.string().optional(),
+  "purpose": zod.string().optional(),
+  "contributionType": zod.string().optional(),
+  "ledger": zod.string().optional(),
+  "mpesaReceiptNumber": zod.string().optional(),
+  "bankTransactionRef": zod.string().optional(),
+  "complianceFlag": zod.string().optional(),
+  "verificationStatus": zod.string().optional(),
+  "verifiedAt": zod.string().optional(),
+  "notes": zod.string().optional(),
+  "createdAt": zod.string().optional(),
+  "updatedAt": zod.string().optional()
+}).and(zod.object({
+  "inKind": zod.array(zod.object({
+  "id": zod.string().optional(),
+  "itemDescription": zod.string().optional(),
+  "category": zod.string().optional(),
+  "quantity": zod.number().optional(),
+  "estimatedValueKes": zod.string().optional()
+})).optional()
+}))
+
+
+/**
+ * @summary Verify or reject a contribution
+ */
+export const PatchFinanceContributionsIdVerifyParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PatchFinanceContributionsIdVerifyBody = zod.object({
+  "status": zod.enum(['verified', 'rejected']),
+  "rejectionReason": zod.string().optional()
+})
+
+export const PatchFinanceContributionsIdVerifyResponse = zod.object({
+  "id": zod.string().optional(),
+  "referenceNumber": zod.string().optional(),
+  "donorFullName": zod.string().optional(),
+  "donorEmail": zod.string().optional(),
+  "donorPhone": zod.string().optional(),
+  "donorIdNumber": zod.string().optional(),
+  "donorEntityType": zod.string().optional(),
+  "amount": zod.string().optional(),
+  "currency": zod.string().optional(),
+  "channel": zod.string().optional(),
+  "purpose": zod.string().optional(),
+  "contributionType": zod.string().optional(),
+  "ledger": zod.string().optional(),
+  "mpesaReceiptNumber": zod.string().optional(),
+  "bankTransactionRef": zod.string().optional(),
+  "complianceFlag": zod.string().optional(),
+  "verificationStatus": zod.string().optional(),
+  "verifiedAt": zod.string().optional(),
+  "notes": zod.string().optional(),
+  "createdAt": zod.string().optional(),
+  "updatedAt": zod.string().optional()
+})
+
+
+/**
+ * @summary List donor alerts
+ */
+export const GetFinanceAlertsQueryParams = zod.object({
+  "status": zod.coerce.string().optional()
+})
+
+export const GetFinanceAlertsResponseItem = zod.object({
+  "id": zod.string().optional(),
+  "alertType": zod.string().optional(),
+  "severity": zod.string().optional(),
+  "contributionId": zod.string().optional(),
+  "donorPhone": zod.string().optional(),
+  "description": zod.string().optional(),
+  "status": zod.string().optional(),
+  "resolutionNotes": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})
+export const GetFinanceAlertsResponse = zod.array(GetFinanceAlertsResponseItem)
+
+
+/**
+ * @summary Resolve a donor alert
+ */
+export const PatchFinanceAlertsIdResolveParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PatchFinanceAlertsIdResolveBody = zod.object({
+  "status": zod.string().optional(),
+  "resolutionNotes": zod.string().optional()
+})
+
+export const PatchFinanceAlertsIdResolveResponse = zod.object({
+  "id": zod.string().optional(),
+  "alertType": zod.string().optional(),
+  "severity": zod.string().optional(),
+  "contributionId": zod.string().optional(),
+  "donorPhone": zod.string().optional(),
+  "description": zod.string().optional(),
+  "status": zod.string().optional(),
+  "resolutionNotes": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary List budget categories
+ */
+export const GetFinanceBudgetCategoriesResponseItem = zod.object({
+  "id": zod.string().optional(),
+  "name": zod.string().optional(),
+  "code": zod.string().optional(),
+  "description": zod.string().optional(),
+  "ledger": zod.string().optional(),
+  "totalAllocatedKes": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})
+export const GetFinanceBudgetCategoriesResponse = zod.array(GetFinanceBudgetCategoriesResponseItem)
+
+
+/**
+ * @summary Create budget category
+ */
+export const PostFinanceBudgetCategoriesBody = zod.object({
+  "name": zod.string(),
+  "code": zod.string(),
+  "description": zod.string().optional(),
+  "ledger": zod.string().optional()
+})
+
+export const PostFinanceBudgetCategoriesResponse = zod.object({
+  "id": zod.string().optional(),
+  "name": zod.string().optional(),
+  "code": zod.string().optional(),
+  "description": zod.string().optional(),
+  "ledger": zod.string().optional(),
+  "totalAllocatedKes": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary List budget lines
+ */
+export const GetFinanceBudgetLinesQueryParams = zod.object({
+  "categoryId": zod.coerce.string().optional(),
+  "fiscalPeriod": zod.coerce.string().optional()
+})
+
+export const GetFinanceBudgetLinesResponseItem = zod.object({
+  "id": zod.string().optional(),
+  "categoryId": zod.string().optional(),
+  "title": zod.string().optional(),
+  "allocatedAmountKes": zod.string().optional(),
+  "spentAmountKes": zod.string().optional(),
+  "fiscalPeriod": zod.string().optional(),
+  "status": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})
+export const GetFinanceBudgetLinesResponse = zod.array(GetFinanceBudgetLinesResponseItem)
+
+
+/**
+ * @summary Create budget line
+ */
+export const PostFinanceBudgetLinesBody = zod.object({
+  "categoryId": zod.string(),
+  "title": zod.string(),
+  "description": zod.string().optional(),
+  "allocatedAmountKes": zod.number(),
+  "fiscalPeriod": zod.string()
+})
+
+export const PostFinanceBudgetLinesResponse = zod.object({
+  "id": zod.string().optional(),
+  "categoryId": zod.string().optional(),
+  "title": zod.string().optional(),
+  "allocatedAmountKes": zod.string().optional(),
+  "spentAmountKes": zod.string().optional(),
+  "fiscalPeriod": zod.string().optional(),
+  "status": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary List expenditure requests
+ */
+export const GetFinanceExpenditureRequestsQueryParams = zod.object({
+  "status": zod.coerce.string().optional(),
+  "page": zod.coerce.number().optional(),
+  "limit": zod.coerce.number().optional()
+})
+
+export const GetFinanceExpenditureRequestsResponse = zod.object({
+  "data": zod.array(zod.object({
+  "id": zod.string().optional(),
+  "referenceNumber": zod.string().optional(),
+  "title": zod.string().optional(),
+  "description": zod.string().optional(),
+  "requestedAmountKes": zod.string().optional(),
+  "approvedAmountKes": zod.string().optional(),
+  "payeeName": zod.string().optional(),
+  "payeeBank": zod.string().optional(),
+  "status": zod.string().optional(),
+  "requestedBy": zod.string().optional(),
+  "ledger": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})).optional(),
+  "total": zod.number().optional(),
+  "page": zod.number().optional(),
+  "pageSize": zod.number().optional()
+})
+
+
+/**
+ * @summary Create expenditure request
+ */
+export const PostFinanceExpenditureRequestsBody = zod.object({
+  "title": zod.string(),
+  "description": zod.string(),
+  "categoryId": zod.string(),
+  "requestedAmountKes": zod.number(),
+  "payeeName": zod.string(),
+  "payeeBank": zod.string().optional(),
+  "payeeAccountNumber": zod.string().optional(),
+  "payeePhone": zod.string().optional(),
+  "notes": zod.string().optional()
+})
+
+export const PostFinanceExpenditureRequestsResponse = zod.object({
+  "id": zod.string().optional(),
+  "referenceNumber": zod.string().optional(),
+  "title": zod.string().optional(),
+  "description": zod.string().optional(),
+  "requestedAmountKes": zod.string().optional(),
+  "approvedAmountKes": zod.string().optional(),
+  "payeeName": zod.string().optional(),
+  "payeeBank": zod.string().optional(),
+  "status": zod.string().optional(),
+  "requestedBy": zod.string().optional(),
+  "ledger": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Get expenditure request
+ */
+export const GetFinanceExpenditureRequestsIdParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const GetFinanceExpenditureRequestsIdResponse = zod.object({
+  "id": zod.string().optional(),
+  "referenceNumber": zod.string().optional(),
+  "title": zod.string().optional(),
+  "description": zod.string().optional(),
+  "requestedAmountKes": zod.string().optional(),
+  "approvedAmountKes": zod.string().optional(),
+  "payeeName": zod.string().optional(),
+  "payeeBank": zod.string().optional(),
+  "status": zod.string().optional(),
+  "requestedBy": zod.string().optional(),
+  "ledger": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary First-level approval
+ */
+export const PostFinanceExpenditureRequestsIdFirstApproveParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PostFinanceExpenditureRequestsIdFirstApproveBody = zod.object({
+  "approvedAmount": zod.number().optional()
+})
+
+export const PostFinanceExpenditureRequestsIdFirstApproveResponse = zod.object({
+  "id": zod.string().optional(),
+  "referenceNumber": zod.string().optional(),
+  "title": zod.string().optional(),
+  "description": zod.string().optional(),
+  "requestedAmountKes": zod.string().optional(),
+  "approvedAmountKes": zod.string().optional(),
+  "payeeName": zod.string().optional(),
+  "payeeBank": zod.string().optional(),
+  "status": zod.string().optional(),
+  "requestedBy": zod.string().optional(),
+  "ledger": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Final approval and voucher generation
+ */
+export const PostFinanceExpenditureRequestsIdFinalApproveParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PostFinanceExpenditureRequestsIdFinalApproveBody = zod.object({
+  "paymentMethod": zod.string().optional()
+})
+
+export const PostFinanceExpenditureRequestsIdFinalApproveResponse = zod.object({
+  "expenditure": zod.object({
+  "id": zod.string().optional(),
+  "referenceNumber": zod.string().optional(),
+  "title": zod.string().optional(),
+  "description": zod.string().optional(),
+  "requestedAmountKes": zod.string().optional(),
+  "approvedAmountKes": zod.string().optional(),
+  "payeeName": zod.string().optional(),
+  "payeeBank": zod.string().optional(),
+  "status": zod.string().optional(),
+  "requestedBy": zod.string().optional(),
+  "ledger": zod.string().optional(),
+  "createdAt": zod.string().optional()
+}).optional(),
+  "voucher": zod.object({
+  "id": zod.string().optional(),
+  "voucherNumber": zod.string().optional(),
+  "expenditureRequestId": zod.string().optional(),
+  "amountKes": zod.string().optional(),
+  "paymentMethod": zod.string().optional(),
+  "ledger": zod.string().optional(),
+  "issuedBy": zod.string().optional(),
+  "createdAt": zod.string().optional()
+}).optional()
+})
+
+
+/**
+ * @summary Reject expenditure request
+ */
+export const PostFinanceExpenditureRequestsIdRejectParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PostFinanceExpenditureRequestsIdRejectBody = zod.object({
+  "reason": zod.string().optional()
+})
+
+export const PostFinanceExpenditureRequestsIdRejectResponse = zod.object({
+  "id": zod.string().optional(),
+  "referenceNumber": zod.string().optional(),
+  "title": zod.string().optional(),
+  "description": zod.string().optional(),
+  "requestedAmountKes": zod.string().optional(),
+  "approvedAmountKes": zod.string().optional(),
+  "payeeName": zod.string().optional(),
+  "payeeBank": zod.string().optional(),
+  "status": zod.string().optional(),
+  "requestedBy": zod.string().optional(),
+  "ledger": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary List payment vouchers
+ */
+export const GetFinanceVouchersResponseItem = zod.object({
+  "id": zod.string().optional(),
+  "voucherNumber": zod.string().optional(),
+  "expenditureRequestId": zod.string().optional(),
+  "amountKes": zod.string().optional(),
+  "paymentMethod": zod.string().optional(),
+  "ledger": zod.string().optional(),
+  "issuedBy": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})
+export const GetFinanceVouchersResponse = zod.array(GetFinanceVouchersResponseItem)
+
+
+/**
+ * @summary List message templates
+ */
+export const GetCommunicationsTemplatesQueryParams = zod.object({
+  "channel": zod.coerce.string().optional(),
+  "category": zod.coerce.string().optional(),
+  "status": zod.coerce.string().optional(),
+  "search": zod.coerce.string().optional()
+})
+
+export const GetCommunicationsTemplatesResponseItem = zod.object({
+  "id": zod.string().optional(),
+  "name": zod.string().optional(),
+  "channel": zod.string().optional(),
+  "category": zod.string().optional(),
+  "subjectEn": zod.string().optional(),
+  "subjectSw": zod.string().optional(),
+  "bodyEn": zod.string().optional(),
+  "bodySw": zod.string().optional(),
+  "status": zod.string().optional(),
+  "createdBy": zod.string().optional(),
+  "approvedAt": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})
+export const GetCommunicationsTemplatesResponse = zod.array(GetCommunicationsTemplatesResponseItem)
+
+
+/**
+ * @summary Create message template
+ */
+export const PostCommunicationsTemplatesBody = zod.object({
+  "name": zod.string(),
+  "channel": zod.string(),
+  "category": zod.string(),
+  "subjectEn": zod.string().optional(),
+  "subjectSw": zod.string().optional(),
+  "bodyEn": zod.string(),
+  "bodySw": zod.string()
+})
+
+export const PostCommunicationsTemplatesResponse = zod.object({
+  "id": zod.string().optional(),
+  "name": zod.string().optional(),
+  "channel": zod.string().optional(),
+  "category": zod.string().optional(),
+  "subjectEn": zod.string().optional(),
+  "subjectSw": zod.string().optional(),
+  "bodyEn": zod.string().optional(),
+  "bodySw": zod.string().optional(),
+  "status": zod.string().optional(),
+  "createdBy": zod.string().optional(),
+  "approvedAt": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Get template by ID
+ */
+export const GetCommunicationsTemplatesIdParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const GetCommunicationsTemplatesIdResponse = zod.object({
+  "id": zod.string().optional(),
+  "name": zod.string().optional(),
+  "channel": zod.string().optional(),
+  "category": zod.string().optional(),
+  "subjectEn": zod.string().optional(),
+  "subjectSw": zod.string().optional(),
+  "bodyEn": zod.string().optional(),
+  "bodySw": zod.string().optional(),
+  "status": zod.string().optional(),
+  "createdBy": zod.string().optional(),
+  "approvedAt": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Update message template
+ */
+export const PatchCommunicationsTemplatesIdParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PatchCommunicationsTemplatesIdBody = zod.object({
+  "name": zod.string(),
+  "channel": zod.string(),
+  "category": zod.string(),
+  "subjectEn": zod.string().optional(),
+  "subjectSw": zod.string().optional(),
+  "bodyEn": zod.string(),
+  "bodySw": zod.string()
+})
+
+export const PatchCommunicationsTemplatesIdResponse = zod.object({
+  "id": zod.string().optional(),
+  "name": zod.string().optional(),
+  "channel": zod.string().optional(),
+  "category": zod.string().optional(),
+  "subjectEn": zod.string().optional(),
+  "subjectSw": zod.string().optional(),
+  "bodyEn": zod.string().optional(),
+  "bodySw": zod.string().optional(),
+  "status": zod.string().optional(),
+  "createdBy": zod.string().optional(),
+  "approvedAt": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Submit template for approval
+ */
+export const PostCommunicationsTemplatesIdSubmitParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PostCommunicationsTemplatesIdSubmitResponse = zod.object({
+  "id": zod.string().optional(),
+  "name": zod.string().optional(),
+  "channel": zod.string().optional(),
+  "category": zod.string().optional(),
+  "subjectEn": zod.string().optional(),
+  "subjectSw": zod.string().optional(),
+  "bodyEn": zod.string().optional(),
+  "bodySw": zod.string().optional(),
+  "status": zod.string().optional(),
+  "createdBy": zod.string().optional(),
+  "approvedAt": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Approve template
+ */
+export const PostCommunicationsTemplatesIdApproveParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PostCommunicationsTemplatesIdApproveResponse = zod.object({
+  "id": zod.string().optional(),
+  "name": zod.string().optional(),
+  "channel": zod.string().optional(),
+  "category": zod.string().optional(),
+  "subjectEn": zod.string().optional(),
+  "subjectSw": zod.string().optional(),
+  "bodyEn": zod.string().optional(),
+  "bodySw": zod.string().optional(),
+  "status": zod.string().optional(),
+  "createdBy": zod.string().optional(),
+  "approvedAt": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Emergency suspend template
+ */
+export const PostCommunicationsTemplatesIdSuspendParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PostCommunicationsTemplatesIdSuspendBody = zod.object({
+  "reason": zod.string().optional()
+})
+
+export const PostCommunicationsTemplatesIdSuspendResponse = zod.object({
+  "id": zod.string().optional(),
+  "name": zod.string().optional(),
+  "channel": zod.string().optional(),
+  "category": zod.string().optional(),
+  "subjectEn": zod.string().optional(),
+  "subjectSw": zod.string().optional(),
+  "bodyEn": zod.string().optional(),
+  "bodySw": zod.string().optional(),
+  "status": zod.string().optional(),
+  "createdBy": zod.string().optional(),
+  "approvedAt": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary List audience segments
+ */
+export const GetCommunicationsSegmentsResponseItem = zod.object({
+  "id": zod.string().optional(),
+  "name": zod.string().optional(),
+  "description": zod.string().optional(),
+  "filters": zod.object({
+
+}).optional(),
+  "estimatedReach": zod.number().optional(),
+  "createdAt": zod.string().optional()
+})
+export const GetCommunicationsSegmentsResponse = zod.array(GetCommunicationsSegmentsResponseItem)
+
+
+/**
+ * @summary Create audience segment
+ */
+export const PostCommunicationsSegmentsBody = zod.object({
+  "name": zod.string(),
+  "description": zod.string().optional(),
+  "filters": zod.object({
+
+})
+})
+
+export const PostCommunicationsSegmentsResponse = zod.object({
+  "id": zod.string().optional(),
+  "name": zod.string().optional(),
+  "description": zod.string().optional(),
+  "filters": zod.object({
+
+}).optional(),
+  "estimatedReach": zod.number().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Get segment by ID
+ */
+export const GetCommunicationsSegmentsIdParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const GetCommunicationsSegmentsIdResponse = zod.object({
+  "id": zod.string().optional(),
+  "name": zod.string().optional(),
+  "description": zod.string().optional(),
+  "filters": zod.object({
+
+}).optional(),
+  "estimatedReach": zod.number().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary List scheduled messages
+ */
+export const GetCommunicationsMessagesQueryParams = zod.object({
+  "status": zod.coerce.string().optional(),
+  "page": zod.coerce.number().optional(),
+  "limit": zod.coerce.number().optional()
+})
+
+export const GetCommunicationsMessagesResponse = zod.object({
+  "data": zod.array(zod.object({
+  "id": zod.string().optional(),
+  "templateId": zod.string().optional(),
+  "segmentId": zod.string().optional(),
+  "languageCode": zod.string().optional(),
+  "scheduledAt": zod.string().optional(),
+  "status": zod.string().optional(),
+  "estimatedRecipients": zod.number().optional(),
+  "actualRecipients": zod.number().optional(),
+  "deliveredCount": zod.number().optional(),
+  "createdAt": zod.string().optional()
+})).optional(),
+  "total": zod.number().optional(),
+  "page": zod.number().optional(),
+  "pageSize": zod.number().optional()
+})
+
+
+/**
+ * @summary Schedule a message
+ */
+export const PostCommunicationsMessagesBody = zod.object({
+  "templateId": zod.string(),
+  "segmentId": zod.string(),
+  "scheduledAt": zod.string(),
+  "languageCode": zod.string().optional()
+})
+
+export const PostCommunicationsMessagesResponse = zod.object({
+  "id": zod.string().optional(),
+  "templateId": zod.string().optional(),
+  "segmentId": zod.string().optional(),
+  "languageCode": zod.string().optional(),
+  "scheduledAt": zod.string().optional(),
+  "status": zod.string().optional(),
+  "estimatedRecipients": zod.number().optional(),
+  "actualRecipients": zod.number().optional(),
+  "deliveredCount": zod.number().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Approve scheduled message
+ */
+export const PostCommunicationsMessagesIdApproveParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PostCommunicationsMessagesIdApproveResponse = zod.object({
+  "id": zod.string().optional(),
+  "templateId": zod.string().optional(),
+  "segmentId": zod.string().optional(),
+  "languageCode": zod.string().optional(),
+  "scheduledAt": zod.string().optional(),
+  "status": zod.string().optional(),
+  "estimatedRecipients": zod.number().optional(),
+  "actualRecipients": zod.number().optional(),
+  "deliveredCount": zod.number().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Emergency suspend message
+ */
+export const PostCommunicationsMessagesIdEmergencySuspendParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PostCommunicationsMessagesIdEmergencySuspendResponse = zod.object({
+  "id": zod.string().optional(),
+  "templateId": zod.string().optional(),
+  "segmentId": zod.string().optional(),
+  "languageCode": zod.string().optional(),
+  "scheduledAt": zod.string().optional(),
+  "status": zod.string().optional(),
+  "estimatedRecipients": zod.number().optional(),
+  "actualRecipients": zod.number().optional(),
+  "deliveredCount": zod.number().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary List spokespeople
+ */
+export const GetCommunicationsSpokespeopleResponseItem = zod.object({
+  "id": zod.string().optional(),
+  "fullName": zod.string().optional(),
+  "title": zod.string().optional(),
+  "portfolios": zod.array(zod.string()).optional(),
+  "phone": zod.string().optional(),
+  "email": zod.string().optional(),
+  "isActive": zod.boolean().optional(),
+  "priority": zod.number().optional()
+})
+export const GetCommunicationsSpokespeopleResponse = zod.array(GetCommunicationsSpokespeopleResponseItem)
+
+
+/**
+ * @summary Add spokesperson
+ */
+export const PostCommunicationsSpokespeopleBody = zod.object({
+  "fullName": zod.string(),
+  "title": zod.string(),
+  "portfolios": zod.array(zod.string()).optional(),
+  "phone": zod.string().optional(),
+  "email": zod.string().optional(),
+  "isActive": zod.boolean().optional()
+})
+
+export const PostCommunicationsSpokespeopleResponse = zod.object({
+  "id": zod.string().optional(),
+  "fullName": zod.string().optional(),
+  "title": zod.string().optional(),
+  "portfolios": zod.array(zod.string()).optional(),
+  "phone": zod.string().optional(),
+  "email": zod.string().optional(),
+  "isActive": zod.boolean().optional(),
+  "priority": zod.number().optional()
+})
+
+
+/**
+ * @summary List statements
+ */
+export const GetCommunicationsStatementsQueryParams = zod.object({
+  "status": zod.coerce.string().optional(),
+  "category": zod.coerce.string().optional()
+})
+
+export const GetCommunicationsStatementsResponseItem = zod.object({
+  "id": zod.string().optional(),
+  "title": zod.string().optional(),
+  "category": zod.string().optional(),
+  "status": zod.string().optional(),
+  "spokespersonId": zod.string().optional(),
+  "publishedAt": zod.string().optional(),
+  "retractedAt": zod.string().optional(),
+  "retractionReason": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})
+export const GetCommunicationsStatementsResponse = zod.array(GetCommunicationsStatementsResponseItem)
+
+
+/**
+ * @summary Create statement
+ */
+export const PostCommunicationsStatementsBody = zod.object({
+  "title": zod.string(),
+  "category": zod.string(),
+  "spokespersonId": zod.string().optional(),
+  "bodyEn": zod.string(),
+  "bodySw": zod.string().optional()
+})
+
+export const PostCommunicationsStatementsResponse = zod.object({
+  "id": zod.string().optional(),
+  "title": zod.string().optional(),
+  "category": zod.string().optional(),
+  "status": zod.string().optional(),
+  "spokespersonId": zod.string().optional(),
+  "publishedAt": zod.string().optional(),
+  "retractedAt": zod.string().optional(),
+  "retractionReason": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Get statement with versions
+ */
+export const GetCommunicationsStatementsIdParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const GetCommunicationsStatementsIdResponse = zod.object({
+  "id": zod.string().optional(),
+  "title": zod.string().optional(),
+  "category": zod.string().optional(),
+  "status": zod.string().optional(),
+  "spokespersonId": zod.string().optional(),
+  "publishedAt": zod.string().optional(),
+  "retractedAt": zod.string().optional(),
+  "retractionReason": zod.string().optional(),
+  "createdAt": zod.string().optional()
+}).and(zod.object({
+  "versions": zod.array(zod.object({
+  "id": zod.string().optional(),
+  "statementId": zod.string().optional(),
+  "version": zod.number().optional(),
+  "bodyEn": zod.string().optional(),
+  "bodySw": zod.string().optional(),
+  "changeNote": zod.string().optional(),
+  "authorId": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})).optional()
+}))
+
+
+/**
+ * @summary Add statement version
+ */
+export const PostCommunicationsStatementsIdVersionsParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PostCommunicationsStatementsIdVersionsBody = zod.object({
+  "bodyEn": zod.string(),
+  "bodySw": zod.string().optional(),
+  "changeNote": zod.string().optional()
+})
+
+export const PostCommunicationsStatementsIdVersionsResponse = zod.object({
+  "id": zod.string().optional(),
+  "statementId": zod.string().optional(),
+  "version": zod.number().optional(),
+  "bodyEn": zod.string().optional(),
+  "bodySw": zod.string().optional(),
+  "changeNote": zod.string().optional(),
+  "authorId": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Publish statement
+ */
+export const PostCommunicationsStatementsIdPublishParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PostCommunicationsStatementsIdPublishResponse = zod.object({
+  "id": zod.string().optional(),
+  "title": zod.string().optional(),
+  "category": zod.string().optional(),
+  "status": zod.string().optional(),
+  "spokespersonId": zod.string().optional(),
+  "publishedAt": zod.string().optional(),
+  "retractedAt": zod.string().optional(),
+  "retractionReason": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Retract statement
+ */
+export const PostCommunicationsStatementsIdRetractParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PostCommunicationsStatementsIdRetractBody = zod.object({
+  "reason": zod.string().optional()
+})
+
+export const PostCommunicationsStatementsIdRetractResponse = zod.object({
+  "id": zod.string().optional(),
+  "title": zod.string().optional(),
+  "category": zod.string().optional(),
+  "status": zod.string().optional(),
+  "spokespersonId": zod.string().optional(),
+  "publishedAt": zod.string().optional(),
+  "retractedAt": zod.string().optional(),
+  "retractionReason": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary List content assets
+ */
+export const GetContentAssetsQueryParams = zod.object({
+  "category": zod.coerce.string().optional(),
+  "approvalStatus": zod.coerce.string().optional(),
+  "countyId": zod.coerce.string().optional(),
+  "search": zod.coerce.string().optional(),
+  "page": zod.coerce.number().optional(),
+  "limit": zod.coerce.number().optional()
+})
+
+export const GetContentAssetsResponse = zod.object({
+  "data": zod.array(zod.object({
+  "id": zod.string().optional(),
+  "title": zod.string().optional(),
+  "description": zod.string().optional(),
+  "category": zod.string().optional(),
+  "objectPath": zod.string().optional(),
+  "mimeType": zod.string().optional(),
+  "publishingRights": zod.string().optional(),
+  "approvalStatus": zod.string().optional(),
+  "currentVersion": zod.number().optional(),
+  "downloadCount": zod.number().optional(),
+  "countyId": zod.string().optional(),
+  "language": zod.string().optional(),
+  "expiresAt": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})).optional(),
+  "total": zod.number().optional(),
+  "page": zod.number().optional(),
+  "pageSize": zod.number().optional()
+})
+
+
+/**
+ * @summary Create content asset catalogue entry
+ */
+export const PostContentAssetsBody = zod.object({
+  "title": zod.string(),
+  "description": zod.string().optional(),
+  "category": zod.string(),
+  "objectPath": zod.string(),
+  "mimeType": zod.string().optional(),
+  "publishingRights": zod.string().optional(),
+  "countyId": zod.string().optional(),
+  "language": zod.string().optional(),
+  "expiresAt": zod.string().optional()
+})
+
+export const PostContentAssetsResponse = zod.object({
+  "id": zod.string().optional(),
+  "title": zod.string().optional(),
+  "description": zod.string().optional(),
+  "category": zod.string().optional(),
+  "objectPath": zod.string().optional(),
+  "mimeType": zod.string().optional(),
+  "publishingRights": zod.string().optional(),
+  "approvalStatus": zod.string().optional(),
+  "currentVersion": zod.number().optional(),
+  "downloadCount": zod.number().optional(),
+  "countyId": zod.string().optional(),
+  "language": zod.string().optional(),
+  "expiresAt": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Get content asset
+ */
+export const GetContentAssetsIdParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const GetContentAssetsIdResponse = zod.object({
+  "id": zod.string().optional(),
+  "title": zod.string().optional(),
+  "description": zod.string().optional(),
+  "category": zod.string().optional(),
+  "objectPath": zod.string().optional(),
+  "mimeType": zod.string().optional(),
+  "publishingRights": zod.string().optional(),
+  "approvalStatus": zod.string().optional(),
+  "currentVersion": zod.number().optional(),
+  "downloadCount": zod.number().optional(),
+  "countyId": zod.string().optional(),
+  "language": zod.string().optional(),
+  "expiresAt": zod.string().optional(),
+  "createdAt": zod.string().optional()
+}).and(zod.object({
+  "versions": zod.array(zod.object({
+  "id": zod.string().optional(),
+  "version": zod.number().optional(),
+  "objectPath": zod.string().optional(),
+  "changeNote": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})).optional(),
+  "downloadCount": zod.number().optional()
+}))
+
+
+/**
+ * @summary Update content asset metadata
+ */
+export const PatchContentAssetsIdParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PatchContentAssetsIdBody = zod.object({
+  "title": zod.string(),
+  "description": zod.string().optional(),
+  "category": zod.string(),
+  "objectPath": zod.string(),
+  "mimeType": zod.string().optional(),
+  "publishingRights": zod.string().optional(),
+  "countyId": zod.string().optional(),
+  "language": zod.string().optional(),
+  "expiresAt": zod.string().optional()
+})
+
+export const PatchContentAssetsIdResponse = zod.object({
+  "id": zod.string().optional(),
+  "title": zod.string().optional(),
+  "description": zod.string().optional(),
+  "category": zod.string().optional(),
+  "objectPath": zod.string().optional(),
+  "mimeType": zod.string().optional(),
+  "publishingRights": zod.string().optional(),
+  "approvalStatus": zod.string().optional(),
+  "currentVersion": zod.number().optional(),
+  "downloadCount": zod.number().optional(),
+  "countyId": zod.string().optional(),
+  "language": zod.string().optional(),
+  "expiresAt": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Approve content asset
+ */
+export const PostContentAssetsIdApproveParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PostContentAssetsIdApproveResponse = zod.object({
+  "id": zod.string().optional(),
+  "title": zod.string().optional(),
+  "description": zod.string().optional(),
+  "category": zod.string().optional(),
+  "objectPath": zod.string().optional(),
+  "mimeType": zod.string().optional(),
+  "publishingRights": zod.string().optional(),
+  "approvalStatus": zod.string().optional(),
+  "currentVersion": zod.number().optional(),
+  "downloadCount": zod.number().optional(),
+  "countyId": zod.string().optional(),
+  "language": zod.string().optional(),
+  "expiresAt": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Reject content asset
+ */
+export const PostContentAssetsIdRejectParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PostContentAssetsIdRejectResponse = zod.object({
+  "id": zod.string().optional(),
+  "title": zod.string().optional(),
+  "description": zod.string().optional(),
+  "category": zod.string().optional(),
+  "objectPath": zod.string().optional(),
+  "mimeType": zod.string().optional(),
+  "publishingRights": zod.string().optional(),
+  "approvalStatus": zod.string().optional(),
+  "currentVersion": zod.number().optional(),
+  "downloadCount": zod.number().optional(),
+  "countyId": zod.string().optional(),
+  "language": zod.string().optional(),
+  "expiresAt": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Record download and get object path
+ */
+export const PostContentAssetsIdDownloadParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PostContentAssetsIdDownloadBody = zod.object({
+  "purpose": zod.string().optional()
+})
+
+export const PostContentAssetsIdDownloadResponse = zod.object({
+  "objectPath": zod.string().optional(),
+  "title": zod.string().optional()
+})
+
+
+/**
+ * @summary Asset download history
+ */
+export const GetContentAssetsIdHistoryParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const GetContentAssetsIdHistoryResponseItem = zod.object({
+  "id": zod.string().optional(),
+  "assetId": zod.string().optional(),
+  "downloadedByEmail": zod.string().optional(),
+  "purpose": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})
+export const GetContentAssetsIdHistoryResponse = zod.array(GetContentAssetsIdHistoryResponseItem)
+
+
+/**
+ * @summary List events (admin)
+ */
+export const GetEventsMgmtQueryParams = zod.object({
+  "status": zod.coerce.string().optional(),
+  "countyId": zod.coerce.string().optional(),
+  "search": zod.coerce.string().optional(),
+  "page": zod.coerce.number().optional(),
+  "limit": zod.coerce.number().optional()
+})
+
+export const GetEventsMgmtResponse = zod.object({
+  "data": zod.array(zod.object({
+  "id": zod.string().optional(),
+  "title": zod.string().optional(),
+  "description": zod.string().optional(),
+  "eventType": zod.string().optional(),
+  "venue": zod.string().optional(),
+  "countyId": zod.string().optional(),
+  "eventDate": zod.string().optional(),
+  "startTime": zod.string().optional(),
+  "endTime": zod.string().optional(),
+  "expectedAttendance": zod.number().optional(),
+  "actualAttendance": zod.number().optional(),
+  "status": zod.string().optional(),
+  "budgetKes": zod.number().optional(),
+  "createdAt": zod.string().optional()
+})).optional(),
+  "total": zod.number().optional(),
+  "page": zod.number().optional(),
+  "pageSize": zod.number().optional()
+})
+
+
+/**
+ * @summary Create event proposal
+ */
+export const PostEventsMgmtBody = zod.object({
+  "title": zod.string(),
+  "description": zod.string().optional(),
+  "eventType": zod.string(),
+  "venue": zod.string().optional(),
+  "countyId": zod.string().optional(),
+  "eventDate": zod.string().optional(),
+  "startTime": zod.string().optional(),
+  "endTime": zod.string().optional(),
+  "expectedAttendance": zod.number().optional(),
+  "budgetKes": zod.number().optional()
+})
+
+export const PostEventsMgmtResponse = zod.object({
+  "id": zod.string().optional(),
+  "title": zod.string().optional(),
+  "description": zod.string().optional(),
+  "eventType": zod.string().optional(),
+  "venue": zod.string().optional(),
+  "countyId": zod.string().optional(),
+  "eventDate": zod.string().optional(),
+  "startTime": zod.string().optional(),
+  "endTime": zod.string().optional(),
+  "expectedAttendance": zod.number().optional(),
+  "actualAttendance": zod.number().optional(),
+  "status": zod.string().optional(),
+  "budgetKes": zod.number().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Get event detail
+ */
+export const GetEventsMgmtIdParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const GetEventsMgmtIdResponse = zod.object({
+  "id": zod.string().optional(),
+  "title": zod.string().optional(),
+  "description": zod.string().optional(),
+  "eventType": zod.string().optional(),
+  "venue": zod.string().optional(),
+  "countyId": zod.string().optional(),
+  "eventDate": zod.string().optional(),
+  "startTime": zod.string().optional(),
+  "endTime": zod.string().optional(),
+  "expectedAttendance": zod.number().optional(),
+  "actualAttendance": zod.number().optional(),
+  "status": zod.string().optional(),
+  "budgetKes": zod.number().optional(),
+  "createdAt": zod.string().optional()
+}).and(zod.object({
+  "registrationCount": zod.number().optional(),
+  "speakers": zod.array(zod.object({
+  "id": zod.string().optional(),
+  "eventId": zod.string().optional(),
+  "fullName": zod.string().optional(),
+  "title": zod.string().optional(),
+  "topicEn": zod.string().optional(),
+  "allocatedMinutes": zod.number().optional(),
+  "talkOrder": zod.number().optional(),
+  "confirmed": zod.boolean().optional()
+})).optional(),
+  "incidents": zod.array(zod.object({
+  "id": zod.string().optional(),
+  "eventId": zod.string().optional(),
+  "incidentType": zod.string().optional(),
+  "severity": zod.string().optional(),
+  "description": zod.string().optional(),
+  "location": zod.string().optional(),
+  "reportedBy": zod.string().optional(),
+  "resolvedAt": zod.string().optional(),
+  "resolution": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})).optional(),
+  "reconciliation": zod.object({
+
+}).optional()
+}))
+
+
+/**
+ * @summary Update event
+ */
+export const PatchEventsMgmtIdParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PatchEventsMgmtIdBody = zod.object({
+  "title": zod.string(),
+  "description": zod.string().optional(),
+  "eventType": zod.string(),
+  "venue": zod.string().optional(),
+  "countyId": zod.string().optional(),
+  "eventDate": zod.string().optional(),
+  "startTime": zod.string().optional(),
+  "endTime": zod.string().optional(),
+  "expectedAttendance": zod.number().optional(),
+  "budgetKes": zod.number().optional()
+})
+
+export const PatchEventsMgmtIdResponse = zod.object({
+  "id": zod.string().optional(),
+  "title": zod.string().optional(),
+  "description": zod.string().optional(),
+  "eventType": zod.string().optional(),
+  "venue": zod.string().optional(),
+  "countyId": zod.string().optional(),
+  "eventDate": zod.string().optional(),
+  "startTime": zod.string().optional(),
+  "endTime": zod.string().optional(),
+  "expectedAttendance": zod.number().optional(),
+  "actualAttendance": zod.number().optional(),
+  "status": zod.string().optional(),
+  "budgetKes": zod.number().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Submit event for approval
+ */
+export const PostEventsMgmtIdSubmitApprovalParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PostEventsMgmtIdSubmitApprovalResponse = zod.object({
+  "id": zod.string().optional(),
+  "title": zod.string().optional(),
+  "description": zod.string().optional(),
+  "eventType": zod.string().optional(),
+  "venue": zod.string().optional(),
+  "countyId": zod.string().optional(),
+  "eventDate": zod.string().optional(),
+  "startTime": zod.string().optional(),
+  "endTime": zod.string().optional(),
+  "expectedAttendance": zod.number().optional(),
+  "actualAttendance": zod.number().optional(),
+  "status": zod.string().optional(),
+  "budgetKes": zod.number().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Approve event
+ */
+export const PostEventsMgmtIdApproveParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PostEventsMgmtIdApproveResponse = zod.object({
+  "id": zod.string().optional(),
+  "title": zod.string().optional(),
+  "description": zod.string().optional(),
+  "eventType": zod.string().optional(),
+  "venue": zod.string().optional(),
+  "countyId": zod.string().optional(),
+  "eventDate": zod.string().optional(),
+  "startTime": zod.string().optional(),
+  "endTime": zod.string().optional(),
+  "expectedAttendance": zod.number().optional(),
+  "actualAttendance": zod.number().optional(),
+  "status": zod.string().optional(),
+  "budgetKes": zod.number().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Register for event (public)
+ */
+export const PostEventsMgmtIdRegisterParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PostEventsMgmtIdRegisterBody = zod.object({
+  "fullName": zod.string(),
+  "phone": zod.string(),
+  "email": zod.string().optional(),
+  "organization": zod.string().optional(),
+  "registrationType": zod.string().optional()
+})
+
+export const PostEventsMgmtIdRegisterResponse = zod.object({
+  "id": zod.string().optional(),
+  "eventId": zod.string().optional(),
+  "fullName": zod.string().optional(),
+  "phone": zod.string().optional(),
+  "email": zod.string().optional(),
+  "registrationType": zod.string().optional(),
+  "qrCode": zod.string().optional(),
+  "checkedIn": zod.boolean().optional(),
+  "checkedInAt": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary List event registrations
+ */
+export const GetEventsMgmtIdRegistrationsParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const GetEventsMgmtIdRegistrationsQueryParams = zod.object({
+  "checkedIn": zod.coerce.string().optional(),
+  "search": zod.coerce.string().optional(),
+  "page": zod.coerce.number().optional(),
+  "limit": zod.coerce.number().optional()
+})
+
+export const GetEventsMgmtIdRegistrationsResponse = zod.object({
+  "data": zod.array(zod.object({
+  "id": zod.string().optional(),
+  "eventId": zod.string().optional(),
+  "fullName": zod.string().optional(),
+  "phone": zod.string().optional(),
+  "email": zod.string().optional(),
+  "registrationType": zod.string().optional(),
+  "qrCode": zod.string().optional(),
+  "checkedIn": zod.boolean().optional(),
+  "checkedInAt": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})).optional(),
+  "total": zod.number().optional(),
+  "page": zod.number().optional(),
+  "pageSize": zod.number().optional()
+})
+
+
+/**
+ * @summary Check in attendee
+ */
+export const PostEventsMgmtIdCheckInParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PostEventsMgmtIdCheckInBody = zod.object({
+  "qrCode": zod.string().optional(),
+  "registrationId": zod.string().optional()
+})
+
+export const PostEventsMgmtIdCheckInResponse = zod.object({
+  "success": zod.boolean().optional(),
+  "registration": zod.object({
+  "id": zod.string().optional(),
+  "eventId": zod.string().optional(),
+  "fullName": zod.string().optional(),
+  "phone": zod.string().optional(),
+  "email": zod.string().optional(),
+  "registrationType": zod.string().optional(),
+  "qrCode": zod.string().optional(),
+  "checkedIn": zod.boolean().optional(),
+  "checkedInAt": zod.string().optional(),
+  "createdAt": zod.string().optional()
+}).optional()
+})
+
+
+/**
+ * @summary Report incident
+ */
+export const PostEventsMgmtIdIncidentsParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PostEventsMgmtIdIncidentsBody = zod.object({
+  "incidentType": zod.string(),
+  "severity": zod.string(),
+  "description": zod.string(),
+  "location": zod.string().optional()
+})
+
+export const PostEventsMgmtIdIncidentsResponse = zod.object({
+  "id": zod.string().optional(),
+  "eventId": zod.string().optional(),
+  "incidentType": zod.string().optional(),
+  "severity": zod.string().optional(),
+  "description": zod.string().optional(),
+  "location": zod.string().optional(),
+  "reportedBy": zod.string().optional(),
+  "resolvedAt": zod.string().optional(),
+  "resolution": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Submit post-event reconciliation
+ */
+export const PostEventsMgmtIdReconciliationParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PostEventsMgmtIdReconciliationBody = zod.object({
+  "actualAttendance": zod.number().optional(),
+  "actualCostKes": zod.number().optional(),
+  "budgetedCostKes": zod.number().optional(),
+  "donationsCollectedKes": zod.number().optional(),
+  "lessonsLearned": zod.string().optional(),
+  "mediaImpactNotes": zod.string().optional(),
+  "overallRating": zod.number().optional()
+})
+
+export const PostEventsMgmtIdReconciliationResponse = zod.object({
+  "id": zod.string().optional(),
+  "eventId": zod.string().optional(),
+  "actualAttendance": zod.number().optional(),
+  "actualCostKes": zod.string().optional(),
+  "donationsCollectedKes": zod.string().optional(),
+  "lessonsLearned": zod.string().optional(),
+  "overallRating": zod.number().optional(),
+  "submittedAt": zod.string().optional()
+})
+
+
+/**
+ * @summary List event speakers
+ */
+export const GetEventsMgmtIdSpeakersParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const GetEventsMgmtIdSpeakersResponseItem = zod.object({
+  "id": zod.string().optional(),
+  "eventId": zod.string().optional(),
+  "fullName": zod.string().optional(),
+  "title": zod.string().optional(),
+  "topicEn": zod.string().optional(),
+  "allocatedMinutes": zod.number().optional(),
+  "talkOrder": zod.number().optional(),
+  "confirmed": zod.boolean().optional()
+})
+export const GetEventsMgmtIdSpeakersResponse = zod.array(GetEventsMgmtIdSpeakersResponseItem)
+
+
+/**
+ * @summary Add speaker to event
+ */
+export const PostEventsMgmtIdSpeakersParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PostEventsMgmtIdSpeakersBody = zod.object({
+  "fullName": zod.string(),
+  "title": zod.string().optional(),
+  "topicEn": zod.string().optional(),
+  "topicSw": zod.string().optional(),
+  "allocatedMinutes": zod.number().optional(),
+  "talkOrder": zod.number().optional()
+})
+
+export const PostEventsMgmtIdSpeakersResponse = zod.object({
+  "id": zod.string().optional(),
+  "eventId": zod.string().optional(),
+  "fullName": zod.string().optional(),
+  "title": zod.string().optional(),
+  "topicEn": zod.string().optional(),
+  "allocatedMinutes": zod.number().optional(),
+  "talkOrder": zod.number().optional(),
+  "confirmed": zod.boolean().optional()
+})
+
+
+/**
+ * @summary List misinformation claims
+ */
+export const GetRapidResponseClaimsQueryParams = zod.object({
+  "status": zod.coerce.string().optional(),
+  "urgency": zod.coerce.string().optional(),
+  "search": zod.coerce.string().optional(),
+  "page": zod.coerce.number().optional(),
+  "limit": zod.coerce.number().optional()
+})
+
+export const GetRapidResponseClaimsResponse = zod.object({
+  "data": zod.array(zod.object({
+  "id": zod.string().optional(),
+  "claimText": zod.string().optional(),
+  "sourceUrl": zod.string().optional(),
+  "platform": zod.string().optional(),
+  "urgency": zod.string().optional(),
+  "status": zod.string().optional(),
+  "assignedTo": zod.string().optional(),
+  "assignedAt": zod.string().optional(),
+  "legalClearance": zod.boolean().optional(),
+  "approvedAt": zod.string().optional(),
+  "createdAt": zod.string().optional(),
+  "updatedAt": zod.string().optional()
+})).optional(),
+  "total": zod.number().optional(),
+  "page": zod.number().optional(),
+  "pageSize": zod.number().optional()
+})
+
+
+/**
+ * @summary Report a misinformation claim
+ */
+export const PostRapidResponseClaimsBody = zod.object({
+  "claimText": zod.string(),
+  "sourceUrl": zod.string().optional(),
+  "platform": zod.string().optional(),
+  "urgency": zod.string()
+})
+
+export const PostRapidResponseClaimsResponse = zod.object({
+  "id": zod.string().optional(),
+  "claimText": zod.string().optional(),
+  "sourceUrl": zod.string().optional(),
+  "platform": zod.string().optional(),
+  "urgency": zod.string().optional(),
+  "status": zod.string().optional(),
+  "assignedTo": zod.string().optional(),
+  "assignedAt": zod.string().optional(),
+  "legalClearance": zod.boolean().optional(),
+  "approvedAt": zod.string().optional(),
+  "createdAt": zod.string().optional(),
+  "updatedAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Get claim detail with fact checks and corrections
+ */
+export const GetRapidResponseClaimsIdParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const GetRapidResponseClaimsIdResponse = zod.object({
+  "id": zod.string().optional(),
+  "claimText": zod.string().optional(),
+  "sourceUrl": zod.string().optional(),
+  "platform": zod.string().optional(),
+  "urgency": zod.string().optional(),
+  "status": zod.string().optional(),
+  "assignedTo": zod.string().optional(),
+  "assignedAt": zod.string().optional(),
+  "legalClearance": zod.boolean().optional(),
+  "approvedAt": zod.string().optional(),
+  "createdAt": zod.string().optional(),
+  "updatedAt": zod.string().optional()
+}).and(zod.object({
+  "factChecks": zod.array(zod.object({
+  "id": zod.string().optional(),
+  "claimId": zod.string().optional(),
+  "factCheckerId": zod.string().optional(),
+  "verdict": zod.string().optional(),
+  "evidenceSummary": zod.string().optional(),
+  "sourcesUsed": zod.array(zod.string()).optional(),
+  "completedAt": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})).optional(),
+  "corrections": zod.array(zod.object({
+  "id": zod.string().optional(),
+  "claimId": zod.string().optional(),
+  "correctionBodyEn": zod.string().optional(),
+  "correctionBodySw": zod.string().optional(),
+  "publishedAt": zod.string().optional(),
+  "distributionChannels": zod.array(zod.string()).optional(),
+  "distributionNotes": zod.string().optional()
+})).optional()
+}))
+
+
+/**
+ * @summary Update claim
+ */
+export const PatchRapidResponseClaimsIdParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PatchRapidResponseClaimsIdBody = zod.object({
+  "claimText": zod.string(),
+  "sourceUrl": zod.string().optional(),
+  "platform": zod.string().optional(),
+  "urgency": zod.string()
+})
+
+export const PatchRapidResponseClaimsIdResponse = zod.object({
+  "id": zod.string().optional(),
+  "claimText": zod.string().optional(),
+  "sourceUrl": zod.string().optional(),
+  "platform": zod.string().optional(),
+  "urgency": zod.string().optional(),
+  "status": zod.string().optional(),
+  "assignedTo": zod.string().optional(),
+  "assignedAt": zod.string().optional(),
+  "legalClearance": zod.boolean().optional(),
+  "approvedAt": zod.string().optional(),
+  "createdAt": zod.string().optional(),
+  "updatedAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Assign claim to fact-checker
+ */
+export const PostRapidResponseClaimsIdAssignParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PostRapidResponseClaimsIdAssignBody = zod.object({
+  "assignedTo": zod.string().optional()
+})
+
+export const PostRapidResponseClaimsIdAssignResponse = zod.object({
+  "id": zod.string().optional(),
+  "claimText": zod.string().optional(),
+  "sourceUrl": zod.string().optional(),
+  "platform": zod.string().optional(),
+  "urgency": zod.string().optional(),
+  "status": zod.string().optional(),
+  "assignedTo": zod.string().optional(),
+  "assignedAt": zod.string().optional(),
+  "legalClearance": zod.boolean().optional(),
+  "approvedAt": zod.string().optional(),
+  "createdAt": zod.string().optional(),
+  "updatedAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Submit fact check
+ */
+export const PostRapidResponseClaimsIdFactChecksParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PostRapidResponseClaimsIdFactChecksBody = zod.object({
+  "verdict": zod.string(),
+  "evidenceSummary": zod.string().optional(),
+  "sourcesUsed": zod.array(zod.string()).optional()
+})
+
+export const PostRapidResponseClaimsIdFactChecksResponse = zod.object({
+  "id": zod.string().optional(),
+  "claimId": zod.string().optional(),
+  "factCheckerId": zod.string().optional(),
+  "verdict": zod.string().optional(),
+  "evidenceSummary": zod.string().optional(),
+  "sourcesUsed": zod.array(zod.string()).optional(),
+  "completedAt": zod.string().optional(),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Submit legal review
+ */
+export const PostRapidResponseClaimsIdLegalReviewParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PostRapidResponseClaimsIdLegalReviewBody = zod.object({
+  "legalClearance": zod.boolean(),
+  "legalNotes": zod.string().optional()
+})
+
+export const PostRapidResponseClaimsIdLegalReviewResponse = zod.object({
+  "id": zod.string().optional(),
+  "claimText": zod.string().optional(),
+  "sourceUrl": zod.string().optional(),
+  "platform": zod.string().optional(),
+  "urgency": zod.string().optional(),
+  "status": zod.string().optional(),
+  "assignedTo": zod.string().optional(),
+  "assignedAt": zod.string().optional(),
+  "legalClearance": zod.boolean().optional(),
+  "approvedAt": zod.string().optional(),
+  "createdAt": zod.string().optional(),
+  "updatedAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Approve claim for correction publishing
+ */
+export const PostRapidResponseClaimsIdApproveParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PostRapidResponseClaimsIdApproveResponse = zod.object({
+  "id": zod.string().optional(),
+  "claimText": zod.string().optional(),
+  "sourceUrl": zod.string().optional(),
+  "platform": zod.string().optional(),
+  "urgency": zod.string().optional(),
+  "status": zod.string().optional(),
+  "assignedTo": zod.string().optional(),
+  "assignedAt": zod.string().optional(),
+  "legalClearance": zod.boolean().optional(),
+  "approvedAt": zod.string().optional(),
+  "createdAt": zod.string().optional(),
+  "updatedAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Publish correction
+ */
+export const PostRapidResponseClaimsIdCorrectionsParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PostRapidResponseClaimsIdCorrectionsBody = zod.object({
+  "correctionBodyEn": zod.string(),
+  "correctionBodySw": zod.string().optional(),
+  "distributionChannels": zod.array(zod.string()).optional(),
+  "distributionNotes": zod.string().optional()
+})
+
+export const PostRapidResponseClaimsIdCorrectionsResponse = zod.object({
+  "id": zod.string().optional(),
+  "claimId": zod.string().optional(),
+  "correctionBodyEn": zod.string().optional(),
+  "correctionBodySw": zod.string().optional(),
+  "publishedAt": zod.string().optional(),
+  "distributionChannels": zod.array(zod.string()).optional(),
+  "distributionNotes": zod.string().optional()
+})
+
+
+/**
+ * @summary Archive claim
+ */
+export const PostRapidResponseClaimsIdArchiveParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const PostRapidResponseClaimsIdArchiveResponse = zod.object({
+  "id": zod.string().optional(),
+  "claimText": zod.string().optional(),
+  "sourceUrl": zod.string().optional(),
+  "platform": zod.string().optional(),
+  "urgency": zod.string().optional(),
+  "status": zod.string().optional(),
+  "assignedTo": zod.string().optional(),
+  "assignedAt": zod.string().optional(),
+  "legalClearance": zod.boolean().optional(),
+  "approvedAt": zod.string().optional(),
+  "createdAt": zod.string().optional(),
+  "updatedAt": zod.string().optional()
+})
+
+

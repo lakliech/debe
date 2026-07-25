@@ -1652,6 +1652,1299 @@ paths:
               schema:
                 $ref: "#/components/schemas/DataRequest"
 
+
+  # ── FINANCE ─────────────────────────────────────────────────────────────────
+  /finance/dashboard:
+    get:
+      summary: Finance dashboard stats
+      tags: [finance]
+      security: [{ BearerAuth: [] }]
+      responses:
+        "200":
+          description: Finance dashboard
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FinanceDashboard"
+
+  /finance/mpesa/stk-push:
+    post:
+      summary: Initiate M-Pesa STK push
+      tags: [finance]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StkPushInput"
+      responses:
+        "200":
+          description: STK push initiated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StkPushResponse"
+
+  /finance/contributions:
+    get:
+      summary: List contributions
+      tags: [finance]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: channel, in: query, schema: { type: string } }
+        - { name: verificationStatus, in: query, schema: { type: string } }
+        - { name: complianceFlag, in: query, schema: { type: string } }
+        - { name: ledger, in: query, schema: { type: string } }
+        - { name: search, in: query, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer } }
+        - { name: limit, in: query, schema: { type: integer } }
+      responses:
+        "200":
+          description: Contributions list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContributionListResponse"
+    post:
+      summary: Record a contribution
+      tags: [finance]
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContributionInput"
+      responses:
+        "201":
+          description: Contribution created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contribution"
+
+  /finance/contributions/{id}:
+    get:
+      summary: Get contribution by ID
+      tags: [finance]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Contribution detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContributionDetail"
+
+  /finance/contributions/{id}/verify:
+    patch:
+      summary: Verify or reject a contribution
+      tags: [finance]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyContributionBody"
+      responses:
+        "200":
+          description: Updated contribution
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contribution"
+
+  /finance/alerts:
+    get:
+      summary: List donor alerts
+      tags: [finance]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: status, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Alerts list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DonorAlert"
+
+  /finance/alerts/{id}/resolve:
+    patch:
+      summary: Resolve a donor alert
+      tags: [finance]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveAlertBody"
+      responses:
+        "200":
+          description: Resolved alert
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DonorAlert"
+
+  /finance/budget-categories:
+    get:
+      summary: List budget categories
+      tags: [finance]
+      security: [{ BearerAuth: [] }]
+      responses:
+        "200":
+          description: Budget categories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BudgetCategory"
+    post:
+      summary: Create budget category
+      tags: [finance]
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BudgetCategoryInput"
+      responses:
+        "201":
+          description: Created category
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BudgetCategory"
+
+  /finance/budget-lines:
+    get:
+      summary: List budget lines
+      tags: [finance]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: categoryId, in: query, schema: { type: string } }
+        - { name: fiscalPeriod, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Budget lines
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BudgetLine"
+    post:
+      summary: Create budget line
+      tags: [finance]
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BudgetLineInput"
+      responses:
+        "201":
+          description: Created line
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BudgetLine"
+
+  /finance/expenditure-requests:
+    get:
+      summary: List expenditure requests
+      tags: [finance]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: status, in: query, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer } }
+        - { name: limit, in: query, schema: { type: integer } }
+      responses:
+        "200":
+          description: Expenditure requests
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExpenditureListResponse"
+    post:
+      summary: Create expenditure request
+      tags: [finance]
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExpenditureRequestInput"
+      responses:
+        "201":
+          description: Created request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExpenditureRequest"
+
+  /finance/expenditure-requests/{id}:
+    get:
+      summary: Get expenditure request
+      tags: [finance]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Expenditure request detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExpenditureRequest"
+
+  /finance/expenditure-requests/{id}/first-approve:
+    post:
+      summary: First-level approval
+      tags: [finance]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                approvedAmount: { type: number }
+      responses:
+        "200":
+          description: Updated request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExpenditureRequest"
+
+  /finance/expenditure-requests/{id}/final-approve:
+    post:
+      summary: Final approval and voucher generation
+      tags: [finance]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                paymentMethod: { type: string }
+      responses:
+        "200":
+          description: Approved with voucher
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExpenditureApprovalResponse"
+
+  /finance/expenditure-requests/{id}/reject:
+    post:
+      summary: Reject expenditure request
+      tags: [finance]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string }
+      responses:
+        "200":
+          description: Rejected request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExpenditureRequest"
+
+  /finance/vouchers:
+    get:
+      summary: List payment vouchers
+      tags: [finance]
+      security: [{ BearerAuth: [] }]
+      responses:
+        "200":
+          description: Vouchers list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PaymentVoucher"
+
+  # ── COMMUNICATIONS ──────────────────────────────────────────────────────────
+  /communications/templates:
+    get:
+      summary: List message templates
+      tags: [communications]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: channel, in: query, schema: { type: string } }
+        - { name: category, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string } }
+        - { name: search, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Templates list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MessageTemplate"
+    post:
+      summary: Create message template
+      tags: [communications]
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MessageTemplateInput"
+      responses:
+        "201":
+          description: Created template
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageTemplate"
+
+  /communications/templates/{id}:
+    get:
+      summary: Get template by ID
+      tags: [communications]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Template detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageTemplate"
+    patch:
+      summary: Update message template
+      tags: [communications]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MessageTemplateInput"
+      responses:
+        "200":
+          description: Updated template
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageTemplate"
+
+  /communications/templates/{id}/submit:
+    post:
+      summary: Submit template for approval
+      tags: [communications]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageTemplate"
+
+  /communications/templates/{id}/approve:
+    post:
+      summary: Approve template
+      tags: [communications]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageTemplate"
+
+  /communications/templates/{id}/suspend:
+    post:
+      summary: Emergency suspend template
+      tags: [communications]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string }
+      responses:
+        "200":
+          description: Suspended
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageTemplate"
+
+  /communications/segments:
+    get:
+      summary: List audience segments
+      tags: [communications]
+      security: [{ BearerAuth: [] }]
+      responses:
+        "200":
+          description: Segments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AudienceSegment"
+    post:
+      summary: Create audience segment
+      tags: [communications]
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AudienceSegmentInput"
+      responses:
+        "201":
+          description: Created segment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AudienceSegment"
+
+  /communications/segments/{id}:
+    get:
+      summary: Get segment by ID
+      tags: [communications]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Segment detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AudienceSegment"
+
+  /communications/messages:
+    get:
+      summary: List scheduled messages
+      tags: [communications]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: status, in: query, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer } }
+        - { name: limit, in: query, schema: { type: integer } }
+      responses:
+        "200":
+          description: Scheduled messages
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScheduledMessageListResponse"
+    post:
+      summary: Schedule a message
+      tags: [communications]
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScheduledMessageInput"
+      responses:
+        "201":
+          description: Scheduled message created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScheduledMessage"
+
+  /communications/messages/{id}/approve:
+    post:
+      summary: Approve scheduled message
+      tags: [communications]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScheduledMessage"
+
+  /communications/messages/{id}/emergency-suspend:
+    post:
+      summary: Emergency suspend message
+      tags: [communications]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Suspended
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScheduledMessage"
+
+  /communications/spokespeople:
+    get:
+      summary: List spokespeople
+      tags: [communications]
+      security: [{ BearerAuth: [] }]
+      responses:
+        "200":
+          description: Spokespeople
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Spokesperson"
+    post:
+      summary: Add spokesperson
+      tags: [communications]
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SpokespersonInput"
+      responses:
+        "201":
+          description: Created spokesperson
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Spokesperson"
+
+  /communications/statements:
+    get:
+      summary: List statements
+      tags: [communications]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: status, in: query, schema: { type: string } }
+        - { name: category, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Statements
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Statement"
+    post:
+      summary: Create statement
+      tags: [communications]
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StatementInput"
+      responses:
+        "201":
+          description: Created statement
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Statement"
+
+  /communications/statements/{id}:
+    get:
+      summary: Get statement with versions
+      tags: [communications]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Statement detail with versions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementDetail"
+
+  /communications/statements/{id}/versions:
+    post:
+      summary: Add statement version
+      tags: [communications]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StatementVersionInput"
+      responses:
+        "201":
+          description: Version created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementVersion"
+
+  /communications/statements/{id}/publish:
+    post:
+      summary: Publish statement
+      tags: [communications]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Published
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Statement"
+
+  /communications/statements/{id}/retract:
+    post:
+      summary: Retract statement
+      tags: [communications]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string }
+      responses:
+        "200":
+          description: Retracted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Statement"
+
+  # ── CONTENT LIBRARY ─────────────────────────────────────────────────────────
+  /content/assets:
+    get:
+      summary: List content assets
+      tags: [content]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: category, in: query, schema: { type: string } }
+        - { name: approvalStatus, in: query, schema: { type: string } }
+        - { name: countyId, in: query, schema: { type: string } }
+        - { name: search, in: query, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer } }
+        - { name: limit, in: query, schema: { type: integer } }
+      responses:
+        "200":
+          description: Assets
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentAssetListResponse"
+    post:
+      summary: Create content asset catalogue entry
+      tags: [content]
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContentAssetInput"
+      responses:
+        "201":
+          description: Created asset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentAsset2"
+
+  /content/assets/{id}:
+    get:
+      summary: Get content asset
+      tags: [content]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Asset detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentAssetDetail"
+    patch:
+      summary: Update content asset metadata
+      tags: [content]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContentAssetInput"
+      responses:
+        "200":
+          description: Updated asset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentAsset2"
+
+  /content/assets/{id}/approve:
+    post:
+      summary: Approve content asset
+      tags: [content]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentAsset2"
+
+  /content/assets/{id}/reject:
+    post:
+      summary: Reject content asset
+      tags: [content]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentAsset2"
+
+  /content/assets/{id}/download:
+    post:
+      summary: Record download and get object path
+      tags: [content]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                purpose: { type: string }
+      responses:
+        "200":
+          description: Download info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  objectPath: { type: string }
+                  title: { type: string }
+
+  /content/assets/{id}/history:
+    get:
+      summary: Asset download history
+      tags: [content]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Download records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DownloadRecord"
+
+  # ── EVENTS MANAGEMENT ───────────────────────────────────────────────────────
+  /events-mgmt:
+    get:
+      summary: List events (admin)
+      tags: [events]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: status, in: query, schema: { type: string } }
+        - { name: countyId, in: query, schema: { type: string } }
+        - { name: search, in: query, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer } }
+        - { name: limit, in: query, schema: { type: integer } }
+      responses:
+        "200":
+          description: Events
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventMgmtListResponse"
+    post:
+      summary: Create event proposal
+      tags: [events]
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EventInput"
+      responses:
+        "201":
+          description: Created event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventMgmt"
+
+  /events-mgmt/{id}:
+    get:
+      summary: Get event detail
+      tags: [events]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Event detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventMgmtDetail"
+    patch:
+      summary: Update event
+      tags: [events]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EventInput"
+      responses:
+        "200":
+          description: Updated event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventMgmt"
+
+  /events-mgmt/{id}/submit-approval:
+    post:
+      summary: Submit event for approval
+      tags: [events]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventMgmt"
+
+  /events-mgmt/{id}/approve:
+    post:
+      summary: Approve event
+      tags: [events]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventMgmt"
+
+  /events-mgmt/{id}/register:
+    post:
+      summary: Register for event (public)
+      tags: [events]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EventRegistrationInput"
+      responses:
+        "201":
+          description: Registration created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventRegistration"
+
+  /events-mgmt/{id}/registrations:
+    get:
+      summary: List event registrations
+      tags: [events]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: checkedIn, in: query, schema: { type: string } }
+        - { name: search, in: query, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer } }
+        - { name: limit, in: query, schema: { type: integer } }
+      responses:
+        "200":
+          description: Registrations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventRegistrationListResponse"
+
+  /events-mgmt/{id}/check-in:
+    post:
+      summary: Check in attendee
+      tags: [events]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CheckInBody"
+      responses:
+        "200":
+          description: Check-in result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckInResponse"
+
+  /events-mgmt/{id}/incidents:
+    post:
+      summary: Report incident
+      tags: [events]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EventIncidentInput"
+      responses:
+        "201":
+          description: Incident created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventIncident"
+
+  /events-mgmt/{id}/reconciliation:
+    post:
+      summary: Submit post-event reconciliation
+      tags: [events]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EventReconciliationInput"
+      responses:
+        "201":
+          description: Reconciliation submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventReconciliation"
+
+  /events-mgmt/{id}/speakers:
+    get:
+      summary: List event speakers
+      tags: [events]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Speakers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EventSpeaker"
+    post:
+      summary: Add speaker to event
+      tags: [events]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EventSpeakerInput"
+      responses:
+        "201":
+          description: Speaker added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventSpeaker"
+
+  # ── RAPID RESPONSE ──────────────────────────────────────────────────────────
+  /rapid-response/claims:
+    get:
+      summary: List misinformation claims
+      tags: [rapidResponse]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: status, in: query, schema: { type: string } }
+        - { name: urgency, in: query, schema: { type: string } }
+        - { name: search, in: query, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer } }
+        - { name: limit, in: query, schema: { type: integer } }
+      responses:
+        "200":
+          description: Claims
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MisinformationClaimListResponse"
+    post:
+      summary: Report a misinformation claim
+      tags: [rapidResponse]
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MisinformationClaimInput"
+      responses:
+        "201":
+          description: Claim created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MisinformationClaim"
+
+  /rapid-response/claims/{id}:
+    get:
+      summary: Get claim detail with fact checks and corrections
+      tags: [rapidResponse]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Claim detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MisinformationClaimDetail"
+    patch:
+      summary: Update claim
+      tags: [rapidResponse]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MisinformationClaimInput"
+      responses:
+        "200":
+          description: Updated claim
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MisinformationClaim"
+
+  /rapid-response/claims/{id}/assign:
+    post:
+      summary: Assign claim to fact-checker
+      tags: [rapidResponse]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                assignedTo: { type: string }
+      responses:
+        "200":
+          description: Assigned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MisinformationClaim"
+
+  /rapid-response/claims/{id}/fact-checks:
+    post:
+      summary: Submit fact check
+      tags: [rapidResponse]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FactCheckInput"
+      responses:
+        "201":
+          description: Fact check created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClaimFactCheck"
+
+  /rapid-response/claims/{id}/legal-review:
+    post:
+      summary: Submit legal review
+      tags: [rapidResponse]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LegalReviewInput"
+      responses:
+        "200":
+          description: Legal review submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MisinformationClaim"
+
+  /rapid-response/claims/{id}/approve:
+    post:
+      summary: Approve claim for correction publishing
+      tags: [rapidResponse]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MisinformationClaim"
+
+  /rapid-response/claims/{id}/corrections:
+    post:
+      summary: Publish correction
+      tags: [rapidResponse]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClaimCorrectionInput"
+      responses:
+        "201":
+          description: Correction published
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClaimCorrection"
+
+  /rapid-response/claims/{id}/archive:
+    post:
+      summary: Archive claim
+      tags: [rapidResponse]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Archived
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MisinformationClaim"
+
 components:
   schemas:
     HealthStatus:
@@ -3079,3 +4372,738 @@ components:
           type: string
         resolvedAt:
           type: string
+    # ── FINANCE SCHEMAS ──────────────────────────────────────────────────────
+    FinanceDashboard:
+      type: object
+      properties:
+        totalRaisedKes: { type: string }
+        totalContributions: { type: integer }
+        todayRaisedKes: { type: string }
+        todayContributions: { type: integer }
+        byChannel:
+          type: array
+          items:
+            type: object
+            properties:
+              channel: { type: string }
+              total: { type: string }
+              count: { type: integer }
+        openAlerts: { type: integer }
+        pendingVerification: { type: integer }
+
+    StkPushInput:
+      type: object
+      required: [phoneNumber, amount]
+      properties:
+        phoneNumber: { type: string }
+        amount: { type: number }
+        accountReference: { type: string }
+        transactionDesc: { type: string }
+
+    StkPushResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        checkoutRequestId: { type: string }
+        transactionId: { type: string }
+        customerMessage: { type: string }
+        error: { type: string }
+
+    Contribution:
+      type: object
+      properties:
+        id: { type: string }
+        referenceNumber: { type: string }
+        donorFullName: { type: string }
+        donorEmail: { type: string }
+        donorPhone: { type: string }
+        donorIdNumber: { type: string }
+        donorEntityType: { type: string }
+        amount: { type: string }
+        currency: { type: string }
+        channel: { type: string }
+        purpose: { type: string }
+        contributionType: { type: string }
+        ledger: { type: string }
+        mpesaReceiptNumber: { type: string }
+        bankTransactionRef: { type: string }
+        complianceFlag: { type: string }
+        verificationStatus: { type: string }
+        verifiedAt: { type: string }
+        notes: { type: string }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+
+    ContributionDetail:
+      allOf:
+        - $ref: "#/components/schemas/Contribution"
+        - type: object
+          properties:
+            inKind:
+              type: array
+              items:
+                type: object
+                properties:
+                  id: { type: string }
+                  itemDescription: { type: string }
+                  category: { type: string }
+                  quantity: { type: integer }
+                  estimatedValueKes: { type: string }
+
+    ContributionListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Contribution"
+        total: { type: integer }
+        page: { type: integer }
+        pageSize: { type: integer }
+
+    ContributionInput:
+      type: object
+      required: [donorFullName, amount, channel]
+      properties:
+        donorFullName: { type: string }
+        donorEmail: { type: string }
+        donorPhone: { type: string }
+        donorIdNumber: { type: string }
+        amount: { type: number }
+        channel: { type: string }
+        purpose: { type: string }
+        ledger: { type: string }
+        sourceDeclaration: { type: string }
+        notes: { type: string }
+
+    VerifyContributionBody:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [verified, rejected] }
+        rejectionReason: { type: string }
+
+    DonorAlert:
+      type: object
+      properties:
+        id: { type: string }
+        alertType: { type: string }
+        severity: { type: string }
+        contributionId: { type: string }
+        donorPhone: { type: string }
+        description: { type: string }
+        status: { type: string }
+        resolutionNotes: { type: string }
+        createdAt: { type: string }
+
+    ResolveAlertBody:
+      type: object
+      properties:
+        status: { type: string }
+        resolutionNotes: { type: string }
+
+    BudgetCategory:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        code: { type: string }
+        description: { type: string }
+        ledger: { type: string }
+        totalAllocatedKes: { type: string }
+        createdAt: { type: string }
+
+    BudgetCategoryInput:
+      type: object
+      required: [name, code]
+      properties:
+        name: { type: string }
+        code: { type: string }
+        description: { type: string }
+        ledger: { type: string }
+
+    BudgetLine:
+      type: object
+      properties:
+        id: { type: string }
+        categoryId: { type: string }
+        title: { type: string }
+        allocatedAmountKes: { type: string }
+        spentAmountKes: { type: string }
+        fiscalPeriod: { type: string }
+        status: { type: string }
+        createdAt: { type: string }
+
+    BudgetLineInput:
+      type: object
+      required: [categoryId, title, allocatedAmountKes, fiscalPeriod]
+      properties:
+        categoryId: { type: string }
+        title: { type: string }
+        description: { type: string }
+        allocatedAmountKes: { type: number }
+        fiscalPeriod: { type: string }
+
+    ExpenditureRequest:
+      type: object
+      properties:
+        id: { type: string }
+        referenceNumber: { type: string }
+        title: { type: string }
+        description: { type: string }
+        requestedAmountKes: { type: string }
+        approvedAmountKes: { type: string }
+        payeeName: { type: string }
+        payeeBank: { type: string }
+        status: { type: string }
+        requestedBy: { type: string }
+        ledger: { type: string }
+        createdAt: { type: string }
+
+    ExpenditureListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExpenditureRequest"
+        total: { type: integer }
+        page: { type: integer }
+        pageSize: { type: integer }
+
+    ExpenditureRequestInput:
+      type: object
+      required: [title, description, requestedAmountKes, payeeName, categoryId]
+      properties:
+        title: { type: string }
+        description: { type: string }
+        categoryId: { type: string }
+        requestedAmountKes: { type: number }
+        payeeName: { type: string }
+        payeeBank: { type: string }
+        payeeAccountNumber: { type: string }
+        payeePhone: { type: string }
+        notes: { type: string }
+
+    ExpenditureApprovalResponse:
+      type: object
+      properties:
+        expenditure:
+          $ref: "#/components/schemas/ExpenditureRequest"
+        voucher:
+          $ref: "#/components/schemas/PaymentVoucher"
+
+    PaymentVoucher:
+      type: object
+      properties:
+        id: { type: string }
+        voucherNumber: { type: string }
+        expenditureRequestId: { type: string }
+        amountKes: { type: string }
+        paymentMethod: { type: string }
+        ledger: { type: string }
+        issuedBy: { type: string }
+        createdAt: { type: string }
+
+    # ── COMMUNICATIONS SCHEMAS ───────────────────────────────────────────────
+    MessageTemplate:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        channel: { type: string }
+        category: { type: string }
+        subjectEn: { type: string }
+        subjectSw: { type: string }
+        bodyEn: { type: string }
+        bodySw: { type: string }
+        status: { type: string }
+        createdBy: { type: string }
+        approvedAt: { type: string }
+        createdAt: { type: string }
+
+    MessageTemplateInput:
+      type: object
+      required: [name, channel, category, bodyEn, bodySw]
+      properties:
+        name: { type: string }
+        channel: { type: string }
+        category: { type: string }
+        subjectEn: { type: string }
+        subjectSw: { type: string }
+        bodyEn: { type: string }
+        bodySw: { type: string }
+
+    AudienceSegment:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        filters: { type: object }
+        estimatedReach: { type: integer }
+        createdAt: { type: string }
+
+    AudienceSegmentInput:
+      type: object
+      required: [name, filters]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        filters: { type: object }
+
+    ScheduledMessage:
+      type: object
+      properties:
+        id: { type: string }
+        templateId: { type: string }
+        segmentId: { type: string }
+        languageCode: { type: string }
+        scheduledAt: { type: string }
+        status: { type: string }
+        estimatedRecipients: { type: integer }
+        actualRecipients: { type: integer }
+        deliveredCount: { type: integer }
+        createdAt: { type: string }
+
+    ScheduledMessageListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScheduledMessage"
+        total: { type: integer }
+        page: { type: integer }
+        pageSize: { type: integer }
+
+    ScheduledMessageInput:
+      type: object
+      required: [templateId, segmentId, scheduledAt]
+      properties:
+        templateId: { type: string }
+        segmentId: { type: string }
+        scheduledAt: { type: string }
+        languageCode: { type: string }
+
+    Spokesperson:
+      type: object
+      properties:
+        id: { type: string }
+        fullName: { type: string }
+        title: { type: string }
+        portfolios: { type: array, items: { type: string } }
+        phone: { type: string }
+        email: { type: string }
+        isActive: { type: boolean }
+        priority: { type: integer }
+
+    SpokespersonInput:
+      type: object
+      required: [fullName, title]
+      properties:
+        fullName: { type: string }
+        title: { type: string }
+        portfolios: { type: array, items: { type: string } }
+        phone: { type: string }
+        email: { type: string }
+        isActive: { type: boolean }
+
+    Statement:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        category: { type: string }
+        status: { type: string }
+        spokespersonId: { type: string }
+        publishedAt: { type: string }
+        retractedAt: { type: string }
+        retractionReason: { type: string }
+        createdAt: { type: string }
+
+    StatementVersion:
+      type: object
+      properties:
+        id: { type: string }
+        statementId: { type: string }
+        version: { type: integer }
+        bodyEn: { type: string }
+        bodySw: { type: string }
+        changeNote: { type: string }
+        authorId: { type: string }
+        createdAt: { type: string }
+
+    StatementDetail:
+      allOf:
+        - $ref: "#/components/schemas/Statement"
+        - type: object
+          properties:
+            versions:
+              type: array
+              items:
+                $ref: "#/components/schemas/StatementVersion"
+
+    StatementInput:
+      type: object
+      required: [title, category, bodyEn]
+      properties:
+        title: { type: string }
+        category: { type: string }
+        spokespersonId: { type: string }
+        bodyEn: { type: string }
+        bodySw: { type: string }
+
+    StatementVersionInput:
+      type: object
+      required: [bodyEn]
+      properties:
+        bodyEn: { type: string }
+        bodySw: { type: string }
+        changeNote: { type: string }
+
+    # ── CONTENT LIBRARY SCHEMAS ──────────────────────────────────────────────
+    ContentAsset2:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        description: { type: string }
+        category: { type: string }
+        objectPath: { type: string }
+        mimeType: { type: string }
+        publishingRights: { type: string }
+        approvalStatus: { type: string }
+        currentVersion: { type: integer }
+        downloadCount: { type: integer }
+        countyId: { type: string }
+        language: { type: string }
+        expiresAt: { type: string }
+        createdAt: { type: string }
+
+    ContentAssetDetail:
+      allOf:
+        - $ref: "#/components/schemas/ContentAsset2"
+        - type: object
+          properties:
+            versions:
+              type: array
+              items:
+                type: object
+                properties:
+                  id: { type: string }
+                  version: { type: integer }
+                  objectPath: { type: string }
+                  changeNote: { type: string }
+                  createdAt: { type: string }
+            downloadCount: { type: integer }
+
+    ContentAssetListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/ContentAsset2"
+        total: { type: integer }
+        page: { type: integer }
+        pageSize: { type: integer }
+
+    ContentAssetInput:
+      type: object
+      required: [title, category, objectPath]
+      properties:
+        title: { type: string }
+        description: { type: string }
+        category: { type: string }
+        objectPath: { type: string }
+        mimeType: { type: string }
+        publishingRights: { type: string }
+        countyId: { type: string }
+        language: { type: string }
+        expiresAt: { type: string }
+
+    DownloadRecord:
+      type: object
+      properties:
+        id: { type: string }
+        assetId: { type: string }
+        downloadedByEmail: { type: string }
+        purpose: { type: string }
+        createdAt: { type: string }
+
+    # ── EVENTS SCHEMAS ───────────────────────────────────────────────────────
+    EventMgmt:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        description: { type: string }
+        eventType: { type: string }
+        venue: { type: string }
+        countyId: { type: string }
+        eventDate: { type: string }
+        startTime: { type: string }
+        endTime: { type: string }
+        expectedAttendance: { type: integer }
+        actualAttendance: { type: integer }
+        status: { type: string }
+        budgetKes: { type: integer }
+        createdAt: { type: string }
+
+    EventMgmtDetail:
+      allOf:
+        - $ref: "#/components/schemas/EventMgmt"
+        - type: object
+          properties:
+            registrationCount: { type: integer }
+            speakers:
+              type: array
+              items:
+                $ref: "#/components/schemas/EventSpeaker"
+            incidents:
+              type: array
+              items:
+                $ref: "#/components/schemas/EventIncident"
+            reconciliation: { type: object }
+
+    EventMgmtListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/EventMgmt"
+        total: { type: integer }
+        page: { type: integer }
+        pageSize: { type: integer }
+
+    EventInput:
+      type: object
+      required: [title, eventType]
+      properties:
+        title: { type: string }
+        description: { type: string }
+        eventType: { type: string }
+        venue: { type: string }
+        countyId: { type: string }
+        eventDate: { type: string }
+        startTime: { type: string }
+        endTime: { type: string }
+        expectedAttendance: { type: integer }
+        budgetKes: { type: integer }
+
+    EventRegistration:
+      type: object
+      properties:
+        id: { type: string }
+        eventId: { type: string }
+        fullName: { type: string }
+        phone: { type: string }
+        email: { type: string }
+        registrationType: { type: string }
+        qrCode: { type: string }
+        checkedIn: { type: boolean }
+        checkedInAt: { type: string }
+        createdAt: { type: string }
+
+    EventRegistrationListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/EventRegistration"
+        total: { type: integer }
+        page: { type: integer }
+        pageSize: { type: integer }
+
+    EventRegistrationInput:
+      type: object
+      required: [fullName, phone]
+      properties:
+        fullName: { type: string }
+        phone: { type: string }
+        email: { type: string }
+        organization: { type: string }
+        registrationType: { type: string }
+
+    CheckInBody:
+      type: object
+      properties:
+        qrCode: { type: string }
+        registrationId: { type: string }
+
+    CheckInResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        registration:
+          $ref: "#/components/schemas/EventRegistration"
+
+    EventIncident:
+      type: object
+      properties:
+        id: { type: string }
+        eventId: { type: string }
+        incidentType: { type: string }
+        severity: { type: string }
+        description: { type: string }
+        location: { type: string }
+        reportedBy: { type: string }
+        resolvedAt: { type: string }
+        resolution: { type: string }
+        createdAt: { type: string }
+
+    EventIncidentInput:
+      type: object
+      required: [incidentType, severity, description]
+      properties:
+        incidentType: { type: string }
+        severity: { type: string }
+        description: { type: string }
+        location: { type: string }
+
+    EventReconciliation:
+      type: object
+      properties:
+        id: { type: string }
+        eventId: { type: string }
+        actualAttendance: { type: integer }
+        actualCostKes: { type: string }
+        donationsCollectedKes: { type: string }
+        lessonsLearned: { type: string }
+        overallRating: { type: integer }
+        submittedAt: { type: string }
+
+    EventReconciliationInput:
+      type: object
+      properties:
+        actualAttendance: { type: integer }
+        actualCostKes: { type: number }
+        budgetedCostKes: { type: number }
+        donationsCollectedKes: { type: number }
+        lessonsLearned: { type: string }
+        mediaImpactNotes: { type: string }
+        overallRating: { type: integer }
+
+    EventSpeaker:
+      type: object
+      properties:
+        id: { type: string }
+        eventId: { type: string }
+        fullName: { type: string }
+        title: { type: string }
+        topicEn: { type: string }
+        allocatedMinutes: { type: integer }
+        talkOrder: { type: integer }
+        confirmed: { type: boolean }
+
+    EventSpeakerInput:
+      type: object
+      required: [fullName]
+      properties:
+        fullName: { type: string }
+        title: { type: string }
+        topicEn: { type: string }
+        topicSw: { type: string }
+        allocatedMinutes: { type: integer }
+        talkOrder: { type: integer }
+
+    # ── RAPID RESPONSE SCHEMAS ───────────────────────────────────────────────
+    MisinformationClaim:
+      type: object
+      properties:
+        id: { type: string }
+        claimText: { type: string }
+        sourceUrl: { type: string }
+        platform: { type: string }
+        urgency: { type: string }
+        status: { type: string }
+        assignedTo: { type: string }
+        assignedAt: { type: string }
+        legalClearance: { type: boolean }
+        approvedAt: { type: string }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+
+    MisinformationClaimDetail:
+      allOf:
+        - $ref: "#/components/schemas/MisinformationClaim"
+        - type: object
+          properties:
+            factChecks:
+              type: array
+              items:
+                $ref: "#/components/schemas/ClaimFactCheck"
+            corrections:
+              type: array
+              items:
+                $ref: "#/components/schemas/ClaimCorrection"
+
+    MisinformationClaimListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/MisinformationClaim"
+        total: { type: integer }
+        page: { type: integer }
+        pageSize: { type: integer }
+
+    MisinformationClaimInput:
+      type: object
+      required: [claimText, urgency]
+      properties:
+        claimText: { type: string }
+        sourceUrl: { type: string }
+        platform: { type: string }
+        urgency: { type: string }
+
+    ClaimFactCheck:
+      type: object
+      properties:
+        id: { type: string }
+        claimId: { type: string }
+        factCheckerId: { type: string }
+        verdict: { type: string }
+        evidenceSummary: { type: string }
+        sourcesUsed: { type: array, items: { type: string } }
+        completedAt: { type: string }
+        createdAt: { type: string }
+
+    FactCheckInput:
+      type: object
+      required: [verdict]
+      properties:
+        verdict: { type: string }
+        evidenceSummary: { type: string }
+        sourcesUsed: { type: array, items: { type: string } }
+
+    LegalReviewInput:
+      type: object
+      required: [legalClearance]
+      properties:
+        legalClearance: { type: boolean }
+        legalNotes: { type: string }
+
+    ClaimCorrection:
+      type: object
+      properties:
+        id: { type: string }
+        claimId: { type: string }
+        correctionBodyEn: { type: string }
+        correctionBodySw: { type: string }
+        publishedAt: { type: string }
+        distributionChannels: { type: array, items: { type: string } }
+        distributionNotes: { type: string }
+
+    ClaimCorrectionInput:
+      type: object
+      required: [correctionBodyEn]
+      properties:
+        correctionBodyEn: { type: string }
+        correctionBodySw: { type: string }
+        distributionChannels: { type: array, items: { type: string } }
+        distributionNotes: { type: string }

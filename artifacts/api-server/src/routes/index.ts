@@ -12,10 +12,17 @@ import trainingRouter from "./training";
 import publicPortalRouter from "./publicPortal";
 import dataRequestsRouter from "./dataRequests";
 import coordinatorRouter from "./coordinator";
+import financeRouter from "./finance";
+import communicationsRouter from "./communications";
+import contentLibraryRouter from "./contentLibrary";
+import eventsMgmtRouter from "./eventsMgmt";
+import rapidResponseRouter from "./rapidResponse";
+import storageRouter from "./storage";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
+router.use(storageRouter);
 router.use("/users", usersRouter);
 router.use("/roles", rolesRouter);
 router.use("/geography", geographyRouter);
@@ -28,5 +35,10 @@ router.use("/training", trainingRouter);
 router.use("/public", publicPortalRouter);
 router.use("/data-requests", dataRequestsRouter);
 router.use("/coordinator", coordinatorRouter);
+router.use("/finance", financeRouter);
+router.use("/communications", communicationsRouter);
+router.use("/content", contentLibraryRouter);
+router.use("/events-mgmt", eventsMgmtRouter);
+router.use("/rapid-response", rapidResponseRouter);
 
 export default router;

@@ -855,6 +855,616 @@ export interface DataRequestUpdate {
   resolvedAt?: string;
 }
 
+export type FinanceDashboardByChannelItem = {
+  channel?: string;
+  total?: string;
+  count?: number;
+};
+
+export interface FinanceDashboard {
+  totalRaisedKes?: string;
+  totalContributions?: number;
+  todayRaisedKes?: string;
+  todayContributions?: number;
+  byChannel?: FinanceDashboardByChannelItem[];
+  openAlerts?: number;
+  pendingVerification?: number;
+}
+
+export interface StkPushInput {
+  phoneNumber: string;
+  amount: number;
+  accountReference?: string;
+  transactionDesc?: string;
+}
+
+export interface StkPushResponse {
+  success?: boolean;
+  checkoutRequestId?: string;
+  transactionId?: string;
+  customerMessage?: string;
+  error?: string;
+}
+
+export interface Contribution {
+  id?: string;
+  referenceNumber?: string;
+  donorFullName?: string;
+  donorEmail?: string;
+  donorPhone?: string;
+  donorIdNumber?: string;
+  donorEntityType?: string;
+  amount?: string;
+  currency?: string;
+  channel?: string;
+  purpose?: string;
+  contributionType?: string;
+  ledger?: string;
+  mpesaReceiptNumber?: string;
+  bankTransactionRef?: string;
+  complianceFlag?: string;
+  verificationStatus?: string;
+  verifiedAt?: string;
+  notes?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export type ContributionDetailInKindItem = {
+  id?: string;
+  itemDescription?: string;
+  category?: string;
+  quantity?: number;
+  estimatedValueKes?: string;
+};
+
+export type ContributionDetail = Contribution & {
+  inKind?: ContributionDetailInKindItem[];
+};
+
+export interface ContributionListResponse {
+  data?: Contribution[];
+  total?: number;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface ContributionInput {
+  donorFullName: string;
+  donorEmail?: string;
+  donorPhone?: string;
+  donorIdNumber?: string;
+  amount: number;
+  channel: string;
+  purpose?: string;
+  ledger?: string;
+  sourceDeclaration?: string;
+  notes?: string;
+}
+
+export type VerifyContributionBodyStatus = typeof VerifyContributionBodyStatus[keyof typeof VerifyContributionBodyStatus];
+
+
+export const VerifyContributionBodyStatus = {
+  verified: 'verified',
+  rejected: 'rejected',
+} as const;
+
+export interface VerifyContributionBody {
+  status: VerifyContributionBodyStatus;
+  rejectionReason?: string;
+}
+
+export interface DonorAlert {
+  id?: string;
+  alertType?: string;
+  severity?: string;
+  contributionId?: string;
+  donorPhone?: string;
+  description?: string;
+  status?: string;
+  resolutionNotes?: string;
+  createdAt?: string;
+}
+
+export interface ResolveAlertBody {
+  status?: string;
+  resolutionNotes?: string;
+}
+
+export interface BudgetCategory {
+  id?: string;
+  name?: string;
+  code?: string;
+  description?: string;
+  ledger?: string;
+  totalAllocatedKes?: string;
+  createdAt?: string;
+}
+
+export interface BudgetCategoryInput {
+  name: string;
+  code: string;
+  description?: string;
+  ledger?: string;
+}
+
+export interface BudgetLine {
+  id?: string;
+  categoryId?: string;
+  title?: string;
+  allocatedAmountKes?: string;
+  spentAmountKes?: string;
+  fiscalPeriod?: string;
+  status?: string;
+  createdAt?: string;
+}
+
+export interface BudgetLineInput {
+  categoryId: string;
+  title: string;
+  description?: string;
+  allocatedAmountKes: number;
+  fiscalPeriod: string;
+}
+
+export interface ExpenditureRequest {
+  id?: string;
+  referenceNumber?: string;
+  title?: string;
+  description?: string;
+  requestedAmountKes?: string;
+  approvedAmountKes?: string;
+  payeeName?: string;
+  payeeBank?: string;
+  status?: string;
+  requestedBy?: string;
+  ledger?: string;
+  createdAt?: string;
+}
+
+export interface ExpenditureListResponse {
+  data?: ExpenditureRequest[];
+  total?: number;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface ExpenditureRequestInput {
+  title: string;
+  description: string;
+  categoryId: string;
+  requestedAmountKes: number;
+  payeeName: string;
+  payeeBank?: string;
+  payeeAccountNumber?: string;
+  payeePhone?: string;
+  notes?: string;
+}
+
+export interface PaymentVoucher {
+  id?: string;
+  voucherNumber?: string;
+  expenditureRequestId?: string;
+  amountKes?: string;
+  paymentMethod?: string;
+  ledger?: string;
+  issuedBy?: string;
+  createdAt?: string;
+}
+
+export interface ExpenditureApprovalResponse {
+  expenditure?: ExpenditureRequest;
+  voucher?: PaymentVoucher;
+}
+
+export interface MessageTemplate {
+  id?: string;
+  name?: string;
+  channel?: string;
+  category?: string;
+  subjectEn?: string;
+  subjectSw?: string;
+  bodyEn?: string;
+  bodySw?: string;
+  status?: string;
+  createdBy?: string;
+  approvedAt?: string;
+  createdAt?: string;
+}
+
+export interface MessageTemplateInput {
+  name: string;
+  channel: string;
+  category: string;
+  subjectEn?: string;
+  subjectSw?: string;
+  bodyEn: string;
+  bodySw: string;
+}
+
+export type AudienceSegmentFilters = { [key: string]: unknown };
+
+export interface AudienceSegment {
+  id?: string;
+  name?: string;
+  description?: string;
+  filters?: AudienceSegmentFilters;
+  estimatedReach?: number;
+  createdAt?: string;
+}
+
+export type AudienceSegmentInputFilters = { [key: string]: unknown };
+
+export interface AudienceSegmentInput {
+  name: string;
+  description?: string;
+  filters: AudienceSegmentInputFilters;
+}
+
+export interface ScheduledMessage {
+  id?: string;
+  templateId?: string;
+  segmentId?: string;
+  languageCode?: string;
+  scheduledAt?: string;
+  status?: string;
+  estimatedRecipients?: number;
+  actualRecipients?: number;
+  deliveredCount?: number;
+  createdAt?: string;
+}
+
+export interface ScheduledMessageListResponse {
+  data?: ScheduledMessage[];
+  total?: number;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface ScheduledMessageInput {
+  templateId: string;
+  segmentId: string;
+  scheduledAt: string;
+  languageCode?: string;
+}
+
+export interface Spokesperson {
+  id?: string;
+  fullName?: string;
+  title?: string;
+  portfolios?: string[];
+  phone?: string;
+  email?: string;
+  isActive?: boolean;
+  priority?: number;
+}
+
+export interface SpokespersonInput {
+  fullName: string;
+  title: string;
+  portfolios?: string[];
+  phone?: string;
+  email?: string;
+  isActive?: boolean;
+}
+
+export interface Statement {
+  id?: string;
+  title?: string;
+  category?: string;
+  status?: string;
+  spokespersonId?: string;
+  publishedAt?: string;
+  retractedAt?: string;
+  retractionReason?: string;
+  createdAt?: string;
+}
+
+export interface StatementVersion {
+  id?: string;
+  statementId?: string;
+  version?: number;
+  bodyEn?: string;
+  bodySw?: string;
+  changeNote?: string;
+  authorId?: string;
+  createdAt?: string;
+}
+
+export type StatementDetail = Statement & {
+  versions?: StatementVersion[];
+};
+
+export interface StatementInput {
+  title: string;
+  category: string;
+  spokespersonId?: string;
+  bodyEn: string;
+  bodySw?: string;
+}
+
+export interface StatementVersionInput {
+  bodyEn: string;
+  bodySw?: string;
+  changeNote?: string;
+}
+
+export interface ContentAsset2 {
+  id?: string;
+  title?: string;
+  description?: string;
+  category?: string;
+  objectPath?: string;
+  mimeType?: string;
+  publishingRights?: string;
+  approvalStatus?: string;
+  currentVersion?: number;
+  downloadCount?: number;
+  countyId?: string;
+  language?: string;
+  expiresAt?: string;
+  createdAt?: string;
+}
+
+export type ContentAssetDetailVersionsItem = {
+  id?: string;
+  version?: number;
+  objectPath?: string;
+  changeNote?: string;
+  createdAt?: string;
+};
+
+export type ContentAssetDetail = ContentAsset2 & {
+  versions?: ContentAssetDetailVersionsItem[];
+  downloadCount?: number;
+};
+
+export interface ContentAssetListResponse {
+  data?: ContentAsset2[];
+  total?: number;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface ContentAssetInput {
+  title: string;
+  description?: string;
+  category: string;
+  objectPath: string;
+  mimeType?: string;
+  publishingRights?: string;
+  countyId?: string;
+  language?: string;
+  expiresAt?: string;
+}
+
+export interface DownloadRecord {
+  id?: string;
+  assetId?: string;
+  downloadedByEmail?: string;
+  purpose?: string;
+  createdAt?: string;
+}
+
+export interface EventMgmt {
+  id?: string;
+  title?: string;
+  description?: string;
+  eventType?: string;
+  venue?: string;
+  countyId?: string;
+  eventDate?: string;
+  startTime?: string;
+  endTime?: string;
+  expectedAttendance?: number;
+  actualAttendance?: number;
+  status?: string;
+  budgetKes?: number;
+  createdAt?: string;
+}
+
+export type EventMgmtDetailReconciliation = { [key: string]: unknown };
+
+export interface EventSpeaker {
+  id?: string;
+  eventId?: string;
+  fullName?: string;
+  title?: string;
+  topicEn?: string;
+  allocatedMinutes?: number;
+  talkOrder?: number;
+  confirmed?: boolean;
+}
+
+export interface EventIncident {
+  id?: string;
+  eventId?: string;
+  incidentType?: string;
+  severity?: string;
+  description?: string;
+  location?: string;
+  reportedBy?: string;
+  resolvedAt?: string;
+  resolution?: string;
+  createdAt?: string;
+}
+
+export type EventMgmtDetail = EventMgmt & {
+  registrationCount?: number;
+  speakers?: EventSpeaker[];
+  incidents?: EventIncident[];
+  reconciliation?: EventMgmtDetailReconciliation;
+};
+
+export interface EventMgmtListResponse {
+  data?: EventMgmt[];
+  total?: number;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface EventInput {
+  title: string;
+  description?: string;
+  eventType: string;
+  venue?: string;
+  countyId?: string;
+  eventDate?: string;
+  startTime?: string;
+  endTime?: string;
+  expectedAttendance?: number;
+  budgetKes?: number;
+}
+
+export interface EventRegistration {
+  id?: string;
+  eventId?: string;
+  fullName?: string;
+  phone?: string;
+  email?: string;
+  registrationType?: string;
+  qrCode?: string;
+  checkedIn?: boolean;
+  checkedInAt?: string;
+  createdAt?: string;
+}
+
+export interface EventRegistrationListResponse {
+  data?: EventRegistration[];
+  total?: number;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface EventRegistrationInput {
+  fullName: string;
+  phone: string;
+  email?: string;
+  organization?: string;
+  registrationType?: string;
+}
+
+export interface CheckInBody {
+  qrCode?: string;
+  registrationId?: string;
+}
+
+export interface CheckInResponse {
+  success?: boolean;
+  registration?: EventRegistration;
+}
+
+export interface EventIncidentInput {
+  incidentType: string;
+  severity: string;
+  description: string;
+  location?: string;
+}
+
+export interface EventReconciliation {
+  id?: string;
+  eventId?: string;
+  actualAttendance?: number;
+  actualCostKes?: string;
+  donationsCollectedKes?: string;
+  lessonsLearned?: string;
+  overallRating?: number;
+  submittedAt?: string;
+}
+
+export interface EventReconciliationInput {
+  actualAttendance?: number;
+  actualCostKes?: number;
+  budgetedCostKes?: number;
+  donationsCollectedKes?: number;
+  lessonsLearned?: string;
+  mediaImpactNotes?: string;
+  overallRating?: number;
+}
+
+export interface EventSpeakerInput {
+  fullName: string;
+  title?: string;
+  topicEn?: string;
+  topicSw?: string;
+  allocatedMinutes?: number;
+  talkOrder?: number;
+}
+
+export interface MisinformationClaim {
+  id?: string;
+  claimText?: string;
+  sourceUrl?: string;
+  platform?: string;
+  urgency?: string;
+  status?: string;
+  assignedTo?: string;
+  assignedAt?: string;
+  legalClearance?: boolean;
+  approvedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ClaimFactCheck {
+  id?: string;
+  claimId?: string;
+  factCheckerId?: string;
+  verdict?: string;
+  evidenceSummary?: string;
+  sourcesUsed?: string[];
+  completedAt?: string;
+  createdAt?: string;
+}
+
+export interface ClaimCorrection {
+  id?: string;
+  claimId?: string;
+  correctionBodyEn?: string;
+  correctionBodySw?: string;
+  publishedAt?: string;
+  distributionChannels?: string[];
+  distributionNotes?: string;
+}
+
+export type MisinformationClaimDetail = MisinformationClaim & {
+  factChecks?: ClaimFactCheck[];
+  corrections?: ClaimCorrection[];
+};
+
+export interface MisinformationClaimListResponse {
+  data?: MisinformationClaim[];
+  total?: number;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface MisinformationClaimInput {
+  claimText: string;
+  sourceUrl?: string;
+  platform?: string;
+  urgency: string;
+}
+
+export interface FactCheckInput {
+  verdict: string;
+  evidenceSummary?: string;
+  sourcesUsed?: string[];
+}
+
+export interface LegalReviewInput {
+  legalClearance: boolean;
+  legalNotes?: string;
+}
+
+export interface ClaimCorrectionInput {
+  correctionBodyEn: string;
+  correctionBodySw?: string;
+  distributionChannels?: string[];
+  distributionNotes?: string;
+}
+
 export type ListUsersParams = {
 role?: string;
 status?: string;
@@ -985,5 +1595,113 @@ page?: number;
 export type ResolveDataRequestBody = {
   resolutionNotes?: string;
   action?: string;
+};
+
+export type GetFinanceContributionsParams = {
+channel?: string;
+verificationStatus?: string;
+complianceFlag?: string;
+ledger?: string;
+search?: string;
+page?: number;
+limit?: number;
+};
+
+export type GetFinanceAlertsParams = {
+status?: string;
+};
+
+export type GetFinanceBudgetLinesParams = {
+categoryId?: string;
+fiscalPeriod?: string;
+};
+
+export type GetFinanceExpenditureRequestsParams = {
+status?: string;
+page?: number;
+limit?: number;
+};
+
+export type PostFinanceExpenditureRequestsIdFirstApproveBody = {
+  approvedAmount?: number;
+};
+
+export type PostFinanceExpenditureRequestsIdFinalApproveBody = {
+  paymentMethod?: string;
+};
+
+export type PostFinanceExpenditureRequestsIdRejectBody = {
+  reason?: string;
+};
+
+export type GetCommunicationsTemplatesParams = {
+channel?: string;
+category?: string;
+status?: string;
+search?: string;
+};
+
+export type PostCommunicationsTemplatesIdSuspendBody = {
+  reason?: string;
+};
+
+export type GetCommunicationsMessagesParams = {
+status?: string;
+page?: number;
+limit?: number;
+};
+
+export type GetCommunicationsStatementsParams = {
+status?: string;
+category?: string;
+};
+
+export type PostCommunicationsStatementsIdRetractBody = {
+  reason?: string;
+};
+
+export type GetContentAssetsParams = {
+category?: string;
+approvalStatus?: string;
+countyId?: string;
+search?: string;
+page?: number;
+limit?: number;
+};
+
+export type PostContentAssetsIdDownloadBody = {
+  purpose?: string;
+};
+
+export type PostContentAssetsIdDownload200 = {
+  objectPath?: string;
+  title?: string;
+};
+
+export type GetEventsMgmtParams = {
+status?: string;
+countyId?: string;
+search?: string;
+page?: number;
+limit?: number;
+};
+
+export type GetEventsMgmtIdRegistrationsParams = {
+checkedIn?: string;
+search?: string;
+page?: number;
+limit?: number;
+};
+
+export type GetRapidResponseClaimsParams = {
+status?: string;
+urgency?: string;
+search?: string;
+page?: number;
+limit?: number;
+};
+
+export type PostRapidResponseClaimsIdAssignBody = {
+  assignedTo?: string;
 };
 

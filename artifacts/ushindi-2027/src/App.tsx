@@ -51,6 +51,24 @@ import TrainingCoursePage from "./pages/admin/TrainingCourse";
 import CoordinatorPage from "./pages/admin/Coordinator";
 import DataRequestsPage from "./pages/admin/DataRequests";
 
+// Admin pages — Task 3: Finance, Communications, Content Library, Events, Rapid Response
+import FinanceDashboardPage from "./pages/admin/FinanceDashboard";
+import ContributionsPage from "./pages/admin/Contributions";
+import ContributionDetailPage from "./pages/admin/ContributionDetail";
+import BudgetPage from "./pages/admin/Budget";
+import ExpenditurePage from "./pages/admin/Expenditure";
+import CommunicationsPage from "./pages/admin/Communications";
+import MessageTemplatesPage from "./pages/admin/MessageTemplates";
+import TemplateDetailPage from "./pages/admin/TemplateDetail";
+import StatementsPage from "./pages/admin/Statements";
+import StatementDetailPage from "./pages/admin/StatementDetail";
+import ContentLibraryPage from "./pages/admin/ContentLibrary";
+import ContentAssetDetailPage from "./pages/admin/ContentAssetDetail";
+import EventsManagementPage from "./pages/admin/EventsManagement";
+import EventDetailPage from "./pages/admin/EventDetail";
+import RapidResponsePage from "./pages/admin/RapidResponse";
+import ClaimDetailPage from "./pages/admin/ClaimDetail";
+
 const clerkPubKey = publishableKeyFromHost(
   window.location.hostname,
   import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
@@ -283,6 +301,56 @@ function ClerkProviderWithRoutes() {
             </Route>
             <Route path="/data-requests">
               <ProtectedRoute component={DataRequestsPage} />
+            </Route>
+
+            {/* ── Admin (protected) — Task 3: Finance, Comms, Events ── */}
+            <Route path="/finance">
+              <ProtectedRoute component={FinanceDashboardPage} />
+            </Route>
+            <Route path="/finance/contributions">
+              <ProtectedRoute component={ContributionsPage} />
+            </Route>
+            <Route path="/finance/contributions/:id">
+              <ProtectedRoute component={ContributionDetailPage} />
+            </Route>
+            <Route path="/finance/budget">
+              <ProtectedRoute component={BudgetPage} />
+            </Route>
+            <Route path="/finance/expenditure">
+              <ProtectedRoute component={ExpenditurePage} />
+            </Route>
+            <Route path="/communications">
+              <ProtectedRoute component={CommunicationsPage} />
+            </Route>
+            <Route path="/communications/templates">
+              <ProtectedRoute component={MessageTemplatesPage} />
+            </Route>
+            <Route path="/communications/templates/:id">
+              <ProtectedRoute component={TemplateDetailPage} />
+            </Route>
+            <Route path="/communications/statements">
+              <ProtectedRoute component={StatementsPage} />
+            </Route>
+            <Route path="/communications/statements/:id">
+              <ProtectedRoute component={StatementDetailPage} />
+            </Route>
+            <Route path="/content-library">
+              <ProtectedRoute component={ContentLibraryPage} />
+            </Route>
+            <Route path="/content-library/:id">
+              <ProtectedRoute component={ContentAssetDetailPage} />
+            </Route>
+            <Route path="/events-management">
+              <ProtectedRoute component={EventsManagementPage} />
+            </Route>
+            <Route path="/events-management/:id">
+              <ProtectedRoute component={EventDetailPage} />
+            </Route>
+            <Route path="/rapid-response">
+              <ProtectedRoute component={RapidResponsePage} />
+            </Route>
+            <Route path="/rapid-response/:id">
+              <ProtectedRoute component={ClaimDetailPage} />
             </Route>
 
             <Route component={NotFound} />

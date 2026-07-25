@@ -309,26 +309,6 @@ export const dataSubjectRequestsTable = pgTable("data_subject_requests", {
 
 export type DataSubjectRequest = typeof dataSubjectRequestsTable.$inferSelect;
 
-// ── Content Assets ────────────────────────────────────────────────────────────
-export const contentAssetsTable = pgTable("content_assets", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  title: text("title").notNull(),
-  assetType: text("asset_type").notNull(),
-  fileUrl: text("file_url"),
-  mimeType: text("mime_type"),
-  fileSizeBytes: integer("file_size_bytes"),
-  ownerId: uuid("owner_id").notNull(),
-  version: integer("version").notNull().default(1),
-  approvalStatus: text("approval_status").default("draft"),
-  expiryDate: text("expiry_date"),
-  publishingRights: text("publishing_rights"),
-  countyId: uuid("county_id"),
-  language: text("language").default("en"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
-});
-
-export type ContentAsset = typeof contentAssetsTable.$inferSelect;
 
 // ── Communications ────────────────────────────────────────────────────────────
 export const communicationsTable = pgTable("communications", {

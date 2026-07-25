@@ -1,4 +1,4 @@
-import { Shield, Flag, Users, Activity, Settings, MapPin, Search, Menu, LogOut, ChevronRight } from "lucide-react";
+import { Shield, Flag, Users, Activity, Settings, MapPin, Search, Menu, LogOut, ChevronRight, DollarSign, Megaphone, Library, Calendar, AlertTriangle } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useClerk, useUser } from "@clerk/react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -16,6 +16,28 @@ const navigation = [
   { name: "Supporters / CRM", href: "/supporters", icon: Flag },
   { name: "Training", href: "/training", icon: Shield },
   { name: "Coordinator", href: "/coordinator", icon: MapPin },
+];
+
+const financeNav = [
+  { name: "Finance Overview", href: "/finance", icon: DollarSign },
+  { name: "Contributions", href: "/finance/contributions", icon: DollarSign },
+  { name: "Budget", href: "/finance/budget", icon: DollarSign },
+  { name: "Expenditure", href: "/finance/expenditure", icon: DollarSign },
+];
+
+const commsNav = [
+  { name: "Comms Overview", href: "/communications", icon: Megaphone },
+  { name: "Templates", href: "/communications/templates", icon: Megaphone },
+  { name: "Statements", href: "/communications/statements", icon: Megaphone },
+  { name: "Content Library", href: "/content-library", icon: Library },
+];
+
+const eventsNav = [
+  { name: "Events", href: "/events-management", icon: Calendar },
+  { name: "Rapid Response", href: "/rapid-response", icon: AlertTriangle },
+];
+
+const adminNav = [
   { name: "Geography", href: "/geography", icon: MapPin },
   { name: "User Management", href: "/users", icon: Users },
   { name: "Roles & Permissions", href: "/roles", icon: Shield },
@@ -68,60 +90,42 @@ export default function AppLayout({ children }: AppLayoutProps) {
           COMMAND CENTRE
         </div>
         
-        <div className="flex-1 overflow-y-auto py-6 px-4 space-y-8">
-          <div>
-            <div className="px-3 mb-2 text-xs font-semibold tracking-wider text-sidebar-foreground/50 uppercase">
-              Command Centre
+        <div className="flex-1 overflow-y-auto py-4 px-4 space-y-6">
+          {[
+            { label: "Command Centre", items: navigation },
+            { label: "Finance", items: financeNav },
+            { label: "Communications", items: commsNav },
+            { label: "Events & Response", items: eventsNav },
+            { label: "Administration", items: adminNav },
+            { label: "Settings", items: settingsNav },
+          ].map((section) => (
+            <div key={section.label}>
+              <div className="px-3 mb-1.5 text-[10px] font-black tracking-widest text-sidebar-foreground/40 uppercase">
+                {section.label}
+              </div>
+              <nav className="space-y-0.5">
+                {section.items.map((item) => {
+                  const isActive = location === item.href || (item.href !== "/finance" && item.href !== "/communications" && item.href !== "/content-library" && location.startsWith(`${item.href}/`));
+                  return (
+                    <Link
+                      key={item.name}
+                      href={item.href}
+                      className={cn(
+                        "flex items-center gap-3 px-3 py-2 rounded-sm text-sm font-medium transition-colors",
+                        isActive
+                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                          : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                      )}
+                      onClick={() => setSidebarOpen(false)}
+                    >
+                      <item.icon className={cn("h-4 w-4 shrink-0", isActive ? "text-sidebar-accent-foreground" : "text-sidebar-foreground/50")} />
+                      <span className="truncate">{item.name}</span>
+                    </Link>
+                  );
+                })}
+              </nav>
             </div>
-            <nav className="space-y-1">
-              {navigation.map((item) => {
-                const isActive = location === item.href || location.startsWith(`${item.href}/`);
-                return (
-                  <Link
-                    key={item.name}
-                    href={item.href}
-                    className={cn(
-                      "flex items-center gap-3 px-3 py-2.5 rounded-sm text-sm font-medium transition-colors",
-                      isActive 
-                        ? "bg-sidebar-accent text-sidebar-accent-foreground" 
-                        : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                    )}
-                    onClick={() => setSidebarOpen(false)}
-                  >
-                    <item.icon className={cn("h-5 w-5", isActive ? "text-sidebar-accent-foreground" : "text-sidebar-foreground/50")} />
-                    {item.name}
-                  </Link>
-                );
-              })}
-            </nav>
-          </div>
-
-          <div>
-            <div className="px-3 mb-2 text-xs font-semibold tracking-wider text-sidebar-foreground/50 uppercase">
-              Administration
-            </div>
-            <nav className="space-y-1">
-              {settingsNav.map((item) => {
-                const isActive = location === item.href;
-                return (
-                  <Link
-                    key={item.name}
-                    href={item.href}
-                    className={cn(
-                      "flex items-center gap-3 px-3 py-2.5 rounded-sm text-sm font-medium transition-colors",
-                      isActive 
-                        ? "bg-sidebar-accent text-sidebar-accent-foreground" 
-                        : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                    )}
-                    onClick={() => setSidebarOpen(false)}
-                  >
-                    <item.icon className={cn("h-5 w-5", isActive ? "text-sidebar-accent-foreground" : "text-sidebar-foreground/50")} />
-                    {item.name}
-                  </Link>
-                );
-              })}
-            </nav>
-          </div>
+          ))}
         </div>
 
         <div className="p-4 bg-sidebar-accent/30 border-t border-sidebar-border flex items-center justify-between">
