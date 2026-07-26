@@ -18,6 +18,15 @@ import contentLibraryRouter from "./contentLibrary";
 import eventsMgmtRouter from "./eventsMgmt";
 import rapidResponseRouter from "./rapidResponse";
 import storageRouter from "./storage";
+import electionAdminRouter from "./electionAdmin";
+import pollingStationsMgmtRouter from "./pollingStationsMgmt";
+import pollingAgentsMgmtRouter from "./pollingAgentsMgmt";
+import electionResultsRouter from "./electionResults";
+import tallyRouter from "./tally";
+import electionIncidentsRouter from "./electionIncidents";
+import electionDisputesRouter from "./electionDisputes";
+import transparencyPortalRouter from "./transparencyPortal";
+import commandCentreRouter from "./commandCentre";
 
 const router: IRouter = Router();
 
@@ -40,5 +49,14 @@ router.use("/communications", communicationsRouter);
 router.use("/content", contentLibraryRouter);
 router.use("/events-mgmt", eventsMgmtRouter);
 router.use("/rapid-response", rapidResponseRouter);
+router.use("/election-admin", electionAdminRouter);
+router.use("/polling-stations-mgmt", pollingStationsMgmtRouter);
+router.use("/polling-agents", pollingAgentsMgmtRouter);
+router.use("/election-results", electionResultsRouter);
+router.use("/tally", tallyRouter);
+router.use("/election-incidents", electionIncidentsRouter);
+router.use("/election-disputes", electionDisputesRouter);
+router.use("/transparency", transparencyPortalRouter);
+router.use("/command-centre", commandCentreRouter);
 
 export default router;

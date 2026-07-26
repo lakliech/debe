@@ -8,7 +8,7 @@ import {
   pollingCentresTable,
   pollingStationsTable,
 } from "@workspace/db";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, or, ilike, sql } from "drizzle-orm";
 
 const router = Router();
 
@@ -218,12 +218,14 @@ router.get("/polling-centres", requireAuth, async (req: any, res: any) => {
 
 // GET /api/geography/polling-stations
 router.get("/polling-stations", requireAuth, async (req: any, res: any) => {
-  const { centreId, wardId, constituencyId, countyId } = req.query as any;
+  const { centreId, wardId, constituencyId, countyId, search } = req.query as any;
   const conditions = [];
   if (centreId) conditions.push(eq(pollingStationsTable.centreId, centreId));
   if (wardId) conditions.push(eq(pollingStationsTable.wardId, wardId));
   if (constituencyId) conditions.push(eq(pollingStationsTable.constituencyId, constituencyId));
   if (countyId) conditions.push(eq(pollingStationsTable.countyId, countyId));
+  // search by station code or name (case-insensitive)
+  if (search) conditions.push(or(ilike(pollingStationsTable.code, `%${search}%`), ilike(pollingStationsTable.name, `%${search}%`)));
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 

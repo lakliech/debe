@@ -1,4 +1,4 @@
-import { Shield, Flag, Users, Activity, Settings, MapPin, Search, Menu, LogOut, ChevronRight, DollarSign, Megaphone, Library, Calendar, AlertTriangle } from "lucide-react";
+import { Shield, Flag, Users, Activity, Settings, MapPin, Search, Menu, LogOut, ChevronRight, DollarSign, Megaphone, Library, Calendar, AlertTriangle, Settings2, ClipboardList, BarChart3, AlertOctagon, Scale, Monitor, Globe } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useClerk, useUser } from "@clerk/react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -35,6 +35,18 @@ const commsNav = [
 const eventsNav = [
   { name: "Events", href: "/events-management", icon: Calendar },
   { name: "Rapid Response", href: "/rapid-response", icon: AlertTriangle },
+];
+
+const electionNav = [
+  { name: "Election Admin", href: "/election-admin", icon: Settings2 },
+  { name: "Polling Stations", href: "/polling-stations", icon: MapPin },
+  { name: "Polling Agents", href: "/polling-agents", icon: Users },
+  { name: "Results", href: "/election-results", icon: ClipboardList },
+  { name: "Tally Dashboard", href: "/tally", icon: BarChart3 },
+  { name: "Incidents", href: "/election-incidents", icon: AlertOctagon },
+  { name: "Disputes", href: "/election-disputes", icon: Scale },
+  { name: "Command Centre", href: "/command-centre", icon: Monitor },
+  { name: "Transparency", href: "/transparency-portal", icon: Globe },
 ];
 
 const adminNav = [
@@ -96,6 +108,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
             { label: "Finance", items: financeNav },
             { label: "Communications", items: commsNav },
             { label: "Events & Response", items: eventsNav },
+            { label: "Election Operations", items: electionNav },
             { label: "Administration", items: adminNav },
             { label: "Settings", items: settingsNav },
           ].map((section) => (

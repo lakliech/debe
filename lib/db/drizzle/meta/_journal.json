@@ -8,6 +8,13 @@
       "when": 1785017654354,
       "tag": "0000_chief_silver_sable",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1785020224111,
+      "tag": "0001_elections",
+      "breakpoints": true
     }
   ]
 }

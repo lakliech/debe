@@ -51,6 +51,21 @@ import TrainingCoursePage from "./pages/admin/TrainingCourse";
 import CoordinatorPage from "./pages/admin/Coordinator";
 import DataRequestsPage from "./pages/admin/DataRequests";
 
+// Admin pages — Task 4: Election Operations
+import PollingStationsPage from "./pages/admin/PollingStations";
+import PollingStationDetailPage from "./pages/admin/PollingStationDetail";
+import PollingAgentsPage from "./pages/admin/PollingAgents";
+import PollingAgentDetailPage from "./pages/admin/PollingAgentDetail";
+import ResultSubmissionsPage from "./pages/admin/ResultSubmissions";
+import SubmissionDetailPage from "./pages/admin/SubmissionDetail";
+import TallyDashboardPage from "./pages/admin/TallyDashboard";
+import TallyDrilldownPage from "./pages/admin/TallyDrilldown";
+import ElectionIncidentsPage from "./pages/admin/ElectionIncidents";
+import ElectionDisputesPage from "./pages/admin/ElectionDisputes";
+import CommandCentrePage from "./pages/admin/CommandCentre";
+import TransparencyPortalPage from "./pages/admin/TransparencyPortal";
+import ElectionAdminPage from "./pages/admin/ElectionAdmin";
+
 // Admin pages — Task 3: Finance, Communications, Content Library, Events, Rapid Response
 import FinanceDashboardPage from "./pages/admin/FinanceDashboard";
 import ContributionsPage from "./pages/admin/Contributions";
@@ -68,6 +83,9 @@ import EventsManagementPage from "./pages/admin/EventsManagement";
 import EventDetailPage from "./pages/admin/EventDetail";
 import RapidResponsePage from "./pages/admin/RapidResponse";
 import ClaimDetailPage from "./pages/admin/ClaimDetail";
+
+// Agent PWA — offline-first result submission (no AppLayout, standalone)
+import AgentResultFormPage from "./pages/agent/AgentResultForm";
 
 const clerkPubKey = publishableKeyFromHost(
   window.location.hostname,
@@ -352,6 +370,50 @@ function ClerkProviderWithRoutes() {
             <Route path="/rapid-response/:id">
               <ProtectedRoute component={ClaimDetailPage} />
             </Route>
+
+            {/* ── Admin (protected) — Task 4: Election Operations ── */}
+            <Route path="/election-admin">
+              <ProtectedRoute component={ElectionAdminPage} />
+            </Route>
+            <Route path="/polling-stations">
+              <ProtectedRoute component={PollingStationsPage} />
+            </Route>
+            <Route path="/polling-stations/:id">
+              <ProtectedRoute component={PollingStationDetailPage} />
+            </Route>
+            <Route path="/polling-agents">
+              <ProtectedRoute component={PollingAgentsPage} />
+            </Route>
+            <Route path="/polling-agents/:id">
+              <ProtectedRoute component={PollingAgentDetailPage} />
+            </Route>
+            <Route path="/election-results">
+              <ProtectedRoute component={ResultSubmissionsPage} />
+            </Route>
+            <Route path="/election-results/:id">
+              <ProtectedRoute component={SubmissionDetailPage} />
+            </Route>
+            <Route path="/tally">
+              <ProtectedRoute component={TallyDashboardPage} />
+            </Route>
+            <Route path="/tally/:level/:entityId">
+              <ProtectedRoute component={TallyDrilldownPage} />
+            </Route>
+            <Route path="/election-incidents">
+              <ProtectedRoute component={ElectionIncidentsPage} />
+            </Route>
+            <Route path="/election-disputes">
+              <ProtectedRoute component={ElectionDisputesPage} />
+            </Route>
+            <Route path="/command-centre">
+              <ProtectedRoute component={CommandCentrePage} />
+            </Route>
+            <Route path="/transparency-portal">
+              <ProtectedRoute component={TransparencyPortalPage} />
+            </Route>
+
+            {/* ── Agent PWA — standalone, no AppLayout ── */}
+            <Route path="/agent/results" component={AgentResultFormPage} />
 
             <Route component={NotFound} />
           </Switch>

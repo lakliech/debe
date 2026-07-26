@@ -1,0 +1,520 @@
+/**
+ * Election Results & Submission Workflow API
+ * Status flow: draft → submitted → auto_validated → exception → polling_centre_review →
+ *   polling_centre_queried → constituency_verification → constituency_queried →
+ *   county_verification → county_queried → national_verification → legal_review → verified
+ */
+import { Router } from "express";
+import { getAuth } from "@clerk/express";
+import { db } from "@workspace/db";
+import {
+  resultSubmissionsTable,
+  submissionCandidateVotesTable,
+  submissionFormImagesTable,
+  submissionVerificationStepsTable,
+  submissionCorrectionsTable,
+  submissionOcrSuggestionsTable,
+  candidatesTable,
+  pollingStationsTable,
+  pollingAgentsTable,
+  usersTable,
+} from "@workspace/db";
+import { eq, desc, and, or, count, inArray } from "drizzle-orm";
+import { requireRoles } from "../middlewares/rbac";
+
+const router = Router();
+
+function requireAuth(req: any, res: any, next: any) {
+  const auth = getAuth(req);
+  if (!auth?.userId) return res.status(401).json({ error: "Unauthorized" });
+  req.clerkId = auth.userId;
+  next();
+}
+
+async function resolveActorUUID(clerkId: string): Promise<string | null> {
+  const [row] = await db.select({ id: usersTable.id }).from(usersTable)
+    .where(eq(usersTable.clerkId, clerkId)).limit(1);
+  return row?.id ?? null;
+}
+
+const canViewResults = requireRoles([
+  "campaign-exec-director", "national-campaign-manager", "returning-officer",
+  "county-coordinator", "constituency-coordinator", "polling-agent-supervisor", "result-verifier",
+]);
+const canVerifyResults = requireRoles([
+  "campaign-exec-director", "national-campaign-manager", "returning-officer",
+  "county-coordinator", "constituency-coordinator", "result-verifier",
+]);
+// canSubmitResults: polling agents plus supervisors/verifiers can create submissions
+const canSubmitResults = requireRoles([
+  "campaign-exec-director", "national-campaign-manager", "returning-officer",
+  "county-coordinator", "constituency-coordinator", "polling-agent-supervisor",
+  "result-verifier", "polling-agent",
+]);
+
+// ─── AUTO-VALIDATION ──────────────────────────────────────────────────────────
+
+async function runAutoValidation(submissionId: string): Promise<{ valid: boolean; flags: string[] }> {
+  const flags: string[] = [];
+
+  const [submission] = await db.select().from(resultSubmissionsTable)
+    .where(eq(resultSubmissionsTable.id, submissionId)).limit(1);
+  if (!submission) return { valid: false, flags: ["Submission not found"] };
+
+  const votes = await db.select().from(submissionCandidateVotesTable)
+    .where(eq(submissionCandidateVotesTable.submissionId, submissionId));
+
+  const images = await db.select().from(submissionFormImagesTable)
+    .where(eq(submissionFormImagesTable.submissionId, submissionId));
+
+  // Rule 1: candidate totals == totalValidVotes
+  const candidateTotal = votes.reduce((s, v) => s + (v.voteCount ?? 0), 0);
+  if (submission.totalValidVotes !== null && candidateTotal !== submission.totalValidVotes) {
+    flags.push(`Candidate vote total (${candidateTotal}) != totalValidVotes (${submission.totalValidVotes})`);
+  }
+
+  // Rule 2: ballot reconciliation
+  const bal = (submission.ballotsIssued ?? 0);
+  const rec = (submission.totalVotesCast ?? 0) + (submission.unusedBallots ?? 0)
+    + (submission.spoiltBallots ?? 0) + (submission.rejectedBallots ?? 0);
+  if (bal !== rec) {
+    flags.push(`Ballot reconciliation failed: ballotsIssued(${bal}) != votesCast+unused+spoilt+rejected(${rec})`);
+  }
+
+  // Rule 3: totalVotesCast <= registeredVoters
+  if ((submission.totalVotesCast ?? 0) > (submission.registeredVoters ?? 0)) {
+    flags.push("totalVotesCast exceeds registeredVoters");
+  }
+
+  // Rule 4: candidateId exists in election
+  for (const v of votes) {
+    if (v.candidateId) {
+      const [cand] = await db.select({ id: candidatesTable.id, electionId: candidatesTable.electionId })
+        .from(candidatesTable).where(eq(candidatesTable.id, v.candidateId)).limit(1);
+      if (!cand || cand.electionId !== submission.electionId) {
+        flags.push(`Candidate ${v.candidateId} not found in election`);
+      }
+    }
+  }
+
+  // Rule 5: pollingStationId valid
+  const [station] = await db.select({ id: pollingStationsTable.id })
+    .from(pollingStationsTable).where(eq(pollingStationsTable.id, submission.pollingStationId)).limit(1);
+  if (!station) flags.push("Invalid pollingStationId");
+
+  // Rule 6: agentId assigned to station
+  if (station) {
+    const [stationRow] = await db.select({ primaryAgentId: pollingStationsTable.primaryAgentId, backupAgentId: pollingStationsTable.backupAgentId })
+      .from(pollingStationsTable).where(eq(pollingStationsTable.id, submission.pollingStationId)).limit(1);
+    if (stationRow) {
+      const validAgents = [stationRow.primaryAgentId, stationRow.backupAgentId].filter(Boolean);
+      if (!validAgents.includes(submission.agentId)) {
+        flags.push("Agent is not assigned to this polling station");
+      }
+    }
+  }
+
+  // Rule 7: At least 1 form image (form_page_1)
+  const hasFormPage1 = images.some(img => img.imageType === "form_page_1");
+  if (!hasFormPage1) flags.push("Missing required form image: form_page_1");
+
+  // Rule 8: Duplicate submission check (same station+election+agent, same version)
+  // (handled at submission creation — skip here)
+
+  // Rule 9: Flag unusual — any candidate > 95% of votes
+  const totalVotes = submission.totalValidVotes ?? 0;
+  for (const v of votes) {
+    if (totalVotes > 0 && (v.voteCount / totalVotes) > 0.95) {
+      flags.push(`Unusual: candidate ${v.candidateName} has >95% of votes`);
+    }
+  }
+
+  // Rule 10: rejectedBallots > 5% of totalVotesCast
+  const rejected = submission.rejectedBallots ?? 0;
+  const cast = submission.totalVotesCast ?? 0;
+  if (cast > 0 && (rejected / cast) > 0.05) {
+    flags.push(`Unusual: rejectedBallots (${rejected}) > 5% of totalVotesCast (${cast})`);
+  }
+
+  return { valid: flags.length === 0, flags };
+}
+
+// ─── ROUTES ───────────────────────────────────────────────────────────────────
+
+// GET /api/election-results/submissions
+router.get("/submissions", requireAuth, canViewResults, async (req: any, res: any) => {
+  try {
+    const { status, pollingStationId, countyId, constituencyId, electionId, page = "1", limit = "20" } = req.query;
+    const pageNum = parseInt(page) || 1;
+    const pageSize = Math.min(parseInt(limit) || 20, 100);
+    const offset = (pageNum - 1) * pageSize;
+
+    const conditions: any[] = [];
+    // Support both single status= and repeated status= (from URLSearchParams.append)
+    const statusValues = Array.isArray(status) ? status : (status ? [status] : []);
+    if (statusValues.length === 1) {
+      conditions.push(eq(resultSubmissionsTable.status, statusValues[0] as string));
+    } else if (statusValues.length > 1) {
+      conditions.push(inArray(resultSubmissionsTable.status, statusValues as string[]));
+    }
+    if (pollingStationId) conditions.push(eq(resultSubmissionsTable.pollingStationId, pollingStationId));
+    if (electionId) conditions.push(eq(resultSubmissionsTable.electionId, electionId));
+
+    // For countyId/constituencyId — join via pollingStationsTable
+    // For simplicity, filter via subquery by fetching station IDs
+    if (countyId) {
+      const stations = await db.select({ id: pollingStationsTable.id })
+        .from(pollingStationsTable).where(eq(pollingStationsTable.countyId, countyId));
+      const ids = stations.map(s => s.id);
+      if (ids.length) conditions.push(inArray(resultSubmissionsTable.pollingStationId, ids));
+      else return res.json({ data: [], total: 0, page: pageNum, pageSize });
+    }
+    if (constituencyId) {
+      const stations = await db.select({ id: pollingStationsTable.id })
+        .from(pollingStationsTable).where(eq(pollingStationsTable.constituencyId, constituencyId));
+      const ids = stations.map(s => s.id);
+      if (ids.length) conditions.push(inArray(resultSubmissionsTable.pollingStationId, ids));
+      else return res.json({ data: [], total: 0, page: pageNum, pageSize });
+    }
+
+    const where = conditions.length ? and(...conditions) : undefined;
+
+    const [rows, [{ total }]] = await Promise.all([
+      db.select().from(resultSubmissionsTable).where(where)
+        .orderBy(desc(resultSubmissionsTable.createdAt)).limit(pageSize).offset(offset),
+      db.select({ total: count() }).from(resultSubmissionsTable).where(where),
+    ]);
+    res.json({ data: rows, total: Number(total), page: pageNum, pageSize });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/election-results/submissions/agent-submit — atomic create+submit for offline PWA agents
+// MUST be before POST /submissions/:id/* routes to avoid :id shadowing
+router.post("/submissions/agent-submit", requireAuth, canSubmitResults, async (req: any, res: any) => {
+  try {
+    const { candidateVotes, ...body } = req.body;
+
+    if (!body.pollingStationId || !body.electionId || !body.agentId) {
+      return res.status(400).json({ error: "pollingStationId, electionId, and agentId are required" });
+    }
+
+    // Idempotency: check for existing submission by deviceId + offlineCapturedAt
+    if (body.deviceId && body.offlineCapturedAt) {
+      const [dup] = await db.select({ id: resultSubmissionsTable.id, status: resultSubmissionsTable.status })
+        .from(resultSubmissionsTable)
+        .where(and(
+          eq(resultSubmissionsTable.deviceId, body.deviceId),
+          eq(resultSubmissionsTable.offlineCapturedAt, new Date(body.offlineCapturedAt)),
+        )).limit(1);
+      if (dup && dup.status !== "draft") {
+        return res.status(200).json({ submissionId: dup.id, status: dup.status, alreadySubmitted: true });
+      }
+    }
+
+    // Create draft
+    const [existing] = await db.select().from(resultSubmissionsTable)
+      .where(and(
+        eq(resultSubmissionsTable.pollingStationId, body.pollingStationId),
+        eq(resultSubmissionsTable.electionId, body.electionId),
+        eq(resultSubmissionsTable.agentId, body.agentId),
+      )).limit(1);
+
+    let submissionId: string;
+    if (existing && existing.status === "draft") {
+      await db.update(resultSubmissionsTable).set({ ...body, status: "draft" })
+        .where(eq(resultSubmissionsTable.id, existing.id));
+      submissionId = existing.id;
+    } else {
+      const version = existing ? (existing.version ?? 1) + 1 : 1;
+      const [created] = await db.insert(resultSubmissionsTable).values({ ...body, status: "draft", version }).returning();
+      submissionId = created.id;
+    }
+
+    // Upsert candidate votes
+    if (candidateVotes && Array.isArray(candidateVotes) && candidateVotes.length > 0) {
+      await db.delete(submissionCandidateVotesTable)
+        .where(eq(submissionCandidateVotesTable.submissionId, submissionId));
+      await db.insert(submissionCandidateVotesTable).values(
+        candidateVotes.map((v: any) => ({ ...v, submissionId }))
+      );
+    }
+
+    // Submit
+    await db.update(resultSubmissionsTable).set({ status: "submitted", submittedAt: new Date() })
+      .where(eq(resultSubmissionsTable.id, submissionId));
+
+    // Auto-validation
+    const { valid, flags } = await runAutoValidation(submissionId);
+    const newStatus = valid ? "auto_validated" : "exception";
+    const [final] = await db.update(resultSubmissionsTable).set({ status: newStatus })
+      .where(eq(resultSubmissionsTable.id, submissionId)).returning();
+
+    await db.insert(submissionVerificationStepsTable).values({
+      submissionId,
+      fromStatus: "submitted",
+      toStatus: newStatus,
+      action: valid ? "approved" : "queried",
+      notes: valid ? "Auto-validation passed (agent PWA)" : `Auto-validation flags: ${flags.join("; ")}`,
+    });
+
+    res.status(201).json({ submission: final, autoValidation: { valid, flags } });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/election-results/submissions — create/update draft
+// canSubmitResults includes polling agents and supervisors
+router.post("/submissions", requireAuth, canSubmitResults, async (req: any, res: any) => {
+  try {
+    const { candidateVotes, forceNew, ...body } = req.body;
+
+    if (!body.pollingStationId || !body.electionId || !body.agentId) {
+      return res.status(400).json({ error: "pollingStationId, electionId, and agentId are required" });
+    }
+
+    // Duplicate check
+    const [existing] = await db.select()
+      .from(resultSubmissionsTable)
+      .where(and(
+        eq(resultSubmissionsTable.pollingStationId, body.pollingStationId),
+        eq(resultSubmissionsTable.electionId, body.electionId),
+        eq(resultSubmissionsTable.agentId, body.agentId),
+      )).limit(1);
+
+    if (existing && !forceNew) {
+      if (existing.status !== "draft") {
+        return res.status(409).json({
+          error: "A submission already exists for this station/election/agent",
+          existing,
+          hint: "Pass forceNew:true to create a new version",
+        });
+      }
+      // Update draft
+      const [updated] = await db.update(resultSubmissionsTable).set({
+        ...body,
+        status: "draft",
+      }).where(eq(resultSubmissionsTable.id, existing.id)).returning();
+
+      // Upsert candidate votes
+      if (candidateVotes && Array.isArray(candidateVotes)) {
+        await db.delete(submissionCandidateVotesTable)
+          .where(eq(submissionCandidateVotesTable.submissionId, existing.id));
+        if (candidateVotes.length > 0) {
+          await db.insert(submissionCandidateVotesTable).values(
+            candidateVotes.map((v: any) => ({ ...v, submissionId: existing.id }))
+          );
+        }
+      }
+      return res.json(updated);
+    }
+
+    // New submission
+    const version = existing ? (existing.version ?? 1) + 1 : 1;
+    const [submission] = await db.insert(resultSubmissionsTable).values({
+      ...body,
+      status: "draft",
+      version,
+    }).returning();
+
+    if (candidateVotes && Array.isArray(candidateVotes) && candidateVotes.length > 0) {
+      await db.insert(submissionCandidateVotesTable).values(
+        candidateVotes.map((v: any) => ({ ...v, submissionId: submission.id }))
+      );
+    }
+
+    res.status(201).json(submission);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/election-results/submissions/:id
+router.get("/submissions/:id", requireAuth, canViewResults, async (req: any, res: any) => {
+  try {
+    const [submission] = await db.select().from(resultSubmissionsTable)
+      .where(eq(resultSubmissionsTable.id, req.params.id)).limit(1);
+    if (!submission) return res.status(404).json({ error: "Submission not found" });
+
+    const [votes, images, steps, corrections] = await Promise.all([
+      db.select().from(submissionCandidateVotesTable)
+        .where(eq(submissionCandidateVotesTable.submissionId, req.params.id)),
+      db.select().from(submissionFormImagesTable)
+        .where(eq(submissionFormImagesTable.submissionId, req.params.id)),
+      db.select().from(submissionVerificationStepsTable)
+        .where(eq(submissionVerificationStepsTable.submissionId, req.params.id))
+        .orderBy(desc(submissionVerificationStepsTable.createdAt)),
+      db.select().from(submissionCorrectionsTable)
+        .where(eq(submissionCorrectionsTable.submissionId, req.params.id))
+        .orderBy(desc(submissionCorrectionsTable.createdAt)),
+    ]);
+
+    res.json({ ...submission, candidateVotes: votes, images, verificationSteps: steps, corrections });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/election-results/submissions/:id/submit
+router.post("/submissions/:id/submit", requireAuth, canSubmitResults, async (req: any, res: any) => {
+  try {
+    const [submission] = await db.select().from(resultSubmissionsTable)
+      .where(eq(resultSubmissionsTable.id, req.params.id)).limit(1);
+    if (!submission) return res.status(404).json({ error: "Submission not found" });
+    if (submission.status !== "draft") {
+      return res.status(400).json({ error: `Cannot submit from status: ${submission.status}` });
+    }
+
+    // Set to submitted
+    await db.update(resultSubmissionsTable).set({
+      status: "submitted",
+      submittedAt: new Date(),
+    }).where(eq(resultSubmissionsTable.id, req.params.id));
+
+    // Run auto-validation
+    const { valid, flags } = await runAutoValidation(req.params.id);
+    const newStatus = valid ? "auto_validated" : "exception";
+
+    const [updated] = await db.update(resultSubmissionsTable).set({
+      status: newStatus,
+    }).where(eq(resultSubmissionsTable.id, req.params.id)).returning();
+
+    // Record step
+    await db.insert(submissionVerificationStepsTable).values({
+      submissionId: req.params.id,
+      fromStatus: "submitted",
+      toStatus: newStatus,
+      action: valid ? "approved" : "queried",
+      notes: valid ? "Auto-validation passed" : `Auto-validation flags: ${flags.join("; ")}`,
+    });
+
+    res.json({ submission: updated, autoValidation: { valid, flags } });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/election-results/submissions/:id/images
+router.post("/submissions/:id/images", requireAuth, canSubmitResults, async (req: any, res: any) => {
+  try {
+    const { imageType, objectPath, imageHash, sizeBytes, mimeType, pageNumber, isRequired, deviceId } = req.body;
+    if (!imageType) return res.status(400).json({ error: "imageType required" });
+
+    const [row] = await db.insert(submissionFormImagesTable).values({
+      submissionId: req.params.id,
+      imageType,
+      objectPath,
+      imageHash,
+      sizeBytes,
+      mimeType,
+      pageNumber,
+      isRequired: isRequired ?? false,
+      deviceId,
+    }).returning();
+    res.status(201).json(row);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/election-results/submissions/:id/verify
+router.post("/submissions/:id/verify", requireAuth, canVerifyResults, async (req: any, res: any) => {
+  try {
+    const actorId = await resolveActorUUID(req.clerkId);
+    const { action, notes, queriedFields, toStatus } = req.body;
+    if (!action || !toStatus) return res.status(400).json({ error: "action and toStatus required" });
+
+    const [submission] = await db.select({ id: resultSubmissionsTable.id, status: resultSubmissionsTable.status })
+      .from(resultSubmissionsTable).where(eq(resultSubmissionsTable.id, req.params.id)).limit(1);
+    if (!submission) return res.status(404).json({ error: "Submission not found" });
+
+    const [updated] = await db.update(resultSubmissionsTable).set({ status: toStatus })
+      .where(eq(resultSubmissionsTable.id, req.params.id)).returning();
+
+    await db.insert(submissionVerificationStepsTable).values({
+      submissionId: req.params.id,
+      fromStatus: submission.status,
+      toStatus,
+      reviewerId: actorId ?? undefined,
+      action,
+      notes,
+      queriedFields: queriedFields ?? null,
+    });
+
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/election-results/submissions/:id/correct
+router.post("/submissions/:id/correct", requireAuth, canVerifyResults, async (req: any, res: any) => {
+  try {
+    const actorId = await resolveActorUUID(req.clerkId);
+    const { fieldName, originalValue, correctedValue, correctionReason, evidenceUrl } = req.body;
+    if (!fieldName || !correctionReason) return res.status(400).json({ error: "fieldName and correctionReason required" });
+
+    const [row] = await db.insert(submissionCorrectionsTable).values({
+      submissionId: req.params.id,
+      fieldName,
+      originalValue,
+      correctedValue,
+      correctedBy: actorId ?? undefined,
+      correctionReason,
+      evidenceUrl,
+    }).returning();
+    res.status(201).json(row);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/election-results/submissions/:id/corrections
+router.get("/submissions/:id/corrections", requireAuth, canViewResults, async (req: any, res: any) => {
+  try {
+    const rows = await db.select().from(submissionCorrectionsTable)
+      .where(eq(submissionCorrectionsTable.submissionId, req.params.id))
+      .orderBy(desc(submissionCorrectionsTable.createdAt));
+    res.json(rows);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/election-results/submissions/:id/ocr
+router.get("/submissions/:id/ocr", requireAuth, canViewResults, async (req: any, res: any) => {
+  try {
+    const rows = await db.select().from(submissionOcrSuggestionsTable)
+      .where(eq(submissionOcrSuggestionsTable.submissionId, req.params.id))
+      .orderBy(desc(submissionOcrSuggestionsTable.createdAt));
+    res.json(rows);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/election-results/submissions/:id/ocr/review
+router.post("/submissions/:id/ocr/review", requireAuth, canVerifyResults, async (req: any, res: any) => {
+  try {
+    const actorId = await resolveActorUUID(req.clerkId);
+    const { suggestionId, accepted } = req.body;
+    if (!suggestionId || accepted === undefined) return res.status(400).json({ error: "suggestionId and accepted required" });
+
+    const [row] = await db.update(submissionOcrSuggestionsTable).set({
+      accepted,
+      reviewedBy: actorId ?? undefined,
+      reviewedAt: new Date(),
+    }).where(and(
+      eq(submissionOcrSuggestionsTable.id, suggestionId),
+      eq(submissionOcrSuggestionsTable.submissionId, req.params.id),
+    )).returning();
+    if (!row) return res.status(404).json({ error: "OCR suggestion not found" });
+    res.json(row);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+export default router;
