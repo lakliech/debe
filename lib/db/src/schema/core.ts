@@ -80,6 +80,36 @@ export const userRolesTable = pgTable("user_roles", {
 
 export type UserRole = typeof userRolesTable.$inferSelect;
 
+// ── Aspirants ────────────────────────────────────────────────────────────────
+export const aspirantsTable = pgTable("aspirants", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  fullName: text("full_name").notNull(),
+  email: text("email"),
+  phoneNumber: text("phone_number").notNull(),
+  nationalId: text("national_id").notNull(),
+  /** parliamentary | gubernatorial | senatorial | women_rep | mca */
+  position: text("position").notNull(),
+  countyId: uuid("county_id").references(() => countiesTable.id),
+  countyName: text("county_name"),
+  constituency: text("constituency"),
+  ward: text("ward"),
+  partyAffiliation: text("party_affiliation"),
+  isIndependent: boolean("is_independent").notNull().default(false),
+  statementOfIntent: text("statement_of_intent"),
+  /** pending | approved | rejected */
+  status: text("status").notNull().default("pending"),
+  reviewNotes: text("review_notes"),
+  reviewedBy: uuid("reviewed_by"),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  consentGiven: boolean("consent_given").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+
+export const insertAspirantSchema = createInsertSchema(aspirantsTable).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertAspirant = z.infer<typeof insertAspirantSchema>;
+export type Aspirant = typeof aspirantsTable.$inferSelect;
+
 // ── User Suspensions ─────────────────────────────────────────────────────────
 export const userSuspensionsTable = pgTable("user_suspensions", {
   id: uuid("id").primaryKey().defaultRandom(),

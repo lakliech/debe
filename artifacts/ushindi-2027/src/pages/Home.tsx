@@ -135,10 +135,11 @@ export default function Home() {
             {/* Quick portal links */}
             <div className="flex flex-wrap gap-3 mt-2">
               {[
-                { href: "/news",       label: "Latest News" },
-                { href: "/events",     label: "Upcoming Events" },
-                { href: "/fact-check", label: "Fact Check" },
-                { href: "/about",      label: "About Linda" },
+                { href: "/news",              label: "Latest News" },
+                { href: "/events",            label: "Upcoming Events" },
+                { href: "/fact-check",        label: "Fact Check" },
+                { href: "/about",             label: "About Linda" },
+                { href: "/aspirant-register", label: "Declare Interest" },
               ].map((l) => (
                 <Link
                   key={l.href}

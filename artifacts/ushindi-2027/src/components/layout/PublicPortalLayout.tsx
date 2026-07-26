@@ -16,7 +16,8 @@ const navLinks = [
   { href: "/news", labelEn: "News", labelSw: "Habari" },
   { href: "/faq", labelEn: "FAQ", labelSw: "Maswali" },
   { href: "/fact-check", labelEn: "Fact Check", labelSw: "Ukweli" },
-  { href: "/crowdfunding", labelEn: "Crowdfunding", labelSw: "Mchango" },
+  { href: "/crowdfunding",      labelEn: "Crowdfunding",    labelSw: "Mchango" },
+  { href: "/aspirant-register", labelEn: "Run for Office",  labelSw: "Gombea" },
 ];
 
 const footerLinks = [

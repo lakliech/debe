@@ -38,6 +38,7 @@ import MediaPage from "./pages/public/Media";
 import ContactPage from "./pages/public/Contact";
 import VolunteerRegisterPage from "./pages/public/VolunteerRegister";
 import SupporterRegisterPage from "./pages/public/SupporterRegister";
+import AspirantRegisterPage from "./pages/public/AspirantRegister";
 import CrowdfundingPage from "./pages/public/Crowdfunding";
 import DataRequestPage from "./pages/public/DataRequest";
 
@@ -83,6 +84,9 @@ import EventsManagementPage from "./pages/admin/EventsManagement";
 import EventDetailPage from "./pages/admin/EventDetail";
 import RapidResponsePage from "./pages/admin/RapidResponse";
 import ClaimDetailPage from "./pages/admin/ClaimDetail";
+
+// Admin — Aspirants
+import AspirantsPage from "./pages/admin/Aspirants";
 
 // Admin pages — Task 5: Compliance, Reporting, Privileged Access
 import ReportingPage from "./pages/admin/Reporting";
@@ -271,6 +275,7 @@ function ClerkProviderWithRoutes() {
             <Route path="/contact" component={ContactPage} />
             <Route path="/volunteer-register" component={VolunteerRegisterPage} />
             <Route path="/supporter-register" component={SupporterRegisterPage} />
+            <Route path="/aspirant-register" component={AspirantRegisterPage} />
             <Route path="/crowdfunding" component={CrowdfundingPage} />
             <Route path="/data-request" component={DataRequestPage} />
 
@@ -415,6 +420,11 @@ function ClerkProviderWithRoutes() {
             </Route>
             <Route path="/transparency-portal">
               <ProtectedRoute component={TransparencyPortalPage} />
+            </Route>
+
+            {/* ── Admin (protected) — Aspirants ── */}
+            <Route path="/aspirants">
+              <ProtectedRoute component={AspirantsPage} />
             </Route>
 
             {/* ── Admin (protected) — Task 5: Compliance, Reporting ── */}

@@ -30,6 +30,7 @@ import commandCentreRouter from "./commandCentre";
 import reportingRouter from "./reporting";
 import complianceRouter from "./compliance";
 import privilegedAccessRouter from "./privilegedAccess";
+import aspirantsRouter from "./aspirants";
 
 const router: IRouter = Router();
 
@@ -64,5 +65,6 @@ router.use("/command-centre", commandCentreRouter);
 router.use("/reporting", reportingRouter);
 router.use("/compliance", complianceRouter);
 router.use("/privileged-access", privilegedAccessRouter);
+router.use("/aspirants", aspirantsRouter);
 
 export default router;

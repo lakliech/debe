@@ -19,6 +19,7 @@ import {
   brandingTable,
 } from "@workspace/db";
 import { eq, and, desc, asc, count } from "drizzle-orm";
+import { aspirantsTable } from "@workspace/db";
 
 const router = Router();
 
@@ -289,6 +290,66 @@ router.post("/supporter-register", async (req: any, res: any) => {
       .returning({ id: supportersTable.id, fullName: supportersTable.fullName });
 
     res.status(201).json({ message: "Thank you for joining the movement!", supporter });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/public/aspirants — aspirant self-registration (no auth)
+router.post("/aspirants", async (req: any, res: any) => {
+  try {
+    const {
+      fullName, phoneNumber, nationalId, position, countyCode, countyName,
+      email, constituency, ward, partyAffiliation, isIndependent,
+      statementOfIntent, consentGiven,
+    } = req.body;
+
+    if (!fullName || !phoneNumber || !nationalId || !position) {
+      return res.status(400).json({ error: "fullName, phoneNumber, nationalId, and position are required" });
+    }
+    if (!consentGiven) {
+      return res.status(400).json({ error: "Consent is required to register" });
+    }
+
+    const VALID_POSITIONS = ["parliamentary", "gubernatorial", "senatorial", "women_rep", "mca"];
+    if (!VALID_POSITIONS.includes(position)) {
+      return res.status(400).json({ error: `position must be one of: ${VALID_POSITIONS.join(", ")}` });
+    }
+
+    // Optionally resolve countyId UUID from countyCode
+    let countyId: string | undefined;
+    if (countyCode) {
+      const parsed = parseInt(countyCode, 10);
+      if (!isNaN(parsed)) {
+        const [county] = await db.select({ id: countiesTable.id }).from(countiesTable).where(eq(countiesTable.code, parsed)).limit(1);
+        countyId = county?.id;
+      }
+    }
+
+    const [aspirant] = await db
+      .insert(aspirantsTable)
+      .values({
+        fullName,
+        phoneNumber,
+        email: email || null,
+        nationalId,
+        position,
+        countyId,
+        countyName: countyName || null,
+        constituency: constituency || null,
+        ward: ward || null,
+        partyAffiliation: isIndependent ? null : (partyAffiliation || null),
+        isIndependent: !!isIndependent,
+        statementOfIntent: statementOfIntent || null,
+        status: "pending",
+        consentGiven: true,
+      })
+      .returning({ id: aspirantsTable.id, fullName: aspirantsTable.fullName, status: aspirantsTable.status });
+
+    res.status(201).json({
+      message: "Declaration received. The Linda Mwananchi 2027 team will review your application.",
+      aspirant,
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
