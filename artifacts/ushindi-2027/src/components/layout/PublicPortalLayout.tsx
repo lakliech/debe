@@ -17,7 +17,8 @@ const navLinks = [
   { href: "/faq", labelEn: "FAQ", labelSw: "Maswali" },
   { href: "/fact-check", labelEn: "Fact Check", labelSw: "Ukweli" },
   { href: "/crowdfunding",      labelEn: "Crowdfunding",    labelSw: "Mchango" },
-  { href: "/aspirant-register", labelEn: "Run for Office",  labelSw: "Gombea" },
+  { href: "/aspirants-directory", labelEn: "Aspirants",     labelSw: "Wagombea" },
+  { href: "/aspirant-register",  labelEn: "Run for Office", labelSw: "Gombea" },
 ];
 
 const footerLinks = [
@@ -28,7 +29,8 @@ const footerLinks = [
   { href: "/faq", label: "FAQ" },
   { href: "/media", label: "Media" },
   { href: "/contact", label: "Contact" },
-  { href: "/data-request", label: "Data Request" },
+  { href: "/aspirants-directory", label: "Aspirants" },
+  { href: "/data-request",        label: "Data Request" },
 ];
 
 export default function PublicPortalLayout({ children }: PublicPortalLayoutProps) {

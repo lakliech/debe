@@ -139,7 +139,8 @@ export default function Home() {
                 { href: "/events",            label: "Upcoming Events" },
                 { href: "/fact-check",        label: "Fact Check" },
                 { href: "/about",             label: "About Linda" },
-                { href: "/aspirant-register", label: "Declare Interest" },
+                { href: "/aspirants-directory", label: "View Aspirants" },
+                { href: "/aspirant-register",  label: "Declare Interest" },
               ].map((l) => (
                 <Link
                   key={l.href}

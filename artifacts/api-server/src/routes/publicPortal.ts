@@ -355,6 +355,51 @@ router.post("/aspirants", async (req: any, res: any) => {
   }
 });
 
+// GET /api/public/aspirants — approved aspirants directory (no auth, no PII)
+router.get("/aspirants", async (req: any, res: any) => {
+  try {
+    const { position, county, page = "1", limit = "24" } = req.query;
+    const pageNum = Math.max(1, parseInt(page as string) || 1);
+    const pageSize = Math.min(48, parseInt(limit as string) || 24);
+    const offset = (pageNum - 1) * pageSize;
+
+    const conditions: any[] = [eq(aspirantsTable.status, "approved")];
+    if (position) conditions.push(eq(aspirantsTable.position, position as string));
+    if (county) conditions.push(eq(aspirantsTable.countyName, county as string));
+
+    const where = and(...conditions);
+
+    const [{ total }] = await db
+      .select({ total: count() })
+      .from(aspirantsTable)
+      .where(where);
+
+    // Only expose non-PII fields publicly
+    const data = await db
+      .select({
+        id:               aspirantsTable.id,
+        fullName:         aspirantsTable.fullName,
+        position:         aspirantsTable.position,
+        countyName:       aspirantsTable.countyName,
+        constituency:     aspirantsTable.constituency,
+        ward:             aspirantsTable.ward,
+        partyAffiliation: aspirantsTable.partyAffiliation,
+        isIndependent:    aspirantsTable.isIndependent,
+        statementOfIntent: aspirantsTable.statementOfIntent,
+        createdAt:        aspirantsTable.createdAt,
+      })
+      .from(aspirantsTable)
+      .where(where)
+      .orderBy(desc(aspirantsTable.createdAt))
+      .limit(pageSize)
+      .offset(offset);
+
+    res.json({ data, total: Number(total), page: pageNum, limit: pageSize });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/public/policy-submit — citizen policy submissions
 router.post("/policy-submit", async (req: any, res: any) => {
   try {

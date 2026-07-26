@@ -39,6 +39,7 @@ import ContactPage from "./pages/public/Contact";
 import VolunteerRegisterPage from "./pages/public/VolunteerRegister";
 import SupporterRegisterPage from "./pages/public/SupporterRegister";
 import AspirantRegisterPage from "./pages/public/AspirantRegister";
+import AspirantsDirectoryPage from "./pages/public/AspirantsDirectory";
 import CrowdfundingPage from "./pages/public/Crowdfunding";
 import DataRequestPage from "./pages/public/DataRequest";
 
@@ -276,6 +277,7 @@ function ClerkProviderWithRoutes() {
             <Route path="/volunteer-register" component={VolunteerRegisterPage} />
             <Route path="/supporter-register" component={SupporterRegisterPage} />
             <Route path="/aspirant-register" component={AspirantRegisterPage} />
+            <Route path="/aspirants-directory" component={AspirantsDirectoryPage} />
             <Route path="/crowdfunding" component={CrowdfundingPage} />
             <Route path="/data-request" component={DataRequestPage} />
 
