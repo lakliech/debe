@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Mail, Phone, MapPin, MessageSquare, CheckCircle2 } from "lucide-react";
+import { useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -8,7 +9,10 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 const schema = z.object({
   name: z.string().min(2, "Name required"),
@@ -41,17 +45,35 @@ const contactCards = [
 
 export default function Contact() {
   const { t } = useLanguage();
-  const [submitted, setSubmitted] = useState(false);
+  const { toast } = useToast();
 
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormData>({
+  const { mutate, isPending, isSuccess } = useMutation({
+    mutationFn: async (data: FormData) => {
+      const res = await fetch(`${BASE}/api/public/contact`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to send message");
+      }
+      return res.json();
+    },
+    onError: (err: any) => {
+      toast({
+        title: t("Error", "Hitilafu"),
+        description: err.message || t("Could not send your message. Please try again.", "Haiwezekani kutuma ujumbe wako. Tafadhali jaribu tena."),
+        variant: "destructive",
+      });
+    },
+  });
+
+  const { register, handleSubmit, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
   });
 
-  const onSubmit = (data: FormData) => {
-    console.log("Contact form submission:", data);
-    // Simulate brief processing then show success
-    setTimeout(() => setSubmitted(true), 500);
-  };
+  const onSubmit = (data: FormData) => mutate(data);
 
   return (
     <PublicPortalLayout>
@@ -92,7 +114,7 @@ export default function Contact() {
               {t("Send a Message", "Tuma Ujumbe")}
             </h2>
 
-            {submitted ? (
+            {isSuccess ? (
               <div className="border border-green-200 bg-green-50 p-8 text-center">
                 <CheckCircle2 className="w-12 h-12 text-green-600 mx-auto mb-4" />
                 <h3 className="font-black text-xl uppercase text-green-800 mb-2">
@@ -153,11 +175,11 @@ export default function Contact() {
                 </div>
                 <button
                   type="submit"
-                  disabled={isSubmitting}
+                  disabled={isPending}
                   className="flex items-center gap-2 bg-primary text-white hover:bg-primary/90 px-8 py-3 font-bold text-sm tracking-wide transition-colors disabled:opacity-50"
                 >
                   <MessageSquare className="h-4 w-4" />
-                  {isSubmitting ? t("Sending...", "Inatuma...") : t("Send Message", "Tuma Ujumbe")}
+                  {isPending ? t("Sending...", "Inatuma...") : t("Send Message", "Tuma Ujumbe")}
                 </button>
               </form>
             )}

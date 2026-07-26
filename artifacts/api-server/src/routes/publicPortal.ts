@@ -19,7 +19,7 @@ import {
   brandingTable,
 } from "@workspace/db";
 import { eq, and, desc, asc, count } from "drizzle-orm";
-import { aspirantsTable } from "@workspace/db";
+import { aspirantsTable, contactMessagesTable } from "@workspace/db";
 
 const router = Router();
 
@@ -395,6 +395,25 @@ router.get("/aspirants", async (req: any, res: any) => {
       .offset(offset);
 
     res.json({ data, total: Number(total), page: pageNum, limit: pageSize });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/public/contact — general contact form (no auth)
+router.post("/contact", async (req: any, res: any) => {
+  try {
+    const { name, email, subject, message } = req.body;
+    if (!name || !email || !subject || !message) {
+      return res.status(400).json({ error: "name, email, subject, and message are required" });
+    }
+
+    const [contact] = await db
+      .insert(contactMessagesTable)
+      .values({ fullName: name, email, subject, message, status: "open" })
+      .returning({ id: contactMessagesTable.id });
+
+    res.status(201).json({ message: "Message received. Our team will get back to you within 2–3 business days.", contactId: contact.id });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

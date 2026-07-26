@@ -54,7 +54,7 @@ export default function SupporterRegister() {
     const countyName = KENYA_COUNTIES.find((c) => c.code === data.countyCode)?.name;
     mutate({
       fullName: data.fullName,
-      phone: data.phone || undefined,
+      phoneNumber: data.phone || undefined,
       email: data.email || undefined,
       countyCode: data.countyCode || undefined,
       countyName,

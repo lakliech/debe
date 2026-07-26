@@ -49,10 +49,10 @@ export default function DataRequest() {
 
   const onSubmit = (data: FormData) => {
     mutate({
-      type: data.requestType,
+      requestType: data.requestType,
       fullName: data.fullName,
       email: data.email,
-      phone: data.phone || undefined,
+      phoneNumber: data.phone || undefined,
       description: data.description,
     });
   };

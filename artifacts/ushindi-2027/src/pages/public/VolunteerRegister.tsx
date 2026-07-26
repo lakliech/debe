@@ -75,7 +75,7 @@ export default function VolunteerRegister() {
     const countyName = KENYA_COUNTIES.find((c) => c.code === final.countyCode)?.name;
     mutate({
       fullName: final.fullName!,
-      phone: final.phone!,
+      phoneNumber: final.phone!,
       email: final.email || undefined,
       countyCode: final.countyCode,
       countyName,
@@ -84,7 +84,7 @@ export default function VolunteerRegister() {
       preferredRole: final.preferredRole,
       availability: final.availability,
       skills: final.skills,
-      consentMarketing: true,
+      consentGiven: true,
     });
   };
 

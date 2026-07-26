@@ -110,6 +110,19 @@ export const insertAspirantSchema = createInsertSchema(aspirantsTable).omit({ id
 export type InsertAspirant = z.infer<typeof insertAspirantSchema>;
 export type Aspirant = typeof aspirantsTable.$inferSelect;
 
+// ── Contact Messages ─────────────────────────────────────────────────────────
+export const contactMessagesTable = pgTable("contact_messages", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  fullName: text("full_name").notNull(),
+  email: text("email").notNull(),
+  subject: text("subject").notNull(),
+  message: text("message").notNull(),
+  /** open | read | replied | archived */
+  status: text("status").notNull().default("open"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type ContactMessage = typeof contactMessagesTable.$inferSelect;
+
 // ── User Suspensions ─────────────────────────────────────────────────────────
 export const userSuspensionsTable = pgTable("user_suspensions", {
   id: uuid("id").primaryKey().defaultRandom(),
