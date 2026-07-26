@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Calendar, MapPin, Users } from "lucide-react";
-import { format } from "date-fns";
+import { format, parseISO, isValid } from "date-fns";
 import PublicPortalLayout from "@/components/layout/PublicPortalLayout";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useListPublicEvents } from "@workspace/api-client-react";
@@ -102,18 +102,22 @@ export default function Events() {
           {!isLoading && events && events.length > 0 && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {events.map((event) => {
-                const eventDate = event.startTime ? new Date(event.startTime) : null;
+                // eventDate is stored as "YYYY-MM-DD" text; parseISO handles it safely.
+                const parsedDate = event.eventDate
+                  ? parseISO(event.eventDate as string)
+                  : null;
+                const dateOk = parsedDate !== null && isValid(parsedDate);
                 return (
                   <div key={event.id} className="border border-border shadow-sm hover:shadow-md transition-shadow flex flex-col">
                     {/* Date badge */}
                     <div className="bg-black text-white px-6 py-4 flex items-center gap-4">
-                      {eventDate ? (
+                      {dateOk && parsedDate ? (
                         <div className="text-center">
                           <div className="text-4xl font-black leading-none text-primary">
-                            {format(eventDate, "d")}
+                            {format(parsedDate, "d")}
                           </div>
                           <div className="text-xs font-bold tracking-widest uppercase text-gray-400">
-                            {format(eventDate, "MMM yyyy")}
+                            {format(parsedDate, "MMM yyyy")}
                           </div>
                         </div>
                       ) : (
@@ -122,12 +126,12 @@ export default function Events() {
                       <div className="flex-1">
                         {event.eventType && (
                           <span className={cn("text-xs font-bold px-2 py-0.5 uppercase tracking-wider", getTypeColor(event.eventType))}>
-                            {event.eventType}
+                            {(event.eventType as string).replace(/_/g, " ")}
                           </span>
                         )}
-                        {eventDate && (
+                        {event.startTime && (
                           <p className="text-xs text-gray-400 mt-1">
-                            {format(eventDate, "h:mm a")}
+                            {event.startTime as string}
                           </p>
                         )}
                       </div>
