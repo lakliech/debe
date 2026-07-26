@@ -1,0 +1,23 @@
+kind = "mobile"
+previewPath = "/agent-mobile/"
+title = "Linda Mwananchi Agent"
+version = "1.0.0"
+id = "artifacts/agent-mobile"
+router = "expo-domain"
+
+[[services]]
+name = "expo"
+ensurePreviewReachable = "/status"
+paths = [ "/agent-mobile/" ]
+localPort = 25378
+
+[services.development]
+run = "pnpm --filter @workspace/agent-mobile run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/agent-mobile", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/agent-mobile", "run", "serve" ]
+
+[services.env]
+PORT = "25378"
+BASE_PATH = "/agent-mobile/"

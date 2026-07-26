@@ -1,0 +1,67 @@
+{
+  "expo": {
+    "name": "LM Agent",
+    "slug": "agent-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "agent-mobile",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#000000"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Allow LM Agent to access your camera to photograph Form 34A as required evidence for election result submissions.",
+        "NSLocationWhenInUseUsageDescription": "Allow LM Agent to record your GPS location when submitting results to verify your presence at the polling station.",
+        "NSPhotoLibraryUsageDescription": "Allow LM Agent to access your photo library to attach Form 34A photos."
+      }
+    },
+    "android": {
+      "permissions": [
+        "CAMERA",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "READ_EXTERNAL_STORAGE",
+        "INTERNET",
+        "ACCESS_NETWORK_STATE"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/images/icon.png"
+    },
+    "plugins": [
+      [
+        "expo-router",
+        {
+          "origin": "https://replit.com/"
+        }
+      ],
+      "expo-font",
+      "expo-web-browser",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow LM Agent to access your photos to attach Form 34A images.",
+          "cameraPermission": "Allow LM Agent to access your camera to photograph Form 34A.",
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow LM Agent to record your location when submitting election results.",
+          "locationWhenInUsePermission": "Allow LM Agent to record your GPS location for result submission verification."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}
