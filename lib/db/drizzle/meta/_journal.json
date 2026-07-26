@@ -15,6 +15,13 @@
       "when": 1785020224111,
       "tag": "0001_elections",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785090147901,
+      "tag": "0002_bumpy_inertia",
+      "breakpoints": true
     }
   ]
 }
