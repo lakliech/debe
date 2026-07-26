@@ -1,31 +1,61 @@
 import { Link } from "wouter";
-import { ChevronRight, MapPin, Activity, Shield, Users } from "lucide-react";
+import { ChevronRight, MapPin, Activity, Shield, Users, BookOpen, Newspaper, Calendar, CheckCircle2, Menu, X } from "lucide-react";
+import { useState } from "react";
+
+const NAV_LINKS = [
+  { href: "/about",       label: "About" },
+  { href: "/manifesto",   label: "Manifesto" },
+  { href: "/news",        label: "News" },
+  { href: "/events",      label: "Events" },
+  { href: "/faq",         label: "FAQ" },
+  { href: "/fact-check",  label: "Fact Check" },
+];
 
 export default function Home() {
+  const [mobileOpen, setMobileOpen] = useState(false);
+
   return (
     <div className="min-h-[100dvh] flex flex-col bg-white selection:bg-primary selection:text-white">
       {/* Top announcement bar */}
       <div className="bg-black text-white text-xs sm:text-sm text-center py-2.5 px-4 font-medium tracking-wide">
         Uko Kadi?{" "}
-        <span className="underline underline-offset-2 cursor-pointer hover:text-primary transition-colors">
+        <a
+          href="https://www.iebc.or.ke"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline underline-offset-2 hover:text-primary transition-colors"
+        >
           Verify if you are a registered voter
-        </span>
+        </a>
       </div>
 
       {/* Header */}
-      <header className="px-6 h-16 flex items-center justify-between border-b border-gray-100 bg-white z-10 relative">
-        <div className="flex items-center gap-3">
-          {/* Linda Mwananchi logo mark */}
-          <div className="flex flex-col leading-none">
-            <div className="bg-primary text-white font-black text-sm px-2 py-0.5 tracking-wider">
-              LINDA
-            </div>
-            <div className="text-black font-black text-[10px] tracking-[0.2em] mt-0.5">
-              MWANANCHI
-            </div>
+      <header className="px-6 h-16 flex items-center justify-between border-b border-gray-100 bg-white z-20 relative">
+        {/* Logo */}
+        <Link href="/" className="flex flex-col leading-none">
+          <div className="bg-primary text-white font-black text-sm px-2 py-0.5 tracking-wider">
+            LINDA
           </div>
-        </div>
-        <div className="flex items-center gap-4">
+          <div className="text-black font-black text-[10px] tracking-[0.2em] mt-0.5">
+            MWANANCHI
+          </div>
+        </Link>
+
+        {/* Desktop nav */}
+        <nav className="hidden lg:flex items-center gap-6">
+          {NAV_LINKS.map((l) => (
+            <Link
+              key={l.href}
+              href={l.href}
+              className="text-xs font-bold tracking-widest uppercase text-foreground hover:text-primary transition-colors"
+            >
+              {l.label}
+            </Link>
+          ))}
+        </nav>
+
+        {/* Right actions */}
+        <div className="flex items-center gap-3">
           <Link
             href="/sign-in"
             className="text-sm font-bold text-foreground hover:text-primary transition-colors hidden sm:block tracking-wide"
@@ -33,13 +63,45 @@ export default function Home() {
             SIGN IN
           </Link>
           <Link
-            href="/sign-up"
-            className="bg-primary text-white hover:bg-primary/90 px-5 py-2 font-bold text-sm transition-all tracking-wide"
+            href="/crowdfunding"
+            className="bg-primary text-white hover:bg-primary/90 px-5 py-2 font-bold text-sm transition-all tracking-wide hidden sm:block"
           >
             SUPPORT
           </Link>
+          {/* Mobile menu toggle */}
+          <button
+            onClick={() => setMobileOpen(!mobileOpen)}
+            className="lg:hidden p-2 text-black"
+            aria-label="Toggle menu"
+          >
+            {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
         </div>
       </header>
+
+      {/* Mobile nav drawer */}
+      {mobileOpen && (
+        <div className="lg:hidden bg-white border-b border-gray-100 px-6 py-4 z-10 flex flex-col gap-3">
+          {NAV_LINKS.map((l) => (
+            <Link
+              key={l.href}
+              href={l.href}
+              onClick={() => setMobileOpen(false)}
+              className="text-sm font-bold tracking-widest uppercase text-foreground hover:text-primary transition-colors py-1"
+            >
+              {l.label}
+            </Link>
+          ))}
+          <div className="flex gap-3 mt-2 pt-3 border-t border-gray-100">
+            <Link href="/sign-in" className="flex-1 text-center text-sm font-bold py-2.5 border border-black hover:bg-black hover:text-white transition-colors">
+              Sign In
+            </Link>
+            <Link href="/crowdfunding" className="flex-1 text-center text-sm font-bold py-2.5 bg-primary text-white hover:bg-primary/90 transition-colors">
+              Support
+            </Link>
+          </div>
+        </div>
+      )}
 
       {/* Hero Section */}
       <main className="flex-1 flex flex-col">
@@ -53,29 +115,45 @@ export default function Home() {
               OF THE CHANGE.
             </h1>
             <p className="text-lg text-gray-600 max-w-xl leading-relaxed">
-              Sign up to join the move to make Kenya better.
+              A new Kenya is possible. Read the plan, join the movement, and make your voice count.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 mt-4">
               <Link
-                href="/sign-up"
+                href="/manifesto"
                 className="bg-primary text-white hover:bg-primary/90 px-8 py-4 font-black text-base tracking-widest uppercase transition-all flex items-center justify-center gap-2 group"
               >
-                Count Me In
+                Read the Manifesto
                 <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
               </Link>
               <Link
-                href="/sign-in"
+                href="/volunteer-register"
                 className="bg-black text-white hover:bg-black/80 px-8 py-4 font-black text-base tracking-widest uppercase transition-all flex items-center justify-center"
               >
-                Agent Login
+                Volunteer
               </Link>
+            </div>
+            {/* Quick portal links */}
+            <div className="flex flex-wrap gap-3 mt-2">
+              {[
+                { href: "/news",       label: "Latest News" },
+                { href: "/events",     label: "Upcoming Events" },
+                { href: "/fact-check", label: "Fact Check" },
+                { href: "/about",      label: "About Linda" },
+              ].map((l) => (
+                <Link
+                  key={l.href}
+                  href={l.href}
+                  className="text-xs font-bold tracking-wider uppercase text-primary border border-primary/30 px-3 py-1.5 hover:bg-primary hover:text-white transition-colors"
+                >
+                  {l.label}
+                </Link>
+              ))}
             </div>
           </div>
 
           {/* Right: Counter card */}
           <div className="w-full max-w-sm lg:max-w-xs">
             <div className="border-4 border-black p-8 bg-white relative">
-              {/* Corner accent */}
               <div className="absolute -top-2 -right-2 w-6 h-6 bg-primary" />
               <p className="font-black text-lg tracking-[0.15em] uppercase mb-4 text-black">
                 Kwani Tuko Wangapi?
@@ -87,11 +165,68 @@ export default function Home() {
                 people have joined so far
               </p>
               <Link
-                href="/sign-up"
+                href="/supporter-register"
                 className="block w-full bg-primary text-white text-center py-3.5 font-black tracking-widest uppercase text-sm hover:bg-primary/90 transition-colors"
               >
                 COUNT ME IN
               </Link>
+            </div>
+          </div>
+        </div>
+
+        {/* Political communications strip */}
+        <div className="bg-black text-white py-12 px-6">
+          <div className="max-w-7xl mx-auto">
+            <p className="text-xs font-black tracking-[0.3em] uppercase text-primary mb-3">
+              The Plan for Kenya
+            </p>
+            <h2 className="text-3xl font-black uppercase tracking-tight mb-10">
+              Political Communications
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+              {[
+                {
+                  icon: BookOpen,
+                  title: "The Manifesto",
+                  desc: "20 policy sectors. Hundreds of specific, costed commitments for every Kenyan.",
+                  href: "/manifesto",
+                  cta: "Read the manifesto",
+                },
+                {
+                  icon: Newspaper,
+                  title: "Latest News",
+                  desc: "Press releases, policy papers, campaign updates, and speeches.",
+                  href: "/news",
+                  cta: "Read the news",
+                },
+                {
+                  icon: Calendar,
+                  title: "Events",
+                  desc: "Rallies, town halls, and public forums near you across all 47 counties.",
+                  href: "/events",
+                  cta: "See all events",
+                },
+                {
+                  icon: CheckCircle2,
+                  title: "Fact Check",
+                  desc: "We hold ourselves and our opponents to the truth. Claims verified.",
+                  href: "/fact-check",
+                  cta: "View fact checks",
+                },
+              ].map(({ icon: Icon, title, desc, href, cta }) => (
+                <Link
+                  key={href}
+                  href={href}
+                  className="border border-white/20 p-6 hover:border-primary hover:bg-white/5 transition-all group block"
+                >
+                  <Icon className="w-8 h-8 text-primary mb-4" />
+                  <h3 className="font-black text-base uppercase tracking-tight mb-2">{title}</h3>
+                  <p className="text-gray-400 text-sm leading-relaxed mb-4">{desc}</p>
+                  <span className="text-xs font-bold text-primary uppercase tracking-wider flex items-center gap-1 group-hover:gap-2 transition-all">
+                    {cta} <ChevronRight className="w-3 h-3" />
+                  </span>
+                </Link>
+              ))}
             </div>
           </div>
         </div>
@@ -111,55 +246,11 @@ export default function Home() {
             </div>
           </div>
           <Link
-            href="/sign-up"
+            href="/crowdfunding"
             className="bg-primary text-white hover:bg-primary/90 px-6 py-3 font-bold text-sm tracking-wider uppercase transition-colors whitespace-nowrap flex items-center gap-2"
           >
             Contribute Securely <ChevronRight className="w-4 h-4" />
           </Link>
-        </div>
-
-        {/* Feature grid */}
-        <div className="bg-white border-t border-gray-100 py-16 px-6">
-          <div className="max-w-7xl mx-auto">
-            <p className="text-xs font-black tracking-[0.3em] uppercase text-primary mb-3">
-              Campaign Operations
-            </p>
-            <h2 className="text-3xl font-black text-black uppercase tracking-tight mb-12">
-              The Command Centre
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-              {[
-                {
-                  icon: MapPin,
-                  title: "National Coverage",
-                  desc: "Real-time visibility from national HQ down to individual polling stations across all 47 counties.",
-                },
-                {
-                  icon: Users,
-                  title: "Volunteer Network",
-                  desc: "Coordinate thousands of volunteers and polling agents with precision role assignment.",
-                },
-                {
-                  icon: Activity,
-                  title: "Live Operations",
-                  desc: "Instant incident reporting, tally tracking, and coordination during critical election days.",
-                },
-                {
-                  icon: Shield,
-                  title: "Secure Access",
-                  desc: "24 distinct permission levels with immutable audit logging and data protection compliance.",
-                },
-              ].map(({ icon: Icon, title, desc }) => (
-                <div key={title} className="flex flex-col gap-4">
-                  <div className="w-12 h-12 bg-primary flex items-center justify-center">
-                    <Icon className="w-6 h-6 text-white" />
-                  </div>
-                  <h3 className="text-base font-black uppercase tracking-wide text-black">{title}</h3>
-                  <p className="text-gray-500 text-sm leading-relaxed">{desc}</p>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
 
         {/* Footer */}
@@ -173,8 +264,15 @@ export default function Home() {
                 MWANANCHI
               </div>
             </div>
-            <p className="text-gray-400 text-xs text-center">
-              Linda Mwananchi 2027 Campaign. Secure Operations Platform.
+            <div className="flex flex-wrap justify-center gap-x-6 gap-y-2">
+              {NAV_LINKS.map((l) => (
+                <Link key={l.href} href={l.href} className="text-gray-400 text-xs hover:text-white transition-colors">
+                  {l.label}
+                </Link>
+              ))}
+            </div>
+            <p className="text-gray-500 text-xs text-center">
+              © 2027 Linda Mwananchi Campaign
             </p>
           </div>
         </footer>
