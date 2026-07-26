@@ -4,7 +4,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import AppLayout from "@/components/layout/AppLayout";
 import { useListTrainingCourses, createTrainingCourse } from "@workspace/api-client-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
@@ -87,7 +86,7 @@ export default function Training() {
   const totalEnrolled = courseList.reduce((sum: number, c: any) => sum + (c.enrollmentCount ?? 0), 0);
 
   return (
-    <AppLayout>
+    <>
       <div className="space-y-6 pb-8">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -265,6 +264,6 @@ export default function Training() {
           </div>
         )}
       </div>
-    </AppLayout>
+    </>
   );
 }

@@ -3,7 +3,6 @@ import { Link, useParams } from "wouter";
 import { ChevronLeft, BookOpen, Users, Award, Clock, CheckCircle2 } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
-import AppLayout from "@/components/layout/AppLayout";
 import {
   useGetTrainingCourse,
   enrollInCourse,
@@ -58,7 +57,7 @@ export default function TrainingCourse() {
 
   if (isLoading) {
     return (
-      <AppLayout>
+      <>
         <div className="animate-pulse space-y-6">
           <Skeleton className="h-8 w-32" />
           <Skeleton className="h-12 w-2/3" />
@@ -68,26 +67,26 @@ export default function TrainingCourse() {
           </div>
           <Skeleton className="h-64" />
         </div>
-      </AppLayout>
+      </>
     );
   }
 
   if (isError || !course) {
     return (
-      <AppLayout>
+      <>
         <div className="text-center py-20">
           <BookOpen className="w-10 h-10 mx-auto mb-4 text-muted-foreground" />
           <p className="text-muted-foreground mb-4">Course not found or could not be loaded.</p>
           <button onClick={() => refetch()} className="bg-primary text-white px-6 py-2 font-bold text-sm hover:bg-primary/90">Retry</button>
         </div>
-      </AppLayout>
+      </>
     );
   }
 
   const modules: any[] = (course as any).modules ?? [];
 
   return (
-    <AppLayout>
+    <>
       <div className="space-y-6 pb-8">
         {/* Back */}
         <Link href="/training" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors font-medium">
@@ -213,6 +212,6 @@ export default function TrainingCourse() {
           </div>
         </SheetContent>
       </Sheet>
-    </AppLayout>
+    </>
   );
 }

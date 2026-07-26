@@ -2,7 +2,6 @@ import { Link, useParams } from "wouter";
 import { ChevronLeft, Award, BookOpen, ClipboardList, Calendar, CheckCircle2, XCircle, ShieldAlert, RefreshCw, Shield } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
-import AppLayout from "@/components/layout/AppLayout";
 import {
   useGetVolunteer,
   useGetVolunteerBadges,
@@ -91,7 +90,7 @@ export default function VolunteerDetail() {
 
   if (isLoading) {
     return (
-      <AppLayout>
+      <>
         <div className="animate-pulse space-y-6">
           <Skeleton className="h-8 w-32" />
           <div className="flex gap-4">
@@ -104,7 +103,7 @@ export default function VolunteerDetail() {
           </div>
           <Skeleton className="h-64 w-full" />
         </div>
-      </AppLayout>
+      </>
     );
   }
 
@@ -112,7 +111,7 @@ export default function VolunteerDetail() {
   const status = v?.status?.toLowerCase() ?? "";
 
   return (
-    <AppLayout>
+    <>
       <div className="space-y-6 pb-8">
         {/* Back */}
         <Link href="/volunteers" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors font-medium">
@@ -387,6 +386,6 @@ export default function VolunteerDetail() {
           </TabsContent>
         </Tabs>
       </div>
-    </AppLayout>
+    </>
   );
 }

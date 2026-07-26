@@ -2,7 +2,6 @@ import { Link, useParams, useLocation } from "wouter";
 import { ChevronLeft, CheckCircle2, XCircle, Mail, MessageSquare, Trash2 } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
-import AppLayout from "@/components/layout/AppLayout";
 import {
   useGetSupporter,
   useGetSupporterConsents,
@@ -61,7 +60,7 @@ export default function SupporterDetail() {
 
   if (isLoading) {
     return (
-      <AppLayout>
+      <>
         <div className="animate-pulse space-y-6">
           <Skeleton className="h-8 w-32" />
           <div className="flex gap-4">
@@ -73,14 +72,14 @@ export default function SupporterDetail() {
           </div>
           <Skeleton className="h-40 w-full" />
         </div>
-      </AppLayout>
+      </>
     );
   }
 
   const s = supporter;
 
   return (
-    <AppLayout>
+    <>
       <div className="space-y-6 pb-8">
         {/* Back */}
         <Link href="/supporters" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors font-medium">
@@ -250,6 +249,6 @@ export default function SupporterDetail() {
           </div>
         </div>
       </div>
-    </AppLayout>
+    </>
   );
 }

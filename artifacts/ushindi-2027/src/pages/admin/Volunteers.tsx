@@ -3,7 +3,6 @@ import { Link, useLocation } from "wouter";
 import { Users, Search, Download, ChevronLeft, ChevronRight, Eye, CheckCircle2 } from "lucide-react";
 import { format } from "date-fns";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import AppLayout from "@/components/layout/AppLayout";
 import { useListVolunteers, useGetVolunteerStats, approveVolunteer } from "@workspace/api-client-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
@@ -74,7 +73,7 @@ export default function Volunteers() {
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
   return (
-    <AppLayout>
+    <>
       <div className="space-y-6 pb-8">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -212,6 +211,6 @@ export default function Volunteers() {
           )}
         </div>
       </div>
-    </AppLayout>
+    </>
   );
 }

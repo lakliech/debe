@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { AlertTriangle, MapPin, Users, Activity } from "lucide-react";
-import AppLayout from "@/components/layout/AppLayout";
 import {
   useGetCoordinatorDashboard,
   useGetVolunteerCoverage,
@@ -47,7 +46,7 @@ export default function Coordinator() {
   const gapData: any = gaps;
 
   return (
-    <AppLayout>
+    <>
       <div className="space-y-6 pb-8">
         {/* Header */}
         <div>
@@ -274,6 +273,6 @@ export default function Coordinator() {
           )}
         </div>
       </div>
-    </AppLayout>
+    </>
   );
 }

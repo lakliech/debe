@@ -2,7 +2,6 @@ import { useState } from "react";
 import { Shield, Clock, CheckCircle2, AlertTriangle } from "lucide-react";
 import { format, isPast, parseISO } from "date-fns";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import AppLayout from "@/components/layout/AppLayout";
 import {
   useListDataRequests,
   resolveDataRequest,
@@ -89,7 +88,7 @@ export default function DataRequests() {
   const selectedRequest = requests.find((r) => r.id === (selectedId ?? viewId));
 
   return (
-    <AppLayout>
+    <>
       <div className="space-y-6 pb-8">
         {/* Header */}
         <div className="flex items-start justify-between">
@@ -298,6 +297,6 @@ export default function DataRequests() {
           </div>
         </SheetContent>
       </Sheet>
-    </AppLayout>
+    </>
   );
 }
