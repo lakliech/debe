@@ -6,6 +6,7 @@
  */
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
+import { z } from "zod";
 import { db } from "@workspace/db";
 import {
   resultSubmissionsTable,
@@ -21,6 +22,68 @@ import {
 } from "@workspace/db";
 import { eq, desc, and, or, count, inArray } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
+import { validate } from "../lib/validate";
+
+// ─── VALIDATION SCHEMAS ───────────────────────────────────────────────────────
+
+const uuidField = z.string().uuid();
+const nonNegInt = z.number().int().min(0);
+
+const candidateVoteSchema = z.object({
+  candidateId: z.string().uuid().optional(),
+  candidateName: z.string().min(1).max(255),
+  partyAbbreviation: z.string().max(50).optional(),
+  voteCount: z.number().int().min(0),
+});
+
+/** Fields shared between draft creation and agent-submit */
+const submissionBodySchema = z.object({
+  pollingStationId: uuidField,
+  electionId: uuidField,
+  agentId: uuidField,
+  registeredVoters: nonNegInt.optional(),
+  ballotsIssued: nonNegInt.optional(),
+  totalVotesCast: nonNegInt.optional(),
+  totalValidVotes: nonNegInt.optional(),
+  rejectedBallots: nonNegInt.optional(),
+  spoiltBallots: nonNegInt.optional(),
+  unusedBallots: nonNegInt.optional(),
+  deviceId: z.string().max(255).optional(),
+  offlineCapturedAt: z.string().datetime({ offset: true }).optional(),
+  forceNew: z.boolean().optional(),
+  candidateVotes: z.array(candidateVoteSchema).optional(),
+});
+
+const imageUploadSchema = z.object({
+  imageType: z.string().min(1).max(100),
+  objectPath: z.string().max(1000).optional(),
+  imageHash: z.string().max(255).optional(),
+  sizeBytes: z.number().int().min(0).optional(),
+  mimeType: z.string().max(100).optional(),
+  pageNumber: z.number().int().min(1).optional(),
+  isRequired: z.boolean().optional(),
+  deviceId: z.string().max(255).optional(),
+});
+
+const verifySchema = z.object({
+  action: z.string().min(1).max(100),
+  toStatus: z.string().min(1).max(100),
+  notes: z.string().max(5000).optional(),
+  queriedFields: z.array(z.string()).nullable().optional(),
+});
+
+const correctSchema = z.object({
+  fieldName: z.string().min(1).max(100),
+  correctionReason: z.string().min(1).max(5000),
+  originalValue: z.string().max(5000).optional(),
+  correctedValue: z.string().max(5000).optional(),
+  evidenceUrl: z.string().url().optional(),
+});
+
+const ocrReviewSchema = z.object({
+  suggestionId: uuidField,
+  accepted: z.boolean(),
+});
 
 const router = Router();
 
@@ -194,11 +257,9 @@ router.get("/submissions", requireAuth, canViewResults, async (req: any, res: an
 // MUST be before POST /submissions/:id/* routes to avoid :id shadowing
 router.post("/submissions/agent-submit", requireAuth, canSubmitResults, async (req: any, res: any) => {
   try {
-    const { candidateVotes, ...body } = req.body;
-
-    if (!body.pollingStationId || !body.electionId || !body.agentId) {
-      return res.status(400).json({ error: "pollingStationId, electionId, and agentId are required" });
-    }
+    const parsed = validate(submissionBodySchema, req.body, res);
+    if (!parsed) return;
+    const { candidateVotes, ...body } = parsed;
 
     // Idempotency: check for existing submission by deviceId + offlineCapturedAt
     if (body.deviceId && body.offlineCapturedAt) {
@@ -222,13 +283,16 @@ router.post("/submissions/agent-submit", requireAuth, canSubmitResults, async (r
       )).limit(1);
 
     let submissionId: string;
+    // Convert offlineCapturedAt string → Date for DB
+    const dbBody: any = { ...body, offlineCapturedAt: body.offlineCapturedAt ? new Date(body.offlineCapturedAt) : undefined };
+
     if (existing && existing.status === "draft") {
-      await db.update(resultSubmissionsTable).set({ ...body, status: "draft" })
+      await db.update(resultSubmissionsTable).set({ ...dbBody, status: "draft" })
         .where(eq(resultSubmissionsTable.id, existing.id));
       submissionId = existing.id;
     } else {
       const version = existing ? (existing.version ?? 1) + 1 : 1;
-      const [created] = await db.insert(resultSubmissionsTable).values({ ...body, status: "draft", version }).returning();
+      const [created] = await db.insert(resultSubmissionsTable).values({ ...dbBody, status: "draft", version }).returning();
       submissionId = created.id;
     }
 
@@ -269,11 +333,9 @@ router.post("/submissions/agent-submit", requireAuth, canSubmitResults, async (r
 // canSubmitResults includes polling agents and supervisors
 router.post("/submissions", requireAuth, canSubmitResults, async (req: any, res: any) => {
   try {
-    const { candidateVotes, forceNew, ...body } = req.body;
-
-    if (!body.pollingStationId || !body.electionId || !body.agentId) {
-      return res.status(400).json({ error: "pollingStationId, electionId, and agentId are required" });
-    }
+    const parsed = validate(submissionBodySchema, req.body, res);
+    if (!parsed) return;
+    const { candidateVotes, forceNew, ...body } = parsed;
 
     // Duplicate check
     const [existing] = await db.select()
@@ -293,8 +355,9 @@ router.post("/submissions", requireAuth, canSubmitResults, async (req: any, res:
         });
       }
       // Update draft
+      const dbBody: any = { ...body, offlineCapturedAt: body.offlineCapturedAt ? new Date(body.offlineCapturedAt) : undefined };
       const [updated] = await db.update(resultSubmissionsTable).set({
-        ...body,
+        ...dbBody,
         status: "draft",
       }).where(eq(resultSubmissionsTable.id, existing.id)).returning();
 
@@ -313,8 +376,9 @@ router.post("/submissions", requireAuth, canSubmitResults, async (req: any, res:
 
     // New submission
     const version = existing ? (existing.version ?? 1) + 1 : 1;
+    const dbBody: any = { ...body, offlineCapturedAt: body.offlineCapturedAt ? new Date(body.offlineCapturedAt) : undefined };
     const [submission] = await db.insert(resultSubmissionsTable).values({
-      ...body,
+      ...dbBody,
       status: "draft",
       version,
     }).returning();
@@ -399,8 +463,9 @@ router.post("/submissions/:id/submit", requireAuth, canSubmitResults, async (req
 // POST /api/election-results/submissions/:id/images
 router.post("/submissions/:id/images", requireAuth, canSubmitResults, async (req: any, res: any) => {
   try {
-    const { imageType, objectPath, imageHash, sizeBytes, mimeType, pageNumber, isRequired, deviceId } = req.body;
-    if (!imageType) return res.status(400).json({ error: "imageType required" });
+    const parsed = validate(imageUploadSchema, req.body, res);
+    if (!parsed) return;
+    const { imageType, objectPath, imageHash, sizeBytes, mimeType, pageNumber, isRequired, deviceId } = parsed;
 
     const [row] = await db.insert(submissionFormImagesTable).values({
       submissionId: req.params.id,
@@ -423,8 +488,9 @@ router.post("/submissions/:id/images", requireAuth, canSubmitResults, async (req
 router.post("/submissions/:id/verify", requireAuth, canVerifyResults, async (req: any, res: any) => {
   try {
     const actorId = await resolveActorUUID(req.clerkId);
-    const { action, notes, queriedFields, toStatus } = req.body;
-    if (!action || !toStatus) return res.status(400).json({ error: "action and toStatus required" });
+    const parsed = validate(verifySchema, req.body, res);
+    if (!parsed) return;
+    const { action, notes, queriedFields, toStatus } = parsed;
 
     const [submission] = await db.select({ id: resultSubmissionsTable.id, status: resultSubmissionsTable.status })
       .from(resultSubmissionsTable).where(eq(resultSubmissionsTable.id, req.params.id)).limit(1);
@@ -453,8 +519,9 @@ router.post("/submissions/:id/verify", requireAuth, canVerifyResults, async (req
 router.post("/submissions/:id/correct", requireAuth, canVerifyResults, async (req: any, res: any) => {
   try {
     const actorId = await resolveActorUUID(req.clerkId);
-    const { fieldName, originalValue, correctedValue, correctionReason, evidenceUrl } = req.body;
-    if (!fieldName || !correctionReason) return res.status(400).json({ error: "fieldName and correctionReason required" });
+    const parsed = validate(correctSchema, req.body, res);
+    if (!parsed) return;
+    const { fieldName, originalValue, correctedValue, correctionReason, evidenceUrl } = parsed;
 
     const [row] = await db.insert(submissionCorrectionsTable).values({
       submissionId: req.params.id,
@@ -499,8 +566,9 @@ router.get("/submissions/:id/ocr", requireAuth, canViewResults, async (req: any,
 router.post("/submissions/:id/ocr/review", requireAuth, canVerifyResults, async (req: any, res: any) => {
   try {
     const actorId = await resolveActorUUID(req.clerkId);
-    const { suggestionId, accepted } = req.body;
-    if (!suggestionId || accepted === undefined) return res.status(400).json({ error: "suggestionId and accepted required" });
+    const parsed = validate(ocrReviewSchema, req.body, res);
+    if (!parsed) return;
+    const { suggestionId, accepted } = parsed;
 
     const [row] = await db.update(submissionOcrSuggestionsTable).set({
       accepted,

@@ -3,6 +3,7 @@
  */
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
+import { z } from "zod";
 import { db } from "@workspace/db";
 import {
   pollingAgentsTable,
@@ -19,6 +20,85 @@ import {
 } from "@workspace/db";
 import { eq, desc, and, or, ilike, count, inArray } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
+import { validate } from "../lib/validate";
+
+// ─── VALIDATION SCHEMAS ───────────────────────────────────────────────────────
+
+const uuidField = z.string().uuid();
+const kenyaPhone = z.string().max(20).optional();
+
+const createAgentSchema = z.object({
+  fullName: z.string().min(1).max(255),
+  phoneNumber: kenyaPhone,
+  nationalId: z.string().max(50).optional(),
+  email: z.string().email().optional(),
+  pollingStationId: uuidField.optional(),
+  isBackup: z.boolean().optional(),
+  userId: uuidField.optional(),
+  status: z.enum(["active", "inactive", "suspended"]).optional(),
+  trainingStatus: z.enum(["not_started", "in_progress", "completed"]).optional(),
+  accreditationStatus: z.enum(["pending", "submitted", "approved", "rejected"]).optional(),
+});
+
+const patchAgentSchema = createAgentSchema.partial();
+
+const createCourseSchema = z.object({
+  title: z.string().min(1).max(255),
+  description: z.string().max(5000).optional(),
+  passingScore: z.number().int().min(0).max(100).optional(),
+  isRequired: z.boolean().optional(),
+  questions: z.array(z.object({
+    questionText: z.string().min(1),
+    options: z.array(z.string().min(1)).min(2),
+    correctIndex: z.number().int().min(0),
+    displayOrder: z.number().int().min(0).optional(),
+  })).optional(),
+});
+
+const quizAnswersSchema = z.object({
+  answers: z.array(z.number().int().min(0)),
+});
+
+const allowanceSchema = z.object({
+  electionId: uuidField,
+  amountKes: z.number().positive(),
+  paymentMethod: z.string().max(100).optional(),
+  paymentRef: z.string().max(255).optional(),
+});
+
+const allowanceApproveSchema = z.object({
+  allowanceId: uuidField.optional(),
+});
+
+const replacementSchema = z.object({
+  originalAgentId: uuidField,
+  replacementAgentId: uuidField,
+  pollingStationId: uuidField,
+  reason: z.string().min(1).max(5000),
+  effectiveAt: z.string().datetime({ offset: true }).optional(),
+});
+
+const replacementApproveSchema = z.object({
+  effectiveAt: z.string().datetime({ offset: true }).optional(),
+});
+
+const syncHeartbeatSchema = z.object({
+  deviceId: z.string().max(255).optional(),
+  syncStatus: z.enum(["synced", "pending", "error"]).optional(),
+  pendingSubmissions: z.number().int().min(0).optional(),
+  appVersion: z.string().max(50).optional(),
+  batteryLevel: z.number().min(0).max(100).optional(),
+  networkType: z.string().max(50).optional(),
+});
+
+const electionDaySchema = z.object({
+  electionId: uuidField,
+  pollingStationId: uuidField.optional(),
+  arrivedAt: z.string().datetime({ offset: true }).optional(),
+  leftAt: z.string().datetime({ offset: true }).optional(),
+  attendanceStatus: z.enum(["expected", "present", "absent", "replaced"]).optional(),
+  notes: z.string().max(5000).optional(),
+});
 
 const router = Router();
 
@@ -84,7 +164,9 @@ router.get("/", requireAuth, canViewAgents, async (req: any, res: any) => {
 // POST /api/polling-agents/
 router.post("/", requireAuth, canManageAgents, async (req: any, res: any) => {
   try {
-    const { pollingStationId, isBackup, ...body } = req.body;
+    const parsed = validate(createAgentSchema, req.body, res);
+    if (!parsed) return;
+    const { pollingStationId, isBackup, ...body } = parsed;
 
     // Prevent duplicate primary assignment
     if (pollingStationId && !isBackup) {
@@ -101,7 +183,7 @@ router.post("/", requireAuth, canManageAgents, async (req: any, res: any) => {
       ...body,
       pollingStationId,
       isBackup: isBackup ?? false,
-    }).returning();
+    } as any).returning();
     res.status(201).json(row);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -187,7 +269,9 @@ router.get("/:id", requireAuth, canViewAgents, async (req: any, res: any) => {
 // PATCH /api/polling-agents/:id
 router.patch("/:id", requireAuth, canManageAgents, async (req: any, res: any) => {
   try {
-    const { pollingStationId, isBackup, ...body } = req.body;
+    const parsed = validate(patchAgentSchema, req.body, res);
+    if (!parsed) return;
+    const { pollingStationId, isBackup, ...body } = parsed;
 
     // Conflict check if reassigning primary
     if (pollingStationId && isBackup === false) {
@@ -237,7 +321,9 @@ router.post("/:id/code-of-conduct", requireAuth, canManageAgents, async (req: an
 // POST /api/polling-agents/courses
 router.post("/courses", requireAuth, canManageAgents, async (req: any, res: any) => {
   try {
-    const { questions, ...courseBody } = req.body;
+    const parsed = validate(createCourseSchema, req.body, res);
+    if (!parsed) return;
+    const { questions, ...courseBody } = parsed;
     const [course] = await db.insert(agentTrainingCoursesTable).values(courseBody).returning();
 
     if (questions && Array.isArray(questions) && questions.length > 0) {
@@ -294,8 +380,9 @@ router.post("/:id/training/:courseId/enroll", requireAuth, canManageAgents, asyn
 // POST /api/polling-agents/:id/training/:courseId/quiz
 router.post("/:id/training/:courseId/quiz", requireAuth, async (req: any, res: any) => {
   try {
-    const { answers } = req.body; // number[] — selected answer indices
-    if (!Array.isArray(answers)) return res.status(400).json({ error: "answers array required" });
+    const parsed = validate(quizAnswersSchema, req.body, res);
+    if (!parsed) return;
+    const { answers } = parsed;
 
     const [course] = await db.select().from(agentTrainingCoursesTable)
       .where(eq(agentTrainingCoursesTable.id, req.params.courseId)).limit(1);
@@ -361,8 +448,9 @@ router.get("/:id/allowance", requireAuth, canViewAgents, async (req: any, res: a
 // POST /api/polling-agents/:id/allowance
 router.post("/:id/allowance", requireAuth, canManageAgents, async (req: any, res: any) => {
   try {
-    const { electionId, amountKes, paymentMethod, paymentRef, ...rest } = req.body;
-    if (!electionId || !amountKes) return res.status(400).json({ error: "electionId and amountKes required" });
+    const parsed = validate(allowanceSchema, req.body, res);
+    if (!parsed) return;
+    const { electionId, amountKes, paymentMethod, paymentRef, ...rest } = parsed;
 
     // Check if exists
     const [existing] = await db.select({ id: agentAllowancesTable.id })
@@ -392,7 +480,9 @@ router.post("/:id/allowance", requireAuth, canManageAgents, async (req: any, res
 router.post("/:id/allowance/approve", requireAuth, canApprovePayments, async (req: any, res: any) => {
   try {
     const actorId = await resolveActorUUID(req.clerkId);
-    const { allowanceId } = req.body;
+    const parsed = validate(allowanceApproveSchema, req.body, res);
+    if (!parsed) return;
+    const { allowanceId } = parsed;
     const where = allowanceId
       ? eq(agentAllowancesTable.id, allowanceId)
       : eq(agentAllowancesTable.agentId, req.params.id);
@@ -415,11 +505,13 @@ router.post("/:id/allowance/approve", requireAuth, canApprovePayments, async (re
 router.post("/replacements", requireAuth, canManageAgents, async (req: any, res: any) => {
   try {
     const actorId = await resolveActorUUID(req.clerkId);
+    const parsed = validate(replacementSchema, req.body, res);
+    if (!parsed) return;
     const [row] = await db.insert(agentReplacementsTable).values({
-      ...req.body,
+      ...parsed,
       requestedBy: actorId ?? undefined,
       status: "pending",
-    }).returning();
+    } as any).returning();
     res.status(201).json(row);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -430,10 +522,12 @@ router.post("/replacements", requireAuth, canManageAgents, async (req: any, res:
 router.patch("/replacements/:rid/approve", requireAuth, canApprovePayments, async (req: any, res: any) => {
   try {
     const actorId = await resolveActorUUID(req.clerkId);
+    const parsed = validate(replacementApproveSchema, req.body, res);
+    if (!parsed) return;
     const [row] = await db.update(agentReplacementsTable).set({
       status: "approved",
       approvedBy: actorId ?? undefined,
-      effectiveAt: req.body.effectiveAt ? new Date(req.body.effectiveAt) : new Date(),
+      effectiveAt: parsed.effectiveAt ? new Date(parsed.effectiveAt) : new Date(),
     }).where(eq(agentReplacementsTable.id, req.params.rid)).returning();
     if (!row) return res.status(404).json({ error: "Replacement request not found" });
     res.json(row);
@@ -447,7 +541,9 @@ router.patch("/replacements/:rid/approve", requireAuth, canApprovePayments, asyn
 // POST /api/polling-agents/:id/sync-heartbeat
 router.post("/:id/sync-heartbeat", requireAuth, async (req: any, res: any) => {
   try {
-    const { deviceId, syncStatus, pendingSubmissions, appVersion, batteryLevel, networkType } = req.body;
+    const parsed = validate(syncHeartbeatSchema, req.body, res);
+    if (!parsed) return;
+    const { deviceId, syncStatus, pendingSubmissions, appVersion, batteryLevel, networkType } = parsed;
     const [row] = await db.insert(agentSyncStatusTable).values({
       agentId: req.params.id,
       deviceId,
@@ -493,7 +589,9 @@ router.get("/:id/election-day", requireAuth, canViewAgents, async (req: any, res
 router.patch("/:id/election-day", requireAuth, canManageSupervisor, async (req: any, res: any) => {
   try {
     const actorId = await resolveActorUUID(req.clerkId);
-    const { electionId, pollingStationId, arrivedAt, leftAt, attendanceStatus, notes } = req.body;
+    const parsed = validate(electionDaySchema, req.body, res);
+    if (!parsed) return;
+    const { electionId, pollingStationId, arrivedAt, leftAt, attendanceStatus, notes } = parsed;
 
     const [existing] = await db.select({ id: agentElectionDayTable.id })
       .from(agentElectionDayTable)
@@ -521,7 +619,7 @@ router.patch("/:id/election-day", requireAuth, canManageSupervisor, async (req: 
         attendanceStatus: attendanceStatus ?? "expected",
         notes,
         recordedBy: actorId ?? undefined,
-      }).returning();
+      } as any).returning();
     }
     res.json(row);
   } catch (err: any) {

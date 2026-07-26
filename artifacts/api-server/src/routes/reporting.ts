@@ -5,6 +5,7 @@
  */
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
+import { z } from "zod";
 import { db } from "@workspace/db";
 import {
   volunteersTable, supportersTable, contributionsTable,
@@ -18,6 +19,23 @@ import {
 import { eq, desc, count, sum, sql } from "drizzle-orm";
 import { requireRoles, resolveActor } from "../middlewares/rbac";
 import ExcelJS from "exceljs";
+import { validate } from "../lib/validate";
+
+// ─── VALIDATION SCHEMAS ───────────────────────────────────────────────────────
+
+const VALID_REPORT_IDS = [
+  "volunteers", "supporters", "donations", "expenditure",
+  "polling-agents", "polling-stations", "result-submissions", "tally-summary",
+  "incidents", "disputes", "training-completions", "audit-log", "export-log",
+  "county-coverage", "agent-allowances", "donor-summary",
+  "event-attendance", "comms-reach", "rapid-response",
+] as const;
+
+const exportSchema = z.object({
+  reportId: z.enum(VALID_REPORT_IDS),
+  format: z.enum(["csv", "excel"]).optional().default("csv"),
+  filters: z.record(z.unknown()).optional().default({}),
+});
 
 const router = Router();
 
@@ -132,7 +150,9 @@ router.get("/list", requireAuth, (_req, res) => {
 // ── POST /api/reporting/export ─────────────────────────────────────────────
 router.post("/export", requireAuth, resolveActor, canExport, async (req: any, res: any) => {
   try {
-    const { reportId, format = "csv", filters = {} } = req.body;
+    const parsed = validate(exportSchema, req.body, res);
+    if (!parsed) return;
+    const { reportId, format, filters } = parsed;
     const actorId = await resolveActorUUID(req.clerkId);
 
     let rows: object[] = [];
