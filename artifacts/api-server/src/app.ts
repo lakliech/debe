@@ -15,6 +15,14 @@ import { logger } from "./lib/logger";
 
 const app: Express = express();
 
+// ── Proxy trust ────────────────────────────────────────────────────────────
+// Replit sits behind one reverse-proxy hop.  Setting trust proxy to 1 tells
+// Express to accept the first X-Forwarded-For value as the real client IP,
+// but only from the immediately-adjacent proxy — not from arbitrary headers
+// injected by the client itself.  req.ip and req.ips are then reliable, and
+// rate-limit keyGenerators can safely use req.ip.
+app.set("trust proxy", 1);
+
 // ── Secure headers (Helmet) ────────────────────────────────────────────────
 app.use(
   helmet({

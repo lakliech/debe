@@ -8,6 +8,7 @@ import { db } from "@workspace/db";
 import { dataSubjectRequestsTable, supportersTable, volunteersTable } from "@workspace/db";
 import { eq, desc, and, count } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
+import { publicSubmitLimiter } from "../middlewares/rateLimits";
 
 const router = Router();
 
@@ -57,7 +58,7 @@ router.get("/", requireAuth, canManageDSRs, async (req: any, res: any) => {
 });
 
 // POST /api/data-requests — public, anyone can submit
-router.post("/", async (req: any, res: any) => {
+router.post("/", publicSubmitLimiter, async (req: any, res: any) => {
   try {
     const { requestType, fullName, email, phoneNumber, description, subjectType, subjectId } = req.body;
     if (!requestType || !fullName) {

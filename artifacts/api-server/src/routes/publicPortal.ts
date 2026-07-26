@@ -4,6 +4,7 @@
  */
 import { Router } from "express";
 import { db } from "@workspace/db";
+import { publicSubmitLimiter } from "../middlewares/rateLimits";
 import {
   manifestoSectorsTable,
   manifestoItemsTable,
@@ -222,7 +223,7 @@ router.get("/fact-check", async (req: any, res: any) => {
 });
 
 // POST /api/public/volunteer-register — self-registration (no auth)
-router.post("/volunteer-register", async (req: any, res: any) => {
+router.post("/volunteer-register", publicSubmitLimiter, async (req: any, res: any) => {
   try {
     const {
       fullName, phoneNumber, email, countyId, constituencyId, wardId,
@@ -262,7 +263,7 @@ router.post("/volunteer-register", async (req: any, res: any) => {
 });
 
 // POST /api/public/supporter-register — self-registration (no auth)
-router.post("/supporter-register", async (req: any, res: any) => {
+router.post("/supporter-register", publicSubmitLimiter, async (req: any, res: any) => {
   try {
     const {
       fullName, phoneNumber, email, countyId, constituencyId,
@@ -296,7 +297,7 @@ router.post("/supporter-register", async (req: any, res: any) => {
 });
 
 // POST /api/public/aspirants — aspirant self-registration (no auth)
-router.post("/aspirants", async (req: any, res: any) => {
+router.post("/aspirants", publicSubmitLimiter, async (req: any, res: any) => {
   try {
     const {
       fullName, phoneNumber, nationalId, position, countyCode, countyName,
@@ -401,7 +402,7 @@ router.get("/aspirants", async (req: any, res: any) => {
 });
 
 // POST /api/public/contact — general contact form (no auth)
-router.post("/contact", async (req: any, res: any) => {
+router.post("/contact", publicSubmitLimiter, async (req: any, res: any) => {
   try {
     const { name, email, subject, message } = req.body;
     if (!name || !email || !subject || !message) {
@@ -420,7 +421,7 @@ router.post("/contact", async (req: any, res: any) => {
 });
 
 // POST /api/public/policy-submit — citizen policy submissions
-router.post("/policy-submit", async (req: any, res: any) => {
+router.post("/policy-submit", publicSubmitLimiter, async (req: any, res: any) => {
   try {
     const { title, content, sectorId, countyId, anonymous } = req.body;
     if (!title || !content) return res.status(400).json({ error: "title and content are required" });
