@@ -1,4 +1,4 @@
-import { Shield, Flag, Users, Activity, Settings, MapPin, Search, Menu, LogOut, ChevronRight, DollarSign, Megaphone, Library, Calendar, AlertTriangle, Settings2, ClipboardList, BarChart3, AlertOctagon, Scale, Monitor, Globe } from "lucide-react";
+import { Shield, Flag, Users, Activity, Settings, MapPin, Search, Menu, LogOut, ChevronRight, DollarSign, Megaphone, Library, Calendar, AlertTriangle, Settings2, ClipboardList, BarChart3, AlertOctagon, Scale, Monitor, Globe, Download, Lock } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useClerk, useUser } from "@clerk/react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -55,6 +55,9 @@ const adminNav = [
   { name: "Roles & Permissions", href: "/roles", icon: Shield },
   { name: "Audit Log", href: "/audit", icon: Search },
   { name: "Data Requests", href: "/data-requests", icon: Activity },
+  { name: "Compliance", href: "/compliance", icon: Lock },
+  { name: "Reports & Exports", href: "/reporting", icon: Download },
+  { name: "Privileged Access", href: "/privileged-access", icon: Shield },
 ];
 
 const settingsNav = [

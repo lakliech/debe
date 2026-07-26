@@ -27,6 +27,9 @@ import electionIncidentsRouter from "./electionIncidents";
 import electionDisputesRouter from "./electionDisputes";
 import transparencyPortalRouter from "./transparencyPortal";
 import commandCentreRouter from "./commandCentre";
+import reportingRouter from "./reporting";
+import complianceRouter from "./compliance";
+import privilegedAccessRouter from "./privilegedAccess";
 
 const router: IRouter = Router();
 
@@ -58,5 +61,8 @@ router.use("/election-incidents", electionIncidentsRouter);
 router.use("/election-disputes", electionDisputesRouter);
 router.use("/transparency", transparencyPortalRouter);
 router.use("/command-centre", commandCentreRouter);
+router.use("/reporting", reportingRouter);
+router.use("/compliance", complianceRouter);
+router.use("/privileged-access", privilegedAccessRouter);
 
 export default router;

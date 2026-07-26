@@ -3,6 +3,8 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 import { clerkMiddleware } from "@clerk/express";
 import { publishableKeyFromHost } from "@clerk/shared/keys";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import {
   CLERK_PROXY_PATH,
   clerkProxyMiddleware,
@@ -12,6 +14,42 @@ import router from "./routes";
 import { logger } from "./lib/logger";
 
 const app: Express = express();
+
+// ── Secure headers (Helmet) ────────────────────────────────────────────────
+app.use(
+  helmet({
+    contentSecurityPolicy: false, // disabled for Clerk iframe; tighten in production
+    crossOriginEmbedderPolicy: false,
+  }),
+);
+
+// ── Rate limiting ──────────────────────────────────────────────────────────
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 min
+  max: 500,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests — please try again shortly." },
+});
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many authentication attempts." },
+});
+const exportLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Export rate limit exceeded — max 20 exports/minute." },
+});
+
+app.use(globalLimiter);
+// Route-specific limiters (applied before body parsers and main router)
+app.use(CLERK_PROXY_PATH, authLimiter);       // Clerk sign-in/sign-up flows
+app.use("/api/reporting/export", exportLimiter); // Data export endpoint
 
 app.use(
   pinoHttp({

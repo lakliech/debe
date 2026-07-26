@@ -84,6 +84,11 @@ import EventDetailPage from "./pages/admin/EventDetail";
 import RapidResponsePage from "./pages/admin/RapidResponse";
 import ClaimDetailPage from "./pages/admin/ClaimDetail";
 
+// Admin pages — Task 5: Compliance, Reporting, Privileged Access
+import ReportingPage from "./pages/admin/Reporting";
+import CompliancePage from "./pages/admin/Compliance";
+import PrivilegedAccessPage from "./pages/admin/PrivilegedAccess";
+
 // Agent PWA — offline-first result submission (no AppLayout, standalone)
 import AgentResultFormPage from "./pages/agent/AgentResultForm";
 
@@ -410,6 +415,17 @@ function ClerkProviderWithRoutes() {
             </Route>
             <Route path="/transparency-portal">
               <ProtectedRoute component={TransparencyPortalPage} />
+            </Route>
+
+            {/* ── Admin (protected) — Task 5: Compliance, Reporting ── */}
+            <Route path="/reporting">
+              <ProtectedRoute component={ReportingPage} />
+            </Route>
+            <Route path="/compliance">
+              <ProtectedRoute component={CompliancePage} />
+            </Route>
+            <Route path="/privileged-access">
+              <ProtectedRoute component={PrivilegedAccessPage} />
             </Route>
 
             {/* ── Agent PWA — standalone, no AppLayout ── */}
