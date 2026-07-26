@@ -30,8 +30,8 @@ async function resolveActorUUID(clerkId: string): Promise<string | null> {
   return row?.id ?? null;
 }
 
-// GET /api/aspirants/stats — requires coordinator+
-router.get("/stats", requireAuth, canReview, async (_req: any, res: any) => {
+// GET /api/aspirants/stats — any authenticated user
+router.get("/stats", requireAuth, async (_req: any, res: any) => {
   try {
     const rows = await db
       .select({ status: aspirantsTable.status, count: count() })
@@ -50,8 +50,8 @@ router.get("/stats", requireAuth, canReview, async (_req: any, res: any) => {
   }
 });
 
-// GET /api/aspirants — requires coordinator+
-router.get("/", requireAuth, canReview, async (req: any, res: any) => {
+// GET /api/aspirants — any authenticated user
+router.get("/", requireAuth, async (req: any, res: any) => {
   try {
     const { search, status, position, countyId, page = "1", limit = "20" } = req.query;
     const pageNum = Math.max(1, parseInt(page) || 1);
@@ -85,8 +85,8 @@ router.get("/", requireAuth, canReview, async (req: any, res: any) => {
   }
 });
 
-// GET /api/aspirants/:id — requires coordinator+
-router.get("/:id", requireAuth, canReview, async (req: any, res: any) => {
+// GET /api/aspirants/:id — any authenticated user
+router.get("/:id", requireAuth, async (req: any, res: any) => {
   try {
     const [row] = await db
       .select()
