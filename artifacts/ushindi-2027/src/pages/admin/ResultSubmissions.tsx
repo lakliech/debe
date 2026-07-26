@@ -154,7 +154,7 @@ export default function ResultSubmissions() {
           <SelectTrigger className="w-44"><SelectValue placeholder="All Elections" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Elections</SelectItem>
-            {(elections ?? []).map((e: any) => (
+            {(Array.isArray(elections) ? elections : []).map((e: any) => (
               <SelectItem key={e.id} value={e.id}>{e.electionType} {e.year}</SelectItem>
             ))}
           </SelectContent>

@@ -104,8 +104,8 @@ export default function PollingAgentDetail() {
     );
   }
 
-  const courseList: any[] = courses ?? [];
-  const replacementList: any[] = replacements ?? [];
+  const courseList: any[] = Array.isArray(courses) ? courses : [];
+  const replacementList: any[] = Array.isArray(replacements) ? replacements : [];
 
   return (
     <div className="space-y-6 pb-8">

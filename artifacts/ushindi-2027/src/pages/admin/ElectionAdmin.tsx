@@ -191,8 +191,8 @@ export default function ElectionAdmin() {
   const setCaField = <K extends keyof CandidateForm>(key: K, value: CandidateForm[K]) =>
     setCandidateForm((f) => ({ ...f, [key]: value }));
 
-  const electionList: any[] = elections ?? [];
-  const candidateList: any[] = candidates ?? [];
+  const electionList: any[] = Array.isArray(elections) ? elections : [];
+  const candidateList: any[] = Array.isArray(candidates) ? candidates : [];
   const selectedElection = electionList.find((e) => e.id === selectedElectionId);
 
   return (

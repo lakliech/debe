@@ -65,7 +65,8 @@ export default function CommandCentre() {
     queryFn: () =>
       fetch(`${BASE}/api/election-admin/elections`, { credentials: "include" }).then((r) => r.json()),
   });
-  const activeElection = (elections as any[] | undefined)?.find((e: any) => e.isActive) ?? (elections as any[])?.[0];
+  const electionArray: any[] = Array.isArray(elections) ? elections : [];
+  const activeElection = electionArray.find((e: any) => e.isActive) ?? electionArray[0];
   const activeElectionId: string | undefined = activeElection?.id;
 
   // Command centre dashboard: all KPIs in one call
