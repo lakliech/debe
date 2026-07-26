@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { z } from "zod";
 import { getAuth } from "@clerk/express";
 import { db } from "@workspace/db";
 import {
@@ -12,6 +13,7 @@ import {
 } from "@workspace/db";
 import { eq, desc, and, ilike, or, count, inArray } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
+import { validate } from "../lib/validate";
 
 /** Resolve a Clerk text ID to the local UUID from the users table. Returns null if not found. */
 async function resolveActorUUID(clerkId: string): Promise<string | null> {
@@ -53,6 +55,32 @@ const canViewConsents = requireRoles([
   "legal-officer",
   "communications-officer",
 ]);
+
+// ─── Schemas ──────────────────────────────────────────────────────────────────
+
+const SupporterPatchSchema = z.object({
+  fullName: z.string().min(1).optional(),
+  email: z.string().email().optional(),
+  phoneNumber: z.string().optional(),
+  countyId: z.string().uuid().optional(),
+  constituencyId: z.string().uuid().optional(),
+  wardId: z.string().uuid().optional(),
+  membershipStatus: z.string().optional(),
+  policyInterests: z.array(z.string()).optional(),
+  consentMarketing: z.boolean().optional(),
+  consentSms: z.boolean().optional(),
+  consentEmail: z.boolean().optional(),
+});
+
+const ConsentGrantSchema = z.object({
+  consentType: z.string().min(1),
+  granted: z.boolean().optional(),
+  ipAddress: z.string().optional(),
+});
+
+const ConsentWithdrawSchema = z.object({
+  consentType: z.string().optional(),
+});
 
 // GET /api/supporters
 router.get("/", requireAuth, async (req: any, res: any) => {
@@ -163,11 +191,14 @@ router.get("/:id", requireAuth, async (req: any, res: any) => {
 // PATCH /api/supporters/:id
 router.patch("/:id", requireAuth, canManageSupporters, async (req: any, res: any) => {
   try {
+    const body = validate(SupporterPatchSchema, req.body, res);
+    if (!body) return;
+
     const {
       fullName, email, phoneNumber, countyId, constituencyId, wardId,
       membershipStatus, policyInterests,
       consentMarketing, consentSms, consentEmail,
-    } = req.body;
+    } = body;
 
     const [updated] = await db
       .update(supportersTable)
@@ -240,7 +271,10 @@ router.get("/:id/consents", requireAuth, canViewConsents, async (req: any, res: 
 // POST /api/supporters/:id/consents
 router.post("/:id/consents", requireAuth, canManageSupporters, async (req: any, res: any) => {
   try {
-    const { consentType, granted, ipAddress } = req.body;
+    const body = validate(ConsentGrantSchema, req.body, res);
+    if (!body) return;
+
+    const { consentType, granted } = body;
     const [record] = await db
       .insert(consentRecordsTable)
       .values({
@@ -260,7 +294,10 @@ router.post("/:id/consents", requireAuth, canManageSupporters, async (req: any, 
 // POST /api/supporters/:id/consents/withdraw
 router.post("/:id/consents/withdraw", requireAuth, async (req: any, res: any) => {
   try {
-    const { consentType } = req.body;
+    const body = validate(ConsentWithdrawSchema, req.body, res);
+    if (!body) return;
+
+    const { consentType } = body;
     // Mark all active consents of this type as withdrawn
     await db
       .update(consentRecordsTable)

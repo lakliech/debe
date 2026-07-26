@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { z } from "zod";
 import { getAuth } from "@clerk/express";
 import { db } from "@workspace/db";
 import {
@@ -16,6 +17,7 @@ import {
 } from "@workspace/db";
 import { eq, desc, and, ilike, or, count, sql } from "drizzle-orm";
 import { requireRoles, requireLevel } from "../middlewares/rbac";
+import { validate } from "../lib/validate";
 
 const router = Router();
 
@@ -42,6 +44,40 @@ const canApproveVolunteers = requireRoles([
   "constituency-coordinator",
   "ward-coordinator",
 ]);
+
+// ─── Schemas ──────────────────────────────────────────────────────────────────
+
+const VolunteerPatchSchema = z.object({
+  preferredRole: z.string().optional(),
+  skills: z.array(z.string()).optional(),
+  languages: z.array(z.string()).optional(),
+  availability: z.string().optional(),
+  countyId: z.string().uuid().optional(),
+  constituencyId: z.string().uuid().optional(),
+  wardId: z.string().uuid().optional(),
+}).strict();
+
+const ApproveSchema = z.object({
+  assignedRole: z.string().optional(),
+});
+
+const SuspendSchema = z.object({
+  reason: z.string().optional(),
+});
+
+const AttendanceSchema = z.object({
+  activityType: z.string().min(1),
+  activityName: z.string().optional(),
+  activityId: z.string().uuid().optional(),
+  latitude: z.string().optional(),
+  longitude: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+const BadgeAwardSchema = z.object({
+  badgeId: z.string().uuid(),
+  reason: z.string().optional(),
+});
 
 // GET /api/volunteers
 router.get("/", requireAuth, async (req: any, res: any) => {
@@ -152,7 +188,10 @@ router.get("/:id", requireAuth, async (req: any, res: any) => {
 // PATCH /api/volunteers/:id
 router.patch("/:id", requireAuth, canManageVolunteers, async (req: any, res: any) => {
   try {
-    const { preferredRole, skills, languages, availability, countyId, constituencyId, wardId } = req.body;
+    const body = validate(VolunteerPatchSchema, req.body, res);
+    if (!body) return;
+
+    const { preferredRole, skills, languages, availability, countyId, constituencyId, wardId } = body;
     const [updated] = await db
       .update(volunteersTable)
       .set({
@@ -191,7 +230,10 @@ router.post("/:id/verify", requireAuth, canApproveVolunteers, async (req: any, r
 // POST /api/volunteers/:id/approve
 router.post("/:id/approve", requireAuth, canApproveVolunteers, async (req: any, res: any) => {
   try {
-    const { assignedRole } = req.body;
+    const body = validate(ApproveSchema, req.body, res);
+    if (!body) return;
+
+    const { assignedRole } = body;
     const [updated] = await db
       .update(volunteersTable)
       .set({
@@ -225,7 +267,10 @@ router.post("/:id/reject", requireAuth, canApproveVolunteers, async (req: any, r
 // POST /api/volunteers/:id/suspend
 router.post("/:id/suspend", requireAuth, canManageVolunteers, async (req: any, res: any) => {
   try {
-    const { reason } = req.body;
+    const body = validate(SuspendSchema, req.body, res);
+    if (!body) return;
+
+    const { reason } = body;
     const [updated] = await db
       .update(volunteersTable)
       .set({ status: "suspended" })
@@ -300,7 +345,10 @@ router.get("/:id/attendance", requireAuth, async (req: any, res: any) => {
 // POST /api/volunteers/:id/attendance
 router.post("/:id/attendance", requireAuth, canManageVolunteers, async (req: any, res: any) => {
   try {
-    const { activityType, activityName, activityId, latitude, longitude, notes } = req.body;
+    const body = validate(AttendanceSchema, req.body, res);
+    if (!body) return;
+
+    const { activityType, activityName, activityId, latitude, longitude, notes } = body;
     const [record] = await db
       .insert(volunteerAttendanceTable)
       .values({
@@ -350,7 +398,10 @@ router.get("/:id/badges", requireAuth, async (req: any, res: any) => {
 // POST /api/volunteers/:id/badges
 router.post("/:id/badges", requireAuth, canManageVolunteers, async (req: any, res: any) => {
   try {
-    const { badgeId, reason } = req.body;
+    const body = validate(BadgeAwardSchema, req.body, res);
+    if (!body) return;
+
+    const { badgeId, reason } = body;
     const [award] = await db
       .insert(badgeAwardsTable)
       .values({ volunteerId: req.params.id, badgeId, reason })

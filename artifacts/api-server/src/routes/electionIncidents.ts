@@ -3,6 +3,7 @@
  * Uses electionIncidentReportsTable (NOT the old incidentsTable)
  */
 import { Router } from "express";
+import { z } from "zod";
 import { getAuth } from "@clerk/express";
 import { db } from "@workspace/db";
 import {
@@ -11,6 +12,7 @@ import {
 } from "@workspace/db";
 import { eq, desc, and, count } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
+import { validate } from "../lib/validate";
 
 const router = Router();
 
@@ -40,6 +42,32 @@ const canReportIncidents = requireRoles([
 const canManageIncidents = requireRoles([
   "campaign-exec-director", "national-campaign-manager", "returning-officer", "legal-officer",
 ]);
+
+// ─── Schemas ──────────────────────────────────────────────────────────────────
+
+const IncidentCreateSchema = z.object({
+  electionId: z.string().uuid(),
+  incidentType: z.string().min(1),
+  title: z.string().min(1),
+  severity: z.string().optional(),
+  description: z.string().min(1),
+  countyId: z.string().uuid().optional(),
+  constituencyId: z.string().uuid().optional(),
+  pollingStationId: z.string().uuid().optional(),
+  occurredAt: z.string().datetime({ offset: true }).optional(),
+  gpsLat: z.number().optional(),
+  gpsLon: z.number().optional(),
+  evidenceUrls: z.array(z.string()).optional(),
+  status: z.string().optional(),
+});
+
+const IncidentPatchSchema = z.object({
+  status: z.string().optional(),
+  resolution: z.string().optional(),
+  legalAction: z.string().optional(),
+  communicationsNote: z.string().optional(),
+  assignedOfficer: z.string().optional(),
+});
 
 // GET /api/election-incidents/
 router.get("/", requireAuth, canViewIncidents, async (req: any, res: any) => {
@@ -76,11 +104,16 @@ router.get("/", requireAuth, canViewIncidents, async (req: any, res: any) => {
 // POST /api/election-incidents/
 router.post("/", requireAuth, canReportIncidents, async (req: any, res: any) => {
   try {
+    const body = validate(IncidentCreateSchema, req.body, res);
+    if (!body) return;
+
     const actorId = await resolveActorUUID(req.clerkId);
+    const { occurredAt, ...rest } = body;
     const [row] = await db.insert(electionIncidentReportsTable).values({
-      ...req.body,
+      ...rest,
+      ...(occurredAt ? { occurredAt: new Date(occurredAt) } : {}),
       reportedBy: actorId ?? undefined,
-      status: req.body.status ?? "open",
+      status: rest.status ?? "open",
     }).returning();
     res.status(201).json(row);
   } catch (err: any) {
@@ -103,7 +136,10 @@ router.get("/:id", requireAuth, canViewIncidents, async (req: any, res: any) => 
 // PATCH /api/election-incidents/:id
 router.patch("/:id", requireAuth, canManageIncidents, async (req: any, res: any) => {
   try {
-    const { status, resolution, legalAction, communicationsNote, assignedOfficer } = req.body;
+    const body = validate(IncidentPatchSchema, req.body, res);
+    if (!body) return;
+
+    const { status, resolution, legalAction, communicationsNote, assignedOfficer } = body;
     const updateData: any = {};
     if (status !== undefined) updateData.status = status;
     if (resolution !== undefined) updateData.resolution = resolution;

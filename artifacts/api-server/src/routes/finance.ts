@@ -2,6 +2,7 @@
  * Finance API: M-Pesa STK Push, Contributions, Budget, Vouchers, Alerts, Dashboards
  */
 import { Router } from "express";
+import { z } from "zod";
 import { getAuth } from "@clerk/express";
 import { db } from "@workspace/db";
 import {
@@ -13,6 +14,7 @@ import {
 import { eq, desc, and, or, ilike, count, sum, gte, lte, ne } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
 import { createMpesaAdapter, parseStkCallback } from "../lib/mpesa";
+import { validate } from "../lib/validate";
 
 const router = Router();
 const mpesa = createMpesaAdapter();
@@ -50,13 +52,97 @@ const canManageFinance = requireRoles(["campaign-exec-director","finance-manager
 const canApproveExpenditure = requireRoles(["campaign-exec-director","national-campaign-manager","finance-manager"]);
 const canExportFinance = requireRoles(["campaign-exec-director","finance-manager","campaign-treasurer","data-protection-officer"]);
 
+// ─── Schemas ──────────────────────────────────────────────────────────────────
+
+/** Drizzle `numeric` columns accept only string values, not numbers. */
+const numericStr = z.union([z.string(), z.number()]).transform((v) => String(v));
+
+const StkPushSchema = z.object({
+  phoneNumber: z.string().min(1),
+  amount: z.union([z.string(), z.number()]),
+  accountReference: z.string().optional(),
+  transactionDesc: z.string().optional(),
+  donorFullName: z.string().optional(),
+  donorEmail: z.string().email().optional(),
+});
+
+const ContributionSchema = z.object({
+  donorFullName: z.string().min(1),
+  donorPhone: z.string().optional(),
+  donorEmail: z.string().email().optional(),
+  amount: numericStr,
+  channel: z.string().min(1),
+  ledger: z.string().optional(),
+  mpesaTransactionId: z.string().uuid().optional(),
+  mpesaReceiptNumber: z.string().optional(),
+  verificationStatus: z.string().optional(),
+  inKind: z.array(z.record(z.unknown())).optional(),
+});
+
+const ContributionVerifySchema = z.object({
+  status: z.enum(["verified", "rejected"]),
+  rejectionReason: z.string().optional(),
+});
+
+const AlertResolveSchema = z.object({
+  status: z.string().optional(),
+  resolutionNotes: z.string().optional(),
+});
+
+const BudgetCategorySchema = z.object({
+  name: z.string().min(1),
+  code: z.string().min(1),
+  description: z.string().optional(),
+  ledger: z.string().optional(),
+  totalAllocatedKes: numericStr.optional(),
+});
+
+const BudgetLineSchema = z.object({
+  categoryId: z.string().uuid(),
+  title: z.string().min(1),
+  fiscalPeriod: z.string().min(1),
+  allocatedAmountKes: numericStr,
+  ledger: z.string().optional(),
+  description: z.string().optional(),
+  countyId: z.string().uuid().optional(),
+  status: z.string().optional(),
+});
+
+const ExpenditureRequestSchema = z.object({
+  title: z.string().min(1),
+  description: z.string().min(1),
+  requestedAmountKes: numericStr,
+  categoryId: z.string().uuid(),
+  payeeName: z.string().min(1),
+  ledger: z.string().optional(),
+  budgetLineId: z.string().uuid().optional(),
+  payeeBank: z.string().optional(),
+  payeeAccountNumber: z.string().optional(),
+  payeePhone: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+const FirstApproveSchema = z.object({
+  approvedAmount: z.union([z.string(), z.number()]).optional(),
+});
+
+const FinalApproveSchema = z.object({
+  paymentMethod: z.string().optional(),
+});
+
+const RejectSchema = z.object({
+  reason: z.string().min(1),
+});
+
 // ─── M-PESA ──────────────────────────────────────────────────────────────────
 
 // POST /api/finance/mpesa/stk-push  (public — donor initiates payment)
 router.post("/mpesa/stk-push", async (req: any, res: any) => {
   try {
-    const { phoneNumber, amount, accountReference, transactionDesc, donorFullName, donorEmail } = req.body;
-    if (!phoneNumber || !amount) return res.status(400).json({ error: "phoneNumber and amount required" });
+    const body = validate(StkPushSchema, req.body, res);
+    if (!body) return;
+
+    const { phoneNumber, amount, accountReference, transactionDesc, donorFullName, donorEmail } = body;
 
     const stkRes = await mpesa.initiateStkPush({
       phoneNumber, amount: Number(amount),
@@ -82,7 +168,7 @@ router.post("/mpesa/stk-push", async (req: any, res: any) => {
   }
 });
 
-// POST /api/finance/mpesa/callback  (Safaricom calls this)
+// POST /api/finance/mpesa/callback  (Safaricom calls this — no Zod, must always 200)
 router.post("/mpesa/callback", async (req: any, res: any) => {
   try {
     const parsed = parseStkCallback(req.body);
@@ -150,12 +236,15 @@ router.get("/mpesa/transactions", requireAuth, canViewFinance, async (req: any, 
 // POST /api/finance/contributions  (record any-channel contribution)
 router.post("/contributions", requireAuth, canManageFinance, async (req: any, res: any) => {
   try {
+    const body = validate(ContributionSchema, req.body, res);
+    if (!body) return;
+
     const actorId = await resolveActorUUID(req.clerkId);
     const ref = generateRef("LIND");
 
-    const { inKind, ...body } = req.body;
+    const { inKind, ...rest } = body;
     const [contribution] = await db.insert(contributionsTable).values({
-      ...body,
+      ...rest,
       referenceNumber: ref,
       recordedBy: actorId ?? undefined,
     }).returning();
@@ -168,11 +257,11 @@ router.post("/contributions", requireAuth, canManageFinance, async (req: any, re
 
     // Duplicate detection: same phone + amount within 10 min
     const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000);
-    if (body.donorPhone) {
+    if (rest.donorPhone) {
       const [dup] = await db.select({ id: contributionsTable.id }).from(contributionsTable)
         .where(and(
-          eq(contributionsTable.donorPhone, body.donorPhone),
-          eq(contributionsTable.amount, String(body.amount)),
+          eq(contributionsTable.donorPhone, rest.donorPhone),
+          eq(contributionsTable.amount, String(rest.amount)),
           gte(contributionsTable.createdAt, tenMinAgo),
           ne(contributionsTable.id, contribution.id),
         )).limit(1);
@@ -181,15 +270,15 @@ router.post("/contributions", requireAuth, canManageFinance, async (req: any, re
           alertType: "duplicate",
           severity: "high",
           contributionId: contribution.id,
-          donorPhone: body.donorPhone,
-          description: `Possible duplicate contribution from ${body.donorPhone} — same amount KES ${body.amount} within 10 minutes`,
+          donorPhone: rest.donorPhone,
+          description: `Possible duplicate contribution from ${rest.donorPhone} — same amount KES ${rest.amount} within 10 minutes`,
           metadata: { duplicateOf: dup.id },
         });
         await db.update(contributionsTable).set({ complianceFlag: "duplicate" }).where(eq(contributionsTable.id, contribution.id));
       }
     }
 
-    await logFinance("contribution", contribution.id, "created", actorId, { channel: body.channel, amount: body.amount });
+    await logFinance("contribution", contribution.id, "created", actorId, { channel: rest.channel, amount: rest.amount });
     res.status(201).json(contribution);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -241,7 +330,10 @@ router.get("/contributions/:id", requireAuth, canViewFinance, async (req: any, r
 // PATCH /api/finance/contributions/:id/verify
 router.patch("/contributions/:id/verify", requireAuth, canManageFinance, async (req: any, res: any) => {
   try {
-    const { status, rejectionReason } = req.body; // verified | rejected
+    const body = validate(ContributionVerifySchema, req.body, res);
+    if (!body) return;
+
+    const { status, rejectionReason } = body;
     const actorId = await resolveActorUUID(req.clerkId);
     const [updated] = await db.update(contributionsTable).set({
       verificationStatus: status,
@@ -301,8 +393,11 @@ router.get("/alerts", requireAuth, canViewFinance, async (req: any, res: any) =>
 
 router.patch("/alerts/:id/resolve", requireAuth, canManageFinance, async (req: any, res: any) => {
   try {
+    const body = validate(AlertResolveSchema, req.body, res);
+    if (!body) return;
+
     const actorId = await resolveActorUUID(req.clerkId);
-    const { status, resolutionNotes } = req.body;
+    const { status, resolutionNotes } = body;
     const [updated] = await db.update(donorAlertsTable).set({
       status: status ?? "resolved", resolutionNotes, resolvedBy: actorId ?? undefined, resolvedAt: new Date(),
     }).where(eq(donorAlertsTable.id, req.params.id)).returning();
@@ -326,8 +421,11 @@ router.get("/budget-categories", requireAuth, canViewFinance, async (_req: any, 
 
 router.post("/budget-categories", requireAuth, canManageFinance, async (req: any, res: any) => {
   try {
+    const body = validate(BudgetCategorySchema, req.body, res);
+    if (!body) return;
+
     const actorId = await resolveActorUUID(req.clerkId);
-    const [row] = await db.insert(budgetCategoriesTable).values({ ...req.body, createdBy: actorId ?? undefined }).returning();
+    const [row] = await db.insert(budgetCategoriesTable).values({ ...body, createdBy: actorId ?? undefined }).returning();
     res.status(201).json(row);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -352,8 +450,11 @@ router.get("/budget-lines", requireAuth, canViewFinance, async (req: any, res: a
 
 router.post("/budget-lines", requireAuth, canManageFinance, async (req: any, res: any) => {
   try {
+    const body = validate(BudgetLineSchema, req.body, res);
+    if (!body) return;
+
     const actorId = await resolveActorUUID(req.clerkId);
-    const [row] = await db.insert(budgetLinesTable).values({ ...req.body, createdBy: actorId ?? undefined }).returning();
+    const [row] = await db.insert(budgetLinesTable).values({ ...body, createdBy: actorId ?? undefined }).returning();
     await logFinance("budget_line", row.id, "created", actorId);
     res.status(201).json(row);
   } catch (err: any) {
@@ -380,11 +481,14 @@ router.get("/expenditure-requests", requireAuth, canViewFinance, async (req: any
 
 router.post("/expenditure-requests", requireAuth, canManageFinance, async (req: any, res: any) => {
   try {
+    const body = validate(ExpenditureRequestSchema, req.body, res);
+    if (!body) return;
+
     const actorId = await resolveActorUUID(req.clerkId);
     if (!actorId) return res.status(403).json({ error: "Actor not found" });
     const ref = generateRef("EXP");
     const [row] = await db.insert(expenditureRequestsTable).values({
-      ...req.body, referenceNumber: ref, requestedBy: actorId, status: "pending_first",
+      ...body, referenceNumber: ref, requestedBy: actorId, status: "pending_first",
     }).returning();
     await logFinance("expenditure", row.id, "created", actorId);
     res.status(201).json(row);
@@ -406,8 +510,11 @@ router.get("/expenditure-requests/:id", requireAuth, canViewFinance, async (req:
 // First approval
 router.post("/expenditure-requests/:id/first-approve", requireAuth, canApproveExpenditure, async (req: any, res: any) => {
   try {
+    const body = validate(FirstApproveSchema, req.body, res);
+    if (!body) return;
+
     const actorId = await resolveActorUUID(req.clerkId);
-    const { approvedAmount } = req.body;
+    const { approvedAmount } = body;
     const [row] = await db.update(expenditureRequestsTable).set({
       status: "pending_final",
       firstApproverId: actorId ?? undefined,
@@ -425,6 +532,9 @@ router.post("/expenditure-requests/:id/first-approve", requireAuth, canApproveEx
 // Final approval — generates payment voucher
 router.post("/expenditure-requests/:id/final-approve", requireAuth, canApproveExpenditure, async (req: any, res: any) => {
   try {
+    const body = validate(FinalApproveSchema, req.body, res);
+    if (!body) return;
+
     const actorId = await resolveActorUUID(req.clerkId);
     const [expReq] = await db.select().from(expenditureRequestsTable).where(eq(expenditureRequestsTable.id, req.params.id)).limit(1);
     if (!expReq || expReq.status !== "pending_final") return res.status(400).json({ error: "Cannot final-approve — wrong status" });
@@ -434,7 +544,7 @@ router.post("/expenditure-requests/:id/final-approve", requireAuth, canApproveEx
       voucherNumber: voucherNum,
       expenditureRequestId: expReq.id,
       amountKes: expReq.approvedAmountKes ?? expReq.requestedAmountKes,
-      paymentMethod: req.body.paymentMethod ?? "bank_transfer",
+      paymentMethod: body.paymentMethod ?? "bank_transfer",
       payeeSnapshot: { name: expReq.payeeName, bank: expReq.payeeBank, account: expReq.payeeAccountNumber, phone: expReq.payeePhone },
       ledger: expReq.ledger,
       issuedBy: actorId ?? expReq.requestedBy,
@@ -454,12 +564,15 @@ router.post("/expenditure-requests/:id/final-approve", requireAuth, canApproveEx
 // Reject
 router.post("/expenditure-requests/:id/reject", requireAuth, canApproveExpenditure, async (req: any, res: any) => {
   try {
+    const body = validate(RejectSchema, req.body, res);
+    if (!body) return;
+
     const actorId = await resolveActorUUID(req.clerkId);
     const [row] = await db.update(expenditureRequestsTable).set({
-      status: "rejected", rejectionReason: req.body.reason,
+      status: "rejected", rejectionReason: body.reason,
     }).where(eq(expenditureRequestsTable.id, req.params.id)).returning();
     if (!row) return res.status(404).json({ error: "Not found" });
-    await logFinance("expenditure", row.id, "rejected", actorId, { reason: req.body.reason });
+    await logFinance("expenditure", row.id, "rejected", actorId, { reason: body.reason });
     res.json(row);
   } catch (err: any) {
     res.status(500).json({ error: err.message });

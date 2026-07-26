@@ -2,6 +2,7 @@
  * Election Admin API: Elections & Candidates management
  */
 import { Router } from "express";
+import { z } from "zod";
 import { getAuth } from "@clerk/express";
 import { db } from "@workspace/db";
 import {
@@ -11,6 +12,7 @@ import {
 } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
+import { validate } from "../lib/validate";
 
 const router = Router();
 
@@ -33,6 +35,40 @@ const canManageElections = requireRoles([
   "returning-officer",
 ]);
 
+// ─── Schemas ──────────────────────────────────────────────────────────────────
+
+const ElectionCreateSchema = z.object({
+  name: z.string().min(1),
+  year: z.coerce.number().int(),
+  electionDate: z.string().optional(),
+  status: z.string().optional(),
+  isActive: z.boolean().optional(),
+});
+
+const ElectionPatchSchema = z.object({
+  name: z.string().min(1).optional(),
+  year: z.coerce.number().int().optional(),
+  electionDate: z.string().optional(),
+  status: z.string().optional(),
+  isActive: z.boolean().optional(),
+});
+
+const CandidateCreateSchema = z.object({
+  fullName: z.string().min(1),
+  partyName: z.string().optional(),
+  partyAbbreviation: z.string().optional(),
+  isOurCandidate: z.boolean().optional(),
+  displayOrder: z.number().int().nonnegative().optional(),
+});
+
+const CandidatePatchSchema = z.object({
+  fullName: z.string().min(1).optional(),
+  partyName: z.string().optional(),
+  partyAbbreviation: z.string().optional(),
+  isOurCandidate: z.boolean().optional(),
+  displayOrder: z.number().int().nonnegative().optional(),
+});
+
 // GET /api/election-admin/elections
 router.get("/elections", requireAuth, canManageElections, async (_req: any, res: any) => {
   try {
@@ -46,8 +82,10 @@ router.get("/elections", requireAuth, canManageElections, async (_req: any, res:
 // POST /api/election-admin/elections
 router.post("/elections", requireAuth, canManageElections, async (req: any, res: any) => {
   try {
-    // Only pick columns that exist in electionsTable schema
-    const { name, year, electionDate, status, isActive } = req.body;
+    const body = validate(ElectionCreateSchema, req.body, res);
+    if (!body) return;
+
+    const { name, year, electionDate, status, isActive } = body;
     const [row] = await db.insert(electionsTable).values({
       name, year: Number(year) || year, electionDate, status, isActive,
     }).returning();
@@ -72,14 +110,16 @@ router.get("/elections/active", requireAuth, async (_req: any, res: any) => {
 // PATCH /api/election-admin/elections/:id
 router.patch("/elections/:id", requireAuth, canManageElections, async (req: any, res: any) => {
   try {
-    // Only pick columns that exist in electionsTable schema
-    const { name, year, electionDate, status, isActive } = req.body;
+    const body = validate(ElectionPatchSchema, req.body, res);
+    if (!body) return;
+
     const updateData: Record<string, any> = {};
-    if (name !== undefined) updateData.name = name;
-    if (year !== undefined) updateData.year = Number(year) || year;
-    if (electionDate !== undefined) updateData.electionDate = electionDate;
-    if (status !== undefined) updateData.status = status;
-    if (isActive !== undefined) updateData.isActive = isActive;
+    if (body.name !== undefined) updateData.name = body.name;
+    if (body.year !== undefined) updateData.year = Number(body.year) || body.year;
+    if (body.electionDate !== undefined) updateData.electionDate = body.electionDate;
+    if (body.status !== undefined) updateData.status = body.status;
+    if (body.isActive !== undefined) updateData.isActive = body.isActive;
+
     const [row] = await db.update(electionsTable).set(updateData)
       .where(eq(electionsTable.id, req.params.id)).returning();
     if (!row) return res.status(404).json({ error: "Election not found" });
@@ -104,8 +144,11 @@ router.get("/elections/:id/candidates", requireAuth, async (req: any, res: any) 
 // POST /api/election-admin/elections/:id/candidates
 router.post("/elections/:id/candidates", requireAuth, canManageElections, async (req: any, res: any) => {
   try {
+    const body = validate(CandidateCreateSchema, req.body, res);
+    if (!body) return;
+
     const [row] = await db.insert(candidatesTable).values({
-      ...req.body,
+      ...body,
       electionId: req.params.id,
     }).returning();
     res.status(201).json(row);
@@ -117,7 +160,10 @@ router.post("/elections/:id/candidates", requireAuth, canManageElections, async 
 // PATCH /api/election-admin/elections/:id/candidates/:cid
 router.patch("/elections/:id/candidates/:cid", requireAuth, canManageElections, async (req: any, res: any) => {
   try {
-    const [row] = await db.update(candidatesTable).set(req.body)
+    const body = validate(CandidatePatchSchema, req.body, res);
+    if (!body) return;
+
+    const [row] = await db.update(candidatesTable).set(body)
       .where(eq(candidatesTable.id, req.params.cid)).returning();
     if (!row) return res.status(404).json({ error: "Candidate not found" });
     res.json(row);

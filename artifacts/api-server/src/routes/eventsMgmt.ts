@@ -3,6 +3,7 @@
  * Registrations, QR check-in, incidents, reconciliation, speakers, transport, media accreditation
  */
 import { Router } from "express";
+import { z } from "zod";
 import { getAuth } from "@clerk/express";
 import { db } from "@workspace/db";
 import {
@@ -12,6 +13,7 @@ import {
 } from "@workspace/db";
 import { eq, desc, and, count, ilike, or } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
+import { validate } from "../lib/validate";
 
 const router = Router();
 
@@ -33,6 +35,100 @@ const canManageEvents = requireRoles(["campaign-exec-director","national-campaig
 const canApproveEvents = requireRoles(["campaign-exec-director","national-campaign-manager"]);
 const canCheckIn = requireRoles(["campaign-exec-director","county-coordinator","constituency-coordinator","ward-coordinator","events-coordinator","national-organising-director"]);
 const canViewTransport = requireRoles(["campaign-exec-director","national-campaign-manager","security-officer"]);
+
+// ─── Schemas ──────────────────────────────────────────────────────────────────
+
+const EventCreateSchema = z.object({
+  title: z.string().min(1),
+  eventDate: z.string().min(1),
+  venue: z.string().optional(),
+  countyId: z.string().uuid().optional(),
+  constituencyId: z.string().uuid().optional(),
+  expectedAttendance: z.number().int().positive().optional(),
+  status: z.string().optional(),
+  description: z.string().optional(),
+}).passthrough();
+
+const EventPatchSchema = z.object({
+  title: z.string().min(1).optional(),
+  eventDate: z.string().optional(),
+  venue: z.string().optional(),
+  countyId: z.string().uuid().optional(),
+  constituencyId: z.string().uuid().optional(),
+  expectedAttendance: z.number().int().positive().optional(),
+  status: z.string().optional(),
+  description: z.string().optional(),
+}).passthrough();
+
+const RegistrationSchema = z.object({
+  fullName: z.string().min(1),
+  phone: z.string().min(1),
+  email: z.string().email().optional(),
+  idNumber: z.string().optional(),
+  organization: z.string().optional(),
+  registrationType: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+const CheckInSchema = z.object({
+  qrCode: z.string().optional(),
+  registrationId: z.string().uuid().optional(),
+}).refine((d) => d.qrCode || d.registrationId, {
+  message: "Either qrCode or registrationId is required",
+});
+
+const IncidentCreateSchema = z.object({
+  incidentType: z.string().min(1),
+  description: z.string().min(1),
+  severity: z.string().optional(),
+  location: z.string().optional(),
+});
+
+const IncidentResolveSchema = z.object({
+  resolution: z.string().min(1),
+});
+
+/** Drizzle `numeric` columns accept only string values, not numbers. */
+const numericStr = z.union([z.string(), z.number()]).transform((v) => String(v));
+
+const ReconciliationSchema = z.object({
+  actualAttendance: z.number().int().nonnegative().optional(),
+  actualCostKes: numericStr.optional(),
+  budgetedCostKes: numericStr.optional(),
+  donationsCollectedKes: numericStr.optional(),
+  volunteerHours: z.number().int().nonnegative().optional(),
+  lessonsLearned: z.string().optional(),
+  mediaImpactNotes: z.string().optional(),
+  incidentSummary: z.string().optional(),
+  overallRating: z.number().int().min(1).max(5).optional(),
+});
+
+const SpeakerSchema = z.object({
+  fullName: z.string().min(1),
+  title: z.string().optional(),
+  topicEn: z.string().optional(),
+  topicSw: z.string().optional(),
+  allocatedMinutes: z.number().int().nonnegative().optional(),
+  talkOrder: z.number().int().nonnegative().optional(),
+  confirmed: z.boolean().optional(),
+});
+
+const TransportSchema = z.object({
+  routeDescription: z.string().optional(),
+  vehicleCount: z.number().int().positive().optional(),
+  securityBriefing: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+const MediaAccreditationSchema = z.object({
+  journalistName: z.string().min(1),
+  mediaHouse: z.string().min(1),
+  phone: z.string().min(1),
+  email: z.string().email().optional(),
+  idNumber: z.string().optional(),
+  pressPassNumber: z.string().optional(),
+  coverageType: z.string().optional(),
+});
 
 // ─── EVENTS ──────────────────────────────────────────────────────────────────
 
@@ -59,8 +155,10 @@ router.get("/", requireAuth, canViewEvents, async (req: any, res: any) => {
 // POST /api/events-mgmt  — proposal (starts in draft/pending_approval)
 router.post("/", requireAuth, canManageEvents, async (req: any, res: any) => {
   try {
-    const actorId = await resolveActorUUID(req.clerkId);
-    const [event] = await db.insert(eventsTable).values({ ...req.body, status: req.body.status ?? "draft" }).returning();
+    const body = validate(EventCreateSchema, req.body, res);
+    if (!body) return;
+
+    const [event] = await db.insert(eventsTable).values({ ...body, status: body.status ?? "draft" }).returning();
     res.status(201).json(event);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -87,7 +185,10 @@ router.get("/:id", requireAuth, canViewEvents, async (req: any, res: any) => {
 // PATCH /api/events-mgmt/:id
 router.patch("/:id", requireAuth, canManageEvents, async (req: any, res: any) => {
   try {
-    const [updated] = await db.update(eventsTable).set(req.body).where(eq(eventsTable.id, req.params.id)).returning();
+    const body = validate(EventPatchSchema, req.body, res);
+    if (!body) return;
+
+    const [updated] = await db.update(eventsTable).set(body).where(eq(eventsTable.id, req.params.id)).returning();
     if (!updated) return res.status(404).json({ error: "Not found" });
     res.json(updated);
   } catch (err: any) {
@@ -128,6 +229,9 @@ router.post("/:id/submit-approval", requireAuth, canManageEvents, async (req: an
 // POST /api/events-mgmt/:id/register  (public — anyone can register)
 router.post("/:id/register", async (req: any, res: any) => {
   try {
+    const body = validate(RegistrationSchema, req.body, res);
+    if (!body) return;
+
     const [event] = await db.select({ id: eventsTable.id, status: eventsTable.status }).from(eventsTable)
       .where(eq(eventsTable.id, req.params.id)).limit(1);
     if (!event) return res.status(404).json({ error: "Event not found" });
@@ -136,7 +240,7 @@ router.post("/:id/register", async (req: any, res: any) => {
     // Generate unique QR code payload
     const qrCode = `LIND-EVT-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
     const [registration] = await db.insert(eventRegistrationsTable).values({
-      ...req.body, eventId: req.params.id, qrCode,
+      ...body, eventId: req.params.id, qrCode,
     }).returning();
     res.status(201).json({ ...registration, qrCode });
   } catch (err: any) {
@@ -168,12 +272,15 @@ router.get("/:id/registrations", requireAuth, canCheckIn, async (req: any, res: 
 // POST /api/events-mgmt/:id/check-in  — QR code or manual check-in
 router.post("/:id/check-in", requireAuth, canCheckIn, async (req: any, res: any) => {
   try {
+    const body = validate(CheckInSchema, req.body, res);
+    if (!body) return;
+
     const actorId = await resolveActorUUID(req.clerkId);
-    const { qrCode, registrationId } = req.body;
+    const { qrCode, registrationId } = body;
 
     const cond = qrCode
       ? and(eq(eventRegistrationsTable.eventId, req.params.id), eq(eventRegistrationsTable.qrCode, qrCode))
-      : and(eq(eventRegistrationsTable.eventId, req.params.id), eq(eventRegistrationsTable.id, registrationId));
+      : and(eq(eventRegistrationsTable.eventId, req.params.id), eq(eventRegistrationsTable.id, registrationId!));
 
     const [reg] = await db.select().from(eventRegistrationsTable).where(cond).limit(1);
     if (!reg) return res.status(404).json({ error: "Registration not found" });
@@ -192,9 +299,12 @@ router.post("/:id/check-in", requireAuth, canCheckIn, async (req: any, res: any)
 
 router.post("/:id/incidents", requireAuth, canViewEvents, async (req: any, res: any) => {
   try {
+    const body = validate(IncidentCreateSchema, req.body, res);
+    if (!body) return;
+
     const actorId = await resolveActorUUID(req.clerkId);
     if (!actorId) return res.status(403).json({ error: "Actor not found" });
-    const [row] = await db.insert(eventIncidentsTable).values({ ...req.body, eventId: req.params.id, reportedBy: actorId }).returning();
+    const [row] = await db.insert(eventIncidentsTable).values({ ...body, eventId: req.params.id, reportedBy: actorId }).returning();
     res.status(201).json(row);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -203,9 +313,12 @@ router.post("/:id/incidents", requireAuth, canViewEvents, async (req: any, res: 
 
 router.patch("/:id/incidents/:incidentId/resolve", requireAuth, canManageEvents, async (req: any, res: any) => {
   try {
+    const body = validate(IncidentResolveSchema, req.body, res);
+    if (!body) return;
+
     const actorId = await resolveActorUUID(req.clerkId);
     const [row] = await db.update(eventIncidentsTable)
-      .set({ resolvedBy: actorId ?? undefined, resolvedAt: new Date(), resolution: req.body.resolution })
+      .set({ resolvedBy: actorId ?? undefined, resolvedAt: new Date(), resolution: body.resolution })
       .where(and(eq(eventIncidentsTable.id, req.params.incidentId), eq(eventIncidentsTable.eventId, req.params.id)))
       .returning();
     if (!row) return res.status(404).json({ error: "Incident not found" });
@@ -219,9 +332,12 @@ router.patch("/:id/incidents/:incidentId/resolve", requireAuth, canManageEvents,
 
 router.post("/:id/reconciliation", requireAuth, canManageEvents, async (req: any, res: any) => {
   try {
+    const body = validate(ReconciliationSchema, req.body, res);
+    if (!body) return;
+
     const actorId = await resolveActorUUID(req.clerkId);
     if (!actorId) return res.status(403).json({ error: "Actor not found" });
-    const [row] = await db.insert(eventReconciliationsTable).values({ ...req.body, eventId: req.params.id, submittedBy: actorId }).returning();
+    const [row] = await db.insert(eventReconciliationsTable).values({ ...body, eventId: req.params.id, submittedBy: actorId }).returning();
     // Update event status to completed
     await db.update(eventsTable).set({ status: "completed" }).where(eq(eventsTable.id, req.params.id));
     res.status(201).json(row);
@@ -244,7 +360,10 @@ router.get("/:id/speakers", requireAuth, canViewEvents, async (req: any, res: an
 
 router.post("/:id/speakers", requireAuth, canManageEvents, async (req: any, res: any) => {
   try {
-    const [row] = await db.insert(eventSpeakersTable).values({ ...req.body, eventId: req.params.id }).returning();
+    const body = validate(SpeakerSchema, req.body, res);
+    if (!body) return;
+
+    const [row] = await db.insert(eventSpeakersTable).values({ ...body, eventId: req.params.id }).returning();
     res.status(201).json(row);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -264,8 +383,11 @@ router.get("/:id/transport", requireAuth, canViewTransport, async (req: any, res
 
 router.post("/:id/transport", requireAuth, canViewTransport, async (req: any, res: any) => {
   try {
+    const body = validate(TransportSchema, req.body, res);
+    if (!body) return;
+
     const actorId = await resolveActorUUID(req.clerkId);
-    const [row] = await db.insert(eventTransportTable).values({ ...req.body, eventId: req.params.id, coordinatorId: actorId ?? undefined }).returning();
+    const [row] = await db.insert(eventTransportTable).values({ ...body, eventId: req.params.id, coordinatorId: actorId ?? undefined }).returning();
     res.status(201).json(row);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -285,8 +407,11 @@ router.get("/:id/media-accreditations", requireAuth, canViewEvents, async (req: 
 
 router.post("/:id/media-accreditations", async (req: any, res: any) => {
   try {
+    const body = validate(MediaAccreditationSchema, req.body, res);
+    if (!body) return;
+
     const qrCode = `MEDIA-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
-    const [row] = await db.insert(eventMediaAccreditationsTable).values({ ...req.body, eventId: req.params.id, status: "pending", qrCode }).returning();
+    const [row] = await db.insert(eventMediaAccreditationsTable).values({ ...body, eventId: req.params.id, status: "pending", qrCode }).returning();
     res.status(201).json(row);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
