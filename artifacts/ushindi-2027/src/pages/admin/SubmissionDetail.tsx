@@ -38,6 +38,19 @@ function ImageViewer({ images }: { images: any[] }) {
   const [brightness, setBrightness] = useState(100);
   const [contrast, setContrast] = useState(100);
 
+  /**
+   * Build the URL to serve a submission form image.
+   * Routes through the dedicated /submissions/:id/images/:imageId/file endpoint
+   * which is authorized by canViewResults roles (not the content_assets catalogue).
+   * Falls back to a direct imageUrl only for legacy rows that have one.
+   */
+  function imgSrc(img: any): string {
+    if (img.id && img.submissionId) {
+      return `${BASE}/api/election-results/submissions/${img.submissionId}/images/${img.id}/file`;
+    }
+    return (img.imageUrl ?? "") as string;
+  }
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
@@ -48,7 +61,7 @@ function ImageViewer({ images }: { images: any[] }) {
             onClick={() => { setSelected(img); setZoom(100); setRotation(0); }}
           >
             <img
-              src={img.objectPath ?? img.imageUrl}
+              src={imgSrc(img)}
               alt={img.imageType ?? "Form image"}
               className="w-full h-full object-cover"
             />
@@ -91,7 +104,7 @@ function ImageViewer({ images }: { images: any[] }) {
           </div>
           <div className="overflow-auto max-h-[500px] border border-border rounded bg-muted/20 flex items-center justify-center">
             <img
-              src={selected.objectPath ?? selected.imageUrl}
+              src={imgSrc(selected)}
               alt={selected.imageType}
               style={{
                 transform: `scale(${zoom / 100}) rotate(${rotation}deg)`,

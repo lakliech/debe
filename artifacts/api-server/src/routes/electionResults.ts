@@ -4,6 +4,7 @@
  *   polling_centre_queried → constituency_verification → constituency_queried →
  *   county_verification → county_queried → national_verification → legal_review → verified
  */
+import { Readable } from "stream";
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
 import { z } from "zod";
@@ -23,6 +24,7 @@ import {
 import { eq, desc, and, or, count, inArray } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
 import { validate } from "../lib/validate";
+import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 
 // ─── VALIDATION SCHEMAS ───────────────────────────────────────────────────────
 
@@ -52,6 +54,7 @@ const submissionBodySchema = z.object({
   offlineCapturedAt: z.string().datetime({ offset: true }).optional(),
   forceNew: z.boolean().optional(),
   candidateVotes: z.array(candidateVoteSchema).optional(),
+  formPhotoUrl: z.string().max(2000).optional(),
 });
 
 const imageUploadSchema = z.object({
@@ -86,6 +89,7 @@ const ocrReviewSchema = z.object({
 });
 
 const router = Router();
+const objectStorageService = new ObjectStorageService();
 
 function requireAuth(req: any, res: any, next: any) {
   const auth = getAuth(req);
@@ -204,6 +208,19 @@ async function runAutoValidation(submissionId: string): Promise<{ valid: boolean
 
 // ─── ROUTES ───────────────────────────────────────────────────────────────────
 
+// POST /api/election-results/photo-upload-url
+// Returns a short-lived presigned PUT URL so mobile agents can upload Form 34A photos
+// directly to object storage without routing megabytes through the API server.
+router.post("/photo-upload-url", requireAuth, canSubmitResults, async (_req: any, res: any) => {
+  try {
+    const uploadUrl = await objectStorageService.getObjectEntityUploadURL();
+    const objectPath = objectStorageService.normalizeObjectEntityPath(uploadUrl);
+    res.json({ uploadUrl, objectPath });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/election-results/submissions
 router.get("/submissions", requireAuth, canViewResults, async (req: any, res: any) => {
   try {
@@ -303,6 +320,18 @@ router.post("/submissions/agent-submit", requireAuth, canSubmitResults, async (r
       await db.insert(submissionCandidateVotesTable).values(
         candidateVotes.map((v: any) => ({ ...v, submissionId }))
       );
+    }
+
+    // Auto-register form photo when the agent uploaded one before submitting
+    if (body.formPhotoUrl) {
+      await db.insert(submissionFormImagesTable).values({
+        submissionId,
+        imageType: "form_page_1",
+        objectPath: body.formPhotoUrl,
+        mimeType: "image/jpeg",
+        isRequired: true,
+        deviceId: body.deviceId ?? undefined,
+      }).onConflictDoNothing();
     }
 
     // Submit
@@ -480,6 +509,50 @@ router.post("/submissions/:id/images", requireAuth, canSubmitResults, async (req
     }).returning();
     res.status(201).json(row);
   } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/election-results/submissions/:id/images/:imageId/file
+// Serves the raw bytes of a Form 34A photo, authorized by canViewResults roles.
+// This bypasses the content_assets catalogue used by the general /storage route,
+// so result-verifier / returning-officer roles can view submission evidence.
+router.get("/submissions/:id/images/:imageId/file", requireAuth, canViewResults, async (req: any, res: any) => {
+  try {
+    // Verify the image row exists and belongs to this submission
+    const [img] = await db
+      .select({ id: submissionFormImagesTable.id, objectPath: submissionFormImagesTable.objectPath, mimeType: submissionFormImagesTable.mimeType })
+      .from(submissionFormImagesTable)
+      .where(and(
+        eq(submissionFormImagesTable.id, req.params.imageId),
+        eq(submissionFormImagesTable.submissionId, req.params.id),
+      ))
+      .limit(1);
+
+    if (!img) {
+      res.status(404).json({ error: "Image not found" });
+      return;
+    }
+
+    const objectFile = await objectStorageService.getObjectEntityFile(img.objectPath!);
+    const response = await objectStorageService.downloadObject(objectFile);
+
+    res.status(response.status);
+    response.headers.forEach((value: string, key: string) => res.setHeader(key, value));
+    if (img.mimeType) res.setHeader("Content-Type", img.mimeType);
+    res.setHeader("Cache-Control", "private, max-age=3600");
+
+    if (response.body) {
+      const nodeStream = Readable.fromWeb(response.body as ReadableStream<Uint8Array>);
+      nodeStream.pipe(res);
+    } else {
+      res.end();
+    }
+  } catch (err: any) {
+    if (err instanceof ObjectNotFoundError) {
+      res.status(404).json({ error: "Object not found in storage" });
+      return;
+    }
     res.status(500).json({ error: err.message });
   }
 });

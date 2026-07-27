@@ -58,6 +58,7 @@ export default function FormScreen() {
   const [stationCode, setStationCode] = useState('');
   const [lookingUp, setLookingUp] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [submitResult, setSubmitResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const domain = process.env.EXPO_PUBLIC_DOMAIN;
@@ -71,6 +72,41 @@ export default function FormScreen() {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json();
+    },
+    [getToken, domain],
+  );
+
+  /**
+   * Upload a local photo URI to object storage.
+   * Returns the objectPath on success, or null if the upload fails.
+   * The returned path is passed as `formPhotoUrl` in the submission payload
+   * so the server can register it in submission_form_images.
+   */
+  const uploadFormPhoto = useCallback(
+    async (photoUri: string): Promise<string | null> => {
+      try {
+        const token = await getToken();
+        // Step 1: get a short-lived presigned PUT URL
+        const urlRes = await fetch(`https://${domain}/api/election-results/photo-upload-url`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!urlRes.ok) return null;
+        const { uploadUrl, objectPath } = await urlRes.json() as { uploadUrl: string; objectPath: string };
+        // Step 2: read the local photo as a blob
+        const photoRes = await fetch(photoUri);
+        if (!photoRes.ok) return null;
+        const blob = await photoRes.blob();
+        // Step 3: PUT directly to GCS — no API server involved
+        const putRes = await fetch(uploadUrl, {
+          method: 'PUT',
+          body: blob,
+          headers: { 'Content-Type': 'image/jpeg' },
+        });
+        return putRes.ok ? objectPath : null;
+      } catch {
+        return null;
+      }
     },
     [getToken, domain],
   );
@@ -326,6 +362,18 @@ export default function FormScreen() {
     setSubmitting(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
+    // Upload Form 34A photo to object storage before submitting (online only).
+    // If upload fails, fall through to the queue so the photo can be retried —
+    // we never submit a Form 34A without its photo evidence.
+    let formPhotoUrl: string | undefined;
+    let photoUploadFailed = false;
+    if (draft.photoUri && isOnline) {
+      setUploadingPhoto(true);
+      formPhotoUrl = (await uploadFormPhoto(draft.photoUri)) ?? undefined;
+      setUploadingPhoto(false);
+      if (!formPhotoUrl) photoUploadFailed = true;
+    }
+
     const payload = {
       pollingStationId: draft.stationId,
       electionId: draft.electionId,
@@ -352,11 +400,13 @@ export default function FormScreen() {
         partyAbbreviation: v.party,
         voteCount: v.votes,
       })),
+      ...(formPhotoUrl ? { formPhotoUrl } : {}),
     };
 
     const endpoint = '/api/election-results/submissions/agent-submit';
 
-    if (isOnline) {
+    // Skip online submission when photo upload failed — let the queue handle retry
+    if (isOnline && !photoUploadFailed) {
       try {
         const token = await getToken();
         const res = await fetch(`https://${domain}${endpoint}`, {
@@ -403,7 +453,14 @@ export default function FormScreen() {
     const queueId = Date.now().toString() + Math.random().toString(36).substr(2, 8);
     await enqueueItem({
       id: queueId,
-      payload: { endpoint, method: 'POST', body: payload },
+      payload: {
+        endpoint,
+        method: 'POST',
+        body: payload,
+        // If photo wasn't uploaded yet (offline or upload failed), carry the
+        // local URI so OfflineContext can upload it before the next sync attempt.
+        ...(!formPhotoUrl && draft.photoUri ? { pendingPhotoUri: draft.photoUri } : {}),
+      },
       attempts: 0,
       createdAt: new Date().toISOString(),
     });
@@ -413,7 +470,9 @@ export default function FormScreen() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     setSubmitResult({
       success: true,
-      message: isOnline
+      message: photoUploadFailed
+        ? 'Photo upload failed — queued for retry. Will sync automatically when connected.'
+        : isOnline
         ? 'Server error — queued for retry. Will sync automatically.'
         : 'Saved offline — will sync automatically when connected.',
     });
@@ -832,7 +891,12 @@ export default function FormScreen() {
               disabled={submitting}
             >
               {submitting ? (
-                <ActivityIndicator color="#FFFFFF" />
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <ActivityIndicator color="#FFFFFF" />
+                  <Text style={[s.submitBtnText, { fontSize: 14 }]}>
+                    {uploadingPhoto ? 'Uploading photo…' : 'Submitting…'}
+                  </Text>
+                </View>
               ) : (
                 <>
                   <Ionicons name={isOnline ? 'cloud-upload-outline' : 'save-outline'} size={20} color="#FFFFFF" style={{ marginRight: 8 }} />

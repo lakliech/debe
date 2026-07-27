@@ -105,6 +105,8 @@ export interface QueueItem {
     endpoint: string;
     method: string;
     body: Record<string, unknown>;
+    /** Local device URI of the Form 34A photo to upload before this item is submitted. */
+    pendingPhotoUri?: string;
   };
   attempts: number;
   createdAt: string;
@@ -287,6 +289,47 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
 
       for (const item of queue) {
         let moved = false;
+
+        // Upload pending Form 34A photo — must succeed before submission proceeds.
+        // If upload fails the item stays in the retry queue; we never submit
+        // a Form 34A without its photo evidence.
+        let syncBody = item.payload.body;
+        if (item.payload.pendingPhotoUri) {
+          let photoOk = false;
+          try {
+            const urlRes = await fetch(`https://${domain}/api/election-results/photo-upload-url`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (urlRes.ok) {
+              const { uploadUrl, objectPath } = await urlRes.json() as { uploadUrl: string; objectPath: string };
+              const photoRes = await fetch(item.payload.pendingPhotoUri);
+              if (photoRes.ok) {
+                const blob = await photoRes.blob();
+                const putRes = await fetch(uploadUrl, {
+                  method: 'PUT',
+                  body: blob,
+                  headers: { 'Content-Type': 'image/jpeg' },
+                });
+                if (putRes.ok) {
+                  syncBody = { ...syncBody, formPhotoUrl: objectPath };
+                  photoOk = true;
+                }
+              }
+            }
+          } catch { /* network / storage error */ }
+
+          if (!photoOk) {
+            // Do not submit without the required photo — keep in retry queue
+            if (item.attempts + 1 < MAX_RETRIES) {
+              remaining.push({ ...item, attempts: item.attempts + 1, lastError: 'Form photo upload failed — will retry on next sync' });
+            } else {
+              newFailed.push({ ...item, attempts: item.attempts + 1, lastError: `Form photo could not reach the server after ${MAX_RETRIES} attempts` });
+            }
+            continue;
+          }
+        }
+
         try {
           const res = await fetch(`https://${domain}${item.payload.endpoint}`, {
             method: item.payload.method,
@@ -294,7 +337,7 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
               Authorization: `Bearer ${token}`,
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify(item.payload.body),
+            body: JSON.stringify(syncBody),
           });
 
           if (res.ok) {
