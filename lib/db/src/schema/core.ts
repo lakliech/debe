@@ -123,6 +123,9 @@ export const contactMessagesTable = pgTable("contact_messages", {
   message: text("message").notNull(),
   /** open | read | replied | archived */
   status: text("status").notNull().default("open"),
+  replyNote: text("reply_note"),
+  repliedAt: timestamp("replied_at", { withTimezone: true }),
+  repliedBy: uuid("replied_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 export type ContactMessage = typeof contactMessagesTable.$inferSelect;

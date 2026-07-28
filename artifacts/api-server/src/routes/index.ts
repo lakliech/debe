@@ -31,6 +31,7 @@ import reportingRouter from "./reporting";
 import complianceRouter from "./compliance";
 import privilegedAccessRouter from "./privilegedAccess";
 import aspirantsRouter from "./aspirants";
+import contactMessagesRouter from "./contactMessages";
 
 const router: IRouter = Router();
 
@@ -66,5 +67,6 @@ router.use("/reporting", reportingRouter);
 router.use("/compliance", complianceRouter);
 router.use("/privileged-access", privilegedAccessRouter);
 router.use("/aspirants", aspirantsRouter);
+router.use("/contact-messages", contactMessagesRouter);
 
 export default router;

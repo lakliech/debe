@@ -89,6 +89,9 @@ import ClaimDetailPage from "./pages/admin/ClaimDetail";
 // Admin — Aspirants
 import AspirantsPage from "./pages/admin/Aspirants";
 
+// Admin — Contact Messages
+import ContactMessagesPage from "./pages/admin/ContactMessages";
+
 // Admin pages — Task 5: Compliance, Reporting, Privileged Access
 import ReportingPage from "./pages/admin/Reporting";
 import CompliancePage from "./pages/admin/Compliance";
@@ -427,6 +430,11 @@ function ClerkProviderWithRoutes() {
             {/* ── Admin (protected) — Aspirants ── */}
             <Route path="/aspirants">
               <ProtectedRoute component={AspirantsPage} />
+            </Route>
+
+            {/* ── Admin (protected) — Contact Messages ── */}
+            <Route path="/contact-messages">
+              <ProtectedRoute component={ContactMessagesPage} />
             </Route>
 
             {/* ── Admin (protected) — Task 5: Compliance, Reporting ── */}
