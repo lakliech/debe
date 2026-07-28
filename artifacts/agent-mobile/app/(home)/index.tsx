@@ -13,6 +13,7 @@ import {
   Platform,
 } from 'react-native';
 import { useAuth, useUser } from '@clerk/expo';
+import { useBiometrics } from '@/hooks/useBiometrics';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -22,12 +23,13 @@ import { useColors } from '@/hooks/useColors';
 import { useOffline } from '@/context/OfflineContext';
 
 export default function Dashboard() {
-  const { signOut, getToken } = useAuth();
+  const { signOut, getToken, userId } = useAuth();
   const { user } = useUser();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const colors = useColors();
   const { isOnline, pendingCount, isSyncing, syncNow, lastSyncAt, failedCount, failedQueue, clearFailedItem, saveRefCache } = useOffline();
+  const bio = useBiometrics(userId);
 
   const domain = process.env.EXPO_PUBLIC_DOMAIN;
 
@@ -119,7 +121,10 @@ export default function Dashboard() {
     syncNow();
   };
 
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
+    // Clear per-account biometric enrolment before Clerk invalidates the session,
+    // so a subsequent sign-in on the same device starts without inherited preferences.
+    await bio.clearEnrolment();
     signOut();
   };
 

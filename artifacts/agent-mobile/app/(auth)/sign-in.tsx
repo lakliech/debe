@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -10,56 +10,108 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { useSignIn } from '@clerk/expo';
+import { useSignIn, useAuth } from '@clerk/expo';
 import { Link, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
+import { useBiometrics } from '@/hooks/useBiometrics';
+import { bioSessionState } from '@/utils/bioSessionState';
 
 export default function SignInScreen() {
   const { signIn, errors, fetchStatus } = useSignIn();
+  const { isSignedIn, userId } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const colors = useColors();
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [verifyCode, setVerifyCode] = useState('');
 
+  // For an already-signed-in session userId is defined; for a fresh login
+  // it starts null and is not used — enrollment is offered from home layout.
+  const bio = useBiometrics(userId);
+  const [bioError, setBioError] = useState('');
+  /**
+   * true  → active Clerk session + biometric enrolled → show biometric screen.
+   * false → show the normal email/password form.
+   */
+  const [bioMode, setBioMode] = useState(false);
+
   const isLoading = fetchStatus === 'fetching';
 
+  // ── Determine whether to boot into biometric mode ──────────────────────────
+  useEffect(() => {
+    if (!bio.loading) {
+      setBioMode(isSignedIn === true && bio.enrolled);
+    }
+  }, [bio.loading, bio.enrolled, isSignedIn]);
+
+  // ── Auto-prompt biometrics on first mount when enrolled ────────────────────
+  useEffect(() => {
+    if (bioMode) {
+      const timer = setTimeout(() => { handleBiometricSignIn(); }, 400);
+      return () => clearTimeout(timer);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bioMode]);
+
+  // ── Biometric sign-in ──────────────────────────────────────────────────────
+  const handleBiometricSignIn = useCallback(async () => {
+    setBioError('');
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const ok = await bio.authenticate('Sign in to Linda Mwananchi Agent');
+    if (ok) {
+      bioSessionState.setBypassOnce();
+      router.replace('/(home)');
+    } else {
+      setBioError('Biometric verification failed. Use your password below.');
+      setBioMode(false);
+    }
+  }, [bio, router]);
+
+  // ── Shared finalization helper (password + MFA paths) ──────────────────────
+  /**
+   * Called after a successful Clerk sign-in for both password and MFA paths.
+   * Sets the bypass so the home layout skips its initial lock, then signals
+   * whether to offer biometric enrollment (handled in the home layout where
+   * userId from useAuth() is guaranteed to be the correct authenticated value).
+   */
+  const finalizeAndNavigate = useCallback(async () => {
+    bioSessionState.setBypassOnce();
+    if (bio.hardwareAvailable && !bio.enrolled) {
+      bioSessionState.setOfferEnrollment();
+    }
+    router.replace('/(home)');
+  }, [bio.hardwareAvailable, bio.enrolled, router]);
+
+  // ── Password sign-in ───────────────────────────────────────────────────────
   const handleSubmit = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const { error } = await signIn.password({ emailAddress: email, password });
     if (error) return;
     if (signIn.status === 'complete') {
-      await signIn.finalize({
-        navigate: () => { router.replace('/(home)'); },
-      });
+      await signIn.finalize({ navigate: finalizeAndNavigate });
     }
   };
 
+  // ── MFA ────────────────────────────────────────────────────────────────────
   const handleVerify = async () => {
     await signIn.mfa.verifyEmailCode({ code: verifyCode });
     if (signIn.status === 'complete') {
-      await signIn.finalize({
-        navigate: () => { router.replace('/(home)'); },
-      });
+      await signIn.finalize({ navigate: finalizeAndNavigate });
     }
   };
 
   const s = styles(colors);
 
-  // MFA verification step
+  // ── MFA screen ─────────────────────────────────────────────────────────────
   if (signIn.status === 'needs_client_trust') {
     return (
-      <View
-        style={[
-          s.container,
-          { paddingTop: insets.top + 60, paddingBottom: insets.bottom + 24 },
-        ]}
-      >
+      <View style={[s.container, { paddingTop: insets.top + 60, paddingBottom: insets.bottom + 24 }]}>
         <Text style={s.title}>Verify Identity</Text>
         <Text style={s.subtitle}>Enter the code sent to your email</Text>
         <TextInput
@@ -91,6 +143,37 @@ export default function SignInScreen() {
     );
   }
 
+  // ── Biometric unlock screen (active session + enrolled) ────────────────────
+  if (bioMode) {
+    return (
+      <View style={[s.container, { paddingTop: insets.top + 80, paddingBottom: insets.bottom + 24, alignItems: 'center' }]}>
+        <View style={s.brandPill}>
+          <Text style={s.brandLabel}>LINDA MWANANCHI</Text>
+          <Text style={s.brandYear}>2027</Text>
+        </View>
+        <Text style={[s.appTagline, { marginBottom: 60 }]}>Field Agent Portal</Text>
+
+        <Pressable
+          style={({ pressed }) => [s.bioBigBtn, pressed && { opacity: 0.75 }]}
+          onPress={handleBiometricSignIn}
+          accessibilityLabel={`Sign in with ${bio.biometricLabel}`}
+          accessibilityRole="button"
+        >
+          <Ionicons name={bio.biometricIcon} size={52} color={colors.primaryForeground} />
+        </Pressable>
+
+        <Text style={s.bioHint}>Tap to sign in with {bio.biometricLabel}</Text>
+
+        {bioError ? <Text style={[s.error, { textAlign: 'center', marginTop: 16 }]}>{bioError}</Text> : null}
+
+        <Pressable style={[s.textLink, { marginTop: 32 }]} onPress={() => setBioMode(false)}>
+          <Text style={s.textLinkLabel}>Use password instead</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  // ── Normal email + password form ───────────────────────────────────────────
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: colors.background }}
@@ -104,7 +187,6 @@ export default function SignInScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* Brand header */}
         <View style={s.brand}>
           <View style={s.brandPill}>
             <Text style={s.brandLabel}>LINDA MWANANCHI</Text>
@@ -117,7 +199,19 @@ export default function SignInScreen() {
           <Text style={s.title}>Sign in</Text>
           <Text style={s.subtitle}>Access your polling station tools</Text>
 
-          {/* Email */}
+          {bio.enrolled && isSignedIn && (
+            <Pressable
+              style={({ pressed }) => [s.bioRow, pressed && { opacity: 0.75 }]}
+              onPress={() => setBioMode(true)}
+            >
+              <Ionicons name={bio.biometricIcon} size={22} color={colors.primary} style={{ marginRight: 10 }} />
+              <Text style={s.bioRowLabel}>Sign in with {bio.biometricLabel}</Text>
+              <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+            </Pressable>
+          )}
+
+          {bioError ? <Text style={s.error}>{bioError}</Text> : null}
+
           <View style={s.field}>
             <Text style={s.label}>Email</Text>
             <TextInput
@@ -136,7 +230,6 @@ export default function SignInScreen() {
             ) : null}
           </View>
 
-          {/* Password */}
           <View style={s.field}>
             <Text style={s.label}>Password</Text>
             <View style={s.passwordRow}>
@@ -281,6 +374,8 @@ const styles = (colors: ReturnType<typeof useColors>) =>
       borderRadius: colors.radius,
       paddingVertical: 16,
       alignItems: 'center',
+      justifyContent: 'center',
+      flexDirection: 'row',
       marginTop: 8,
     },
     buttonPressed: { opacity: 0.8 },
@@ -315,5 +410,41 @@ const styles = (colors: ReturnType<typeof useColors>) =>
       color: colors.primary,
       fontSize: 14,
       fontFamily: 'Inter_600SemiBold',
+    },
+    bioBigBtn: {
+      width: 120,
+      height: 120,
+      borderRadius: 60,
+      backgroundColor: colors.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: colors.primary,
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.35,
+      shadowRadius: 12,
+      elevation: 8,
+    },
+    bioHint: {
+      marginTop: 20,
+      fontSize: 15,
+      fontFamily: 'Inter_400Regular',
+      color: colors.mutedForeground,
+      textAlign: 'center',
+    },
+    bioRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.accent,
+      borderRadius: colors.radius,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    bioRowLabel: {
+      flex: 1,
+      fontSize: 14,
+      fontFamily: 'Inter_500Medium',
+      color: colors.primary,
     },
   });

@@ -18,7 +18,8 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Allow LM Agent to access your camera to photograph Form 34A as required evidence for election result submissions.",
         "NSLocationWhenInUseUsageDescription": "Allow LM Agent to record your GPS location when submitting results to verify your presence at the polling station.",
-        "NSPhotoLibraryUsageDescription": "Allow LM Agent to access your photo library to attach Form 34A photos."
+        "NSPhotoLibraryUsageDescription": "Allow LM Agent to access your photo library to attach Form 34A photos.",
+        "NSFaceIDUsageDescription": "Allow LM Agent to use Face ID so you can sign in quickly without typing your password on election day."
       }
     },
     "android": {
@@ -56,6 +57,12 @@
         {
           "locationAlwaysAndWhenInUsePermission": "Allow LM Agent to record your location when submitting election results.",
           "locationWhenInUsePermission": "Allow LM Agent to record your GPS location for result submission verification."
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow LM Agent to use Face ID so you can sign in quickly without typing your password on election day."
         }
       ]
     ],
