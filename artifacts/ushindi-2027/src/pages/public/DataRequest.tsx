@@ -6,25 +6,35 @@ import { z } from "zod";
 import PublicPortalLayout from "@/components/layout/PublicPortalLayout";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { createDataRequest } from "@workspace/api-client-react";
+import { DATA_REQUEST_TYPES, dataRequestTypeSchema } from "@workspace/api-zod";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
-const REQUEST_TYPES = [
-  { value: "access", labelEn: "Access — Request a copy of your personal data", labelSw: "Ufikiaji — Omba nakala ya data yako ya kibinafsi" },
-  { value: "rectification", labelEn: "Rectification — Correct inaccurate data", labelSw: "Urekebishi — Rekebisha data isiyo sahihi" },
-  { value: "deletion", labelEn: "Deletion — Request deletion of your data", labelSw: "Ufutaji — Omba ufutaji wa data yako" },
-  { value: "portability", labelEn: "Portability — Receive your data in a portable format", labelSw: "Ubebaji — Pokea data yako katika umbizo linaloweza kubebwa" },
-  { value: "objection", labelEn: "Objection — Object to processing of your data", labelSw: "Pingamizi — Pinga usindikaji wa data yako" },
-];
+/**
+ * Dropdown options — values must match DATA_REQUEST_TYPES exactly.
+ * This is the single place to add display labels; the allowed values
+ * themselves live in @workspace/api-zod so API and form stay in sync.
+ */
+const REQUEST_TYPE_LABELS: Record<(typeof DATA_REQUEST_TYPES)[number], { en: string; sw: string }> = {
+  access:     { en: "Access — Request a copy of your personal data",  sw: "Ufikiaji — Omba nakala ya data yako ya kibinafsi" },
+  correction: { en: "Correction — Correct inaccurate or incomplete data", sw: "Urekebishaji — Rekebisha data isiyo sahihi au kamili" },
+  deletion:   { en: "Deletion — Request deletion of your data",       sw: "Ufutaji — Omba ufutaji wa data yako" },
+  objection:  { en: "Objection — Object to processing of your data",  sw: "Pingamizi — Pinga usindikaji wa data yako" },
+};
 
+/**
+ * Form schema — requestType is validated against the API enum, not just
+ * checked for non-empty, so DOM manipulation or future option drift is
+ * caught before the request reaches the server.
+ */
 const schema = z.object({
-  requestType: z.string().min(1, "Please select a request type"),
-  fullName: z.string().min(2, "Full name is required"),
-  email: z.string().email("Valid email required"),
-  phone: z.string().optional(),
+  requestType: dataRequestTypeSchema,
+  fullName:    z.string().min(2, "Full name is required"),
+  email:       z.string().email("Valid email required"),
+  phone:       z.string().optional(),
   description: z.string().min(10, "Please describe your request in more detail"),
 });
 type FormData = z.infer<typeof schema>;
@@ -125,9 +135,9 @@ export default function DataRequest() {
                   )}
                 >
                   <option value="">{t("Select request type...", "Chagua aina ya ombi...")}</option>
-                  {REQUEST_TYPES.map((rt) => (
-                    <option key={rt.value} value={rt.value}>
-                      {t(rt.labelEn, rt.labelSw)}
+                  {DATA_REQUEST_TYPES.map((value) => (
+                    <option key={value} value={value}>
+                      {t(REQUEST_TYPE_LABELS[value].en, REQUEST_TYPE_LABELS[value].sw)}
                     </option>
                   ))}
                 </select>

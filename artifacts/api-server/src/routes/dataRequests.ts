@@ -9,6 +9,7 @@ import { dataSubjectRequestsTable, supportersTable, volunteersTable } from "@wor
 import { eq, desc, and, count } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
 import { publicSubmitLimiter } from "../middlewares/rateLimits";
+import { DATA_REQUEST_TYPES } from "@workspace/api-zod";
 
 const router = Router();
 
@@ -64,8 +65,8 @@ router.post("/", publicSubmitLimiter, async (req: any, res: any) => {
     if (!requestType || !fullName) {
       return res.status(400).json({ error: "requestType and fullName are required" });
     }
-    if (!["access", "correction", "deletion", "objection"].includes(requestType)) {
-      return res.status(400).json({ error: "requestType must be access | correction | deletion | objection" });
+    if (!(DATA_REQUEST_TYPES as readonly string[]).includes(requestType)) {
+      return res.status(400).json({ error: `requestType must be ${DATA_REQUEST_TYPES.join(" | ")}` });
     }
 
     const [request] = await db
