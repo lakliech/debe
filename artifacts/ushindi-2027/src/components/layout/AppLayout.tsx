@@ -1,10 +1,13 @@
 import { Shield, Flag, Users, Activity, Settings, MapPin, Search, Menu, LogOut, ChevronRight, DollarSign, Megaphone, Library, Calendar, AlertTriangle, Settings2, ClipboardList, BarChart3, AlertOctagon, Scale, Monitor, Globe, Download, Lock, Vote, Mail } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useClerk, useUser } from "@clerk/react";
+import { useQuery } from "@tanstack/react-query";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -76,6 +79,18 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const { user } = useUser();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  // Fetch open message count for the sidebar badge; refresh every 60 s.
+  const { data: msgCounts } = useQuery<Record<string, number>>({
+    queryKey: ["/api/contact-messages/counts"],
+    queryFn: () =>
+      fetch(`${BASE}/api/contact-messages/counts`, { credentials: "include" })
+        .then((r) => r.ok ? r.json() : {}),
+    refetchInterval: 60_000,
+    // Don't throw on failure — the badge silently disappears if the fetch fails.
+    retry: false,
+  });
+  const openCount = msgCounts?.open ?? 0;
+
   const getInitials = (name?: string | null) => {
     if (!name) return "US";
     return name.split(" ").map((n) => n[0]).join("").substring(0, 2).toUpperCase();
@@ -141,7 +156,12 @@ export default function AppLayout({ children }: AppLayoutProps) {
                       onClick={() => setSidebarOpen(false)}
                     >
                       <item.icon className={cn("h-4 w-4 shrink-0", isActive ? "text-sidebar-accent-foreground" : "text-sidebar-foreground/50")} />
-                      <span className="truncate">{item.name}</span>
+                      <span className="truncate flex-1">{item.name}</span>
+                      {item.href === "/contact-messages" && openCount > 0 && (
+                        <span className="ml-auto shrink-0 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-black flex items-center justify-center leading-none">
+                          {openCount > 99 ? "99+" : openCount}
+                        </span>
+                      )}
                     </Link>
                   );
                 })}
