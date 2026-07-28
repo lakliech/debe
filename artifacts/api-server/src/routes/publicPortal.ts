@@ -327,25 +327,51 @@ router.post("/aspirants", publicSubmitLimiter, async (req: any, res: any) => {
       }
     }
 
-    const [aspirant] = await db
-      .insert(aspirantsTable)
-      .values({
-        fullName,
-        phoneNumber,
-        email: email || null,
-        nationalId,
-        position,
-        countyId,
-        countyName: countyName || null,
-        constituency: constituency || null,
-        ward: ward || null,
-        partyAffiliation: isIndependent ? null : (partyAffiliation || null),
-        isIndependent: !!isIndependent,
-        statementOfIntent: statementOfIntent || null,
-        status: "pending",
-        consentGiven: true,
-      })
-      .returning({ id: aspirantsTable.id, fullName: aspirantsTable.fullName, status: aspirantsTable.status });
+    // Reject duplicate declarations before hitting the DB constraint.
+    // Returns 409 so the client can surface a clear message instead of a generic error.
+    const [existing] = await db
+      .select({ id: aspirantsTable.id, status: aspirantsTable.status })
+      .from(aspirantsTable)
+      .where(and(eq(aspirantsTable.nationalId, nationalId), eq(aspirantsTable.position, position)))
+      .limit(1);
+
+    if (existing) {
+      return res.status(409).json({
+        error: "A declaration for this national ID and position already exists.",
+        existingStatus: existing.status,
+      });
+    }
+
+    let aspirant: { id: string; fullName: string; status: string } | undefined;
+    try {
+      [aspirant] = await db
+        .insert(aspirantsTable)
+        .values({
+          fullName,
+          phoneNumber,
+          email: email || null,
+          nationalId,
+          position,
+          countyId,
+          countyName: countyName || null,
+          constituency: constituency || null,
+          ward: ward || null,
+          partyAffiliation: isIndependent ? null : (partyAffiliation || null),
+          isIndependent: !!isIndependent,
+          statementOfIntent: statementOfIntent || null,
+          status: "pending",
+          consentGiven: true,
+        })
+        .returning({ id: aspirantsTable.id, fullName: aspirantsTable.fullName, status: aspirantsTable.status });
+    } catch (insertErr: any) {
+      // Catch the unique constraint violation as a safety net (e.g. concurrent submissions).
+      if (insertErr?.code === "23505") {
+        return res.status(409).json({
+          error: "A declaration for this national ID and position already exists.",
+        });
+      }
+      throw insertErr;
+    }
 
     res.status(201).json({
       message: "Declaration received. The Linda Mwananchi 2027 team will review your application.",

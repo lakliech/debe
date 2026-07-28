@@ -5,6 +5,7 @@ import {
   boolean,
   integer,
   uuid,
+  unique,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -104,7 +105,10 @@ export const aspirantsTable = pgTable("aspirants", {
   consentGiven: boolean("consent_given").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
-});
+}, (table) => [
+  // One declaration per national ID per seat — prevents duplicate submissions.
+  unique("aspirants_national_id_position_unique").on(table.nationalId, table.position),
+]);
 
 export const insertAspirantSchema = createInsertSchema(aspirantsTable).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertAspirant = z.infer<typeof insertAspirantSchema>;

@@ -1,0 +1,1 @@
+ALTER TABLE "aspirants" ADD CONSTRAINT "aspirants_national_id_position_unique" UNIQUE("national_id","position");
