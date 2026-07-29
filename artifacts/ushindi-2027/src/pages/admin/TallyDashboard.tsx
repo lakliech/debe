@@ -69,7 +69,8 @@ export default function TallyDashboard() {
       // Use /elections/active — accessible to all authenticated users incl. tally viewers
       fetch(`${BASE}/api/election-admin/elections/active`, { credentials: "include" }).then((r) => r.json()),
   });
-  const activeElection = (elections as any[] | undefined)?.find((e) => e.isActive) ?? (elections as any[])?.[0];
+  const electionList: any[] = Array.isArray(elections) ? elections : [];
+  const activeElection = electionList.find((e) => e.isActive) ?? electionList[0];
   const activeElectionId: string | undefined = activeElection?.id;
 
   // Build the correct URL based on level + entity selection
