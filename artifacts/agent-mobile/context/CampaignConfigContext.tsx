@@ -1,10 +1,17 @@
 /**
- * CampaignConfigContext — fetches /api/config/branding (public, no auth)
- * and provides campaign identity + election level config to the entire app.
+ * CampaignConfigContext — fetches /api/config/branding and provides campaign
+ * identity + election level config to the entire mobile app.
  *
- * This makes a single APK/IPA reusable across any campaign deployment:
- * the candidate name, election year, result form label, and primary colour
- * all come from the server rather than being hardcoded at build time.
+ * Tenant resolution (priority order):
+ *   1. Active Clerk org in the JWT (after sign-in + org activation) — the server
+ *      resolves branding from resolveTenantMixed, which prefers the JWT org.
+ *   2. EXPO_PUBLIC_TENANT_SLUG baked at build time — sent as X-Tenant-Slug header
+ *      for unauthenticated (pre-login) calls so the correct campaign branding
+ *      appears on the sign-in screen.
+ *   3. Neutral defaults if neither is available.
+ *
+ * Query is keyed on the active org ID so it automatically refetches when
+ * the user selects a different campaign in the org picker.
  *
  * Colour handling:
  *   The web branding stores colours as HSL components ("209 88% 50%").
@@ -14,6 +21,8 @@
  */
 import React, { createContext, useContext, ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '@clerk/expo';
+import { useOrganization } from '@clerk/expo';
 
 // ── IEBC result form name by election level ──────────────────────────────────
 const FORM_NAME_BY_ELECTION: Record<string, string> = {
@@ -99,22 +108,41 @@ function toReactNativeColor(color: string | null | undefined): string {
 const CampaignConfigContext = createContext<CampaignConfig>(DEFAULTS);
 
 const domain = process.env.EXPO_PUBLIC_DOMAIN;
-
-async function fetchBranding(): Promise<Record<string, unknown> | null> {
-  if (!domain) return null;
-  try {
-    const res = await fetch(`https://${domain}/api/config/branding`);
-    if (!res.ok) return null;
-    return res.json() as Promise<Record<string, unknown>>;
-  } catch {
-    return null;
-  }
-}
+/** Build-time tenant slug — used as X-Tenant-Slug on unauthenticated calls so
+ *  the sign-in screen shows the correct campaign branding before auth. */
+const buildTimeTenantSlug = process.env.EXPO_PUBLIC_TENANT_SLUG;
 
 export function CampaignConfigProvider({ children }: { children: ReactNode }) {
+  const { isSignedIn, getToken } = useAuth();
+  // Re-fetch whenever the active org changes so the correct tenant's branding
+  // is loaded immediately after the org picker activates an organisation.
+  const { organization } = useOrganization();
+
   const { data, isLoading } = useQuery({
-    queryKey: ['campaign-config'],
-    queryFn: fetchBranding,
+    queryKey: ['campaign-config', organization?.id ?? null],
+    queryFn: async () => {
+      if (!domain) return null;
+      try {
+        const headers: Record<string, string> = {};
+
+        if (isSignedIn) {
+          // Authenticated path — include JWT so server resolves tenant from
+          // the active Clerk org (resolveTenantMixed prefers this).
+          const token = await getToken();
+          if (token) headers['Authorization'] = `Bearer ${token}`;
+        } else if (buildTimeTenantSlug) {
+          // Unauthenticated path — use build-time slug so sign-in screen shows
+          // the correct campaign branding before the user logs in.
+          headers['X-Tenant-Slug'] = buildTimeTenantSlug;
+        }
+
+        const res = await fetch(`https://${domain}/api/config/branding`, { headers });
+        if (!res.ok) return null;
+        return res.json() as Promise<Record<string, unknown>>;
+      } catch {
+        return null;
+      }
+    },
     staleTime: 5 * 60_000,
     retry: 2,
   });

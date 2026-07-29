@@ -1,4 +1,4 @@
-import express, { type Express } from "express";
+import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import { clerkMiddleware } from "@clerk/express";
@@ -120,6 +120,33 @@ app.use(
     ),
   })),
 );
+
+// ── Subdomain → X-Tenant-Slug injection ───────────────────────────────────
+// When the reverse proxy / edge maps <slug>.domain.tld to this server it
+// should set X-Tenant-Slug directly.  This middleware is a dev-time / last-
+// resort fallback: it parses the Host header to extract the leading subdomain
+// and injects X-Tenant-Slug when the header is not already present.
+//
+// Examples:
+//   ushindi2027.ushindi.app       → X-Tenant-Slug: ushindi2027
+//   ushindi2027.abc.replit.dev    → X-Tenant-Slug: ushindi2027
+//   abc123.replit.dev             → (no injection — 2-part Replit dev domain)
+//   localhost:5173                → (no injection)
+//   www.ushindi.app               → (skipped — "www" is reserved)
+app.use((req: Request, _res: Response, next: NextFunction) => {
+  if (req.headers["x-tenant-slug"]) return next(); // already set upstream
+
+  const host = (req.headers["x-forwarded-host"] as string | undefined) ?? req.headers["host"] ?? "";
+  const hostname = host.split(":")[0]; // strip optional port
+  const parts = hostname.split(".");
+
+  // Skip reserved / non-slug first labels and single/two-part hostnames
+  const RESERVED = new Set(["www", "api", "app", "mail", "localhost"]);
+  if (parts.length >= 3 && !RESERVED.has(parts[0])) {
+    req.headers["x-tenant-slug"] = parts[0];
+  }
+  next();
+});
 
 app.use("/api", router);
 

@@ -4,7 +4,7 @@ import { db } from "@workspace/db";
 import { brandingTable, systemConfigTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
-import { resolveTenant, resolveTenantPublic } from "../middlewares/resolveTenant";
+import { resolveTenant, resolveTenantPublic, resolveTenantMixed } from "../middlewares/resolveTenant";
 import { tenantFilter, assertTenant } from "../lib/withTenant";
 
 const router = Router();
@@ -24,8 +24,13 @@ const canUpdateBranding = requireRoles([
   "content-approver",
 ]);
 
-// GET /api/config/branding — public endpoint; tenant resolved from X-Tenant-Slug header or ?tenant= param
-router.get("/branding", resolveTenantPublic, async (req: any, res: any) => {
+// GET /api/config/branding — public + authenticated endpoint.
+// resolveTenantMixed checks:
+//   authenticated requests → Clerk JWT orgId (authoritative, cannot be spoofed)
+//   unauthenticated requests → X-Tenant-Slug header or ?tenant= query param
+// This allows the mobile app (after org activation) and the web frontend (via
+// VITE_TENANT_SLUG / subdomain) to both resolve the correct campaign's branding.
+router.get("/branding", resolveTenantMixed, async (req: any, res: any) => {
   try {
     const t = (req as any).tenant as import("../lib/withTenant").TenantInfo | undefined;
     const neutral = {

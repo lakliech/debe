@@ -5,11 +5,13 @@ import {
   AppStateStatus,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import { useAuth } from '@clerk/expo';
+import { useOrganization, useOrganizationList } from '@clerk/expo';
 import { Redirect, Stack, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -29,6 +31,57 @@ const BIO_LOCK_AFTER_MS = 5 * 60 * 1000;
 export default function HomeLayout() {
   const { isSignedIn, userId, getToken } = useAuth();
   const router = useRouter();
+
+  // ── Organisation resolution ───────────────────────────────────────────────
+  // After sign-in, activate the user's Clerk org so the server can scope all
+  // API calls to the correct campaign tenant.  If the user belongs to multiple
+  // orgs, show a full-screen campaign picker before granting home-tab access.
+  const { organization: activeOrg, isLoaded: orgLoaded } = useOrganization();
+  const { userMemberships, setActive: setActiveOrg, isLoaded: orgsLoaded } =
+    useOrganizationList({ userMemberships: { infinite: false } });
+
+  /**
+   * false → org selection not yet resolved (show spinner or picker)
+   * true  → org is ready (or not needed); show home content
+   */
+  const [orgReady, setOrgReady] = useState(false);
+  const [showCampaignPicker, setShowCampaignPicker] = useState(false);
+  const [activatingOrgId, setActivatingOrgId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!orgsLoaded || !orgLoaded) return;
+    if (orgReady) return; // already resolved in a previous mount
+
+    // If a Clerk session already has an active org (returning user), accept it.
+    if (activeOrg) {
+      setOrgReady(true);
+      return;
+    }
+
+    const orgs = userMemberships.data ?? [];
+
+    if (orgs.length === 0) {
+      // No campaign org — dev / single-tenant mode; proceed without tenant context.
+      setOrgReady(true);
+      return;
+    }
+
+    if (orgs.length === 1) {
+      // Exactly one org — silently activate it.
+      if (setActiveOrg) {
+        setActiveOrg({ organization: orgs[0].organization.id })
+          .then(() => setOrgReady(true))
+          .catch(() => setOrgReady(true)); // still proceed on error
+      } else {
+        setOrgReady(true);
+      }
+      return;
+    }
+
+    // Multiple orgs — let the user choose.
+    setShowCampaignPicker(true);
+  }, [orgsLoaded, orgLoaded, activeOrg?.id, userMemberships.data?.length, orgReady]);
+
   /**
    * userId is the authenticated Clerk user ID — guaranteed to be correct
    * here because this layout only mounts when isSignedIn is true.
@@ -112,8 +165,67 @@ export default function HomeLayout() {
 
   if (!isSignedIn) return <Redirect href="/(auth)/sign-in" />;
 
-  // Still reading SecureStore — keep content hidden to avoid lock-flicker
-  if (biometricLocked === undefined) {
+  // ── Campaign picker (multi-org users) ─────────────────────────────────────
+  // Rendered as a full-screen early return so it is reachable regardless of
+  // orgReady state.  orgReady is only set to true after the user selects a
+  // campaign, so this must appear BEFORE the orgReady guard below.
+  if (showCampaignPicker) {
+    const s = styles(colors);
+    const orgs = userMemberships.data ?? [];
+    return (
+      <View style={[s.pickerRoot, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]}>
+        <View style={s.pickerBrandPill}>
+          <Text style={s.pickerBrandLabel}>CAMPAIGN AGENT</Text>
+        </View>
+        <Text style={s.pickerTitle}>Choose Campaign</Text>
+        <Text style={s.pickerSubtitle}>
+          You belong to multiple campaigns. Select one to continue.
+        </Text>
+        <ScrollView style={{ width: '100%' }} contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 8 }}>
+          {orgs.map((m) => {
+            const isActivating = activatingOrgId === m.organization.id;
+            return (
+              <Pressable
+                key={m.organization.id}
+                style={({ pressed }) => [s.orgRow, pressed && { opacity: 0.75 }]}
+                onPress={async () => {
+                  if (activatingOrgId || !setActiveOrg) return;
+                  setActivatingOrgId(m.organization.id);
+                  try {
+                    await setActiveOrg({ organization: m.organization.id });
+                    setShowCampaignPicker(false);
+                    setOrgReady(true);
+                  } catch {
+                    setActivatingOrgId(null);
+                  }
+                }}
+              >
+                <View style={s.orgAvatar}>
+                  <Text style={s.orgAvatarText}>
+                    {m.organization.name.charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+                <View style={s.orgInfo}>
+                  <Text style={s.orgName}>{m.organization.name}</Text>
+                  {m.organization.slug ? (
+                    <Text style={s.orgSlug}>{m.organization.slug}</Text>
+                  ) : null}
+                </View>
+                {isActivating ? (
+                  <ActivityIndicator size="small" color={colors.primary} />
+                ) : (
+                  <Ionicons name="chevron-forward" size={20} color={colors.mutedForeground} />
+                )}
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+    );
+  }
+
+  // Still resolving org (single-org silent activation) or reading SecureStore
+  if (!orgReady || biometricLocked === undefined) {
     return (
       <View style={{ flex: 1, backgroundColor: '#000000', justifyContent: 'center', alignItems: 'center' }}>
         <ActivityIndicator size="large" color="#1D9BF0" />
@@ -347,5 +459,78 @@ const styles = (colors: ReturnType<typeof useColors>) =>
       color: colors.primary,
       fontSize: 14,
       fontFamily: 'Inter_500Medium',
+    },
+    // ── Campaign picker ───────────────────────────────────────────────────
+    pickerRoot: {
+      flex: 1,
+      backgroundColor: colors.background,
+      alignItems: 'center',
+      paddingHorizontal: 24,
+    },
+    pickerBrandPill: {
+      backgroundColor: colors.primary,
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      borderRadius: 6,
+      marginBottom: 24,
+    },
+    pickerBrandLabel: {
+      color: colors.primaryForeground,
+      fontSize: 11,
+      fontFamily: 'Inter_700Bold',
+      letterSpacing: 2.5,
+    },
+    pickerTitle: {
+      fontSize: 26,
+      fontFamily: 'Inter_700Bold',
+      color: colors.foreground,
+      marginBottom: 8,
+      textAlign: 'center',
+    },
+    pickerSubtitle: {
+      fontSize: 14,
+      fontFamily: 'Inter_400Regular',
+      color: colors.mutedForeground,
+      textAlign: 'center',
+      marginBottom: 32,
+      lineHeight: 20,
+    },
+    orgRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.card,
+      borderRadius: colors.radius ?? 8,
+      padding: 16,
+      marginBottom: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    orgAvatar: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: colors.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: 14,
+    },
+    orgAvatarText: {
+      color: colors.primaryForeground,
+      fontSize: 18,
+      fontFamily: 'Inter_700Bold',
+    },
+    orgInfo: {
+      flex: 1,
+    },
+    orgName: {
+      fontSize: 16,
+      fontFamily: 'Inter_600SemiBold',
+      color: colors.foreground,
+      marginBottom: 2,
+    },
+    orgSlug: {
+      fontSize: 12,
+      fontFamily: 'Inter_400Regular',
+      color: colors.mutedForeground,
     },
   });

@@ -17,6 +17,7 @@ const DEFAULT_JSON_ACCEPT = "application/json, application/problem+json";
 
 let _baseUrl: string | null = null;
 let _authTokenGetter: AuthTokenGetter | null = null;
+let _tenantSlug: string | null = null;
 
 /**
  * Set a base URL that is prepended to every relative request URL
@@ -42,6 +43,19 @@ export function setBaseUrl(url: string | null): void {
  */
 export function setAuthTokenGetter(getter: AuthTokenGetter | null): void {
   _authTokenGetter = getter;
+}
+
+/**
+ * Set a tenant slug that is sent as `X-Tenant-Slug` on every request that
+ * does not already carry the header.  Used by the web frontend to route
+ * public API calls to the correct campaign without requiring authentication.
+ *
+ * In the web app, derive this from `VITE_TENANT_SLUG` env var or the hostname
+ * subdomain.  In Expo, derive it from `EXPO_PUBLIC_TENANT_SLUG`.
+ * Pass `null` to clear.
+ */
+export function setTenantSlug(slug: string | null): void {
+  _tenantSlug = slug ? slug.trim() : null;
 }
 
 function isRequest(input: RequestInfo | URL): input is Request {
@@ -356,6 +370,11 @@ export async function customFetch<T = unknown>(
     if (token) {
       headers.set("authorization", `Bearer ${token}`);
     }
+  }
+
+  // Attach tenant slug header for public-route tenant resolution on the server.
+  if (_tenantSlug && !headers.has("x-tenant-slug")) {
+    headers.set("x-tenant-slug", _tenantSlug);
   }
 
   const requestInfo = { method, url: resolveUrl(input) };

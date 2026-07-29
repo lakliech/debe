@@ -11,6 +11,7 @@ import AppLayout from "./components/layout/AppLayout";
 import { LanguageProvider } from "./contexts/LanguageContext";
 import { LowBandwidthProvider } from "./contexts/LowBandwidthContext";
 import { BrandingProvider, useBranding, toCssColor } from "./contexts/BrandingContext";
+import { setTenantSlug } from "@workspace/api-client-react";
 
 // Existing admin pages
 import Home from "./pages/Home";
@@ -110,6 +111,27 @@ const clerkPubKey = publishableKeyFromHost(
 );
 const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+// ── Tenant slug initialisation ───────────────────────────────────────────────
+// Sets X-Tenant-Slug on every public API call so the server routes responses
+// to the correct campaign without requiring authentication.
+//
+// Priority:
+//   1. VITE_TENANT_SLUG baked at build time (explicit per-campaign deploy)
+//   2. Leading subdomain of the hostname (e.g. ushindi2027.ushindi.app)
+// Falls back gracefully: no slug → branding API returns neutral defaults.
+(function initTenantSlug() {
+  const envSlug = (import.meta.env.VITE_TENANT_SLUG as string | undefined)?.trim();
+  if (envSlug) {
+    setTenantSlug(envSlug);
+    return;
+  }
+  const parts = window.location.hostname.split(".");
+  const RESERVED = new Set(["www", "app", "api", "localhost"]);
+  if (parts.length >= 3 && !RESERVED.has(parts[0])) {
+    setTenantSlug(parts[0]);
+  }
+})();
 
 function stripBase(path: string): string {
   return basePath && path.startsWith(basePath)
