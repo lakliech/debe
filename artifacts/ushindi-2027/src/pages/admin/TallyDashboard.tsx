@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import { useBranding } from "@/contexts/BrandingContext";
+import { getLevelOptions } from "@/lib/electionLevel";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { BarChart3, AlertCircle, RefreshCw, Clock, ChevronRight } from "lucide-react";
@@ -10,8 +12,7 @@ import { Progress } from "@/components/ui/progress";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-const LEVEL_OPTIONS = ["national", "county", "constituency", "ward"] as const;
-type Level = typeof LEVEL_OPTIONS[number];
+type Level = "national" | "county" | "constituency" | "ward";
 
 function CandidateCard({ candidate, totalVotes }: { candidate: any; totalVotes: number }) {
   const pct = totalVotes > 0 ? Math.round((candidate.votes / totalVotes) * 100) : 0;
@@ -33,8 +34,20 @@ function CandidateCard({ candidate, totalVotes }: { candidate: any; totalVotes: 
 }
 
 export default function TallyDashboard() {
+  const branding = useBranding();
+  const levelOptions = getLevelOptions(branding.electionLevel) as Level[];
   const [, navigate] = useLocation();
-  const [level, setLevel] = useState<Level>("national");
+  const [level, setLevel] = useState<Level>(levelOptions[0] ?? "national");
+
+  // Reset level when election type changes (e.g. switching from Presidential to MCA)
+  useEffect(() => {
+    if (!levelOptions.includes(level)) {
+      setLevel(levelOptions[0] ?? "national");
+      setCountyId("all");
+      setConstituencyId("all");
+      setWardId("all");
+    }
+  }, [branding.electionLevel]);
   const [countyId, setCountyId] = useState("all");
   const [constituencyId, setConstituencyId] = useState("all");
   const [wardId, setWardId] = useState("all");
@@ -140,7 +153,7 @@ export default function TallyDashboard() {
 
       {/* Level Selector */}
       <div className="flex gap-2 flex-wrap items-center">
-        {LEVEL_OPTIONS.map((l) => (
+        {levelOptions.map((l) => (
           <Button
             key={l}
             variant={level === l ? "default" : "outline"}

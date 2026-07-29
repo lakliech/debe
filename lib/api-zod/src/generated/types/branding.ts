@@ -23,6 +23,8 @@ export interface Branding {
   electionYear: number;
   /** @nullable */
   mpesaPaybill?: string | null;
+  /** One of: Presidential, Gubernatorial, Senatorial, Women Rep, MP, MCA */
+  electionLevel?: string;
   /** @nullable */
   websiteUrl?: string | null;
   /** @nullable */

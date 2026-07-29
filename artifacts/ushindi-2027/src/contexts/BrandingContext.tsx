@@ -32,6 +32,7 @@ export interface BrandingData {
   tagline: string;
   electionYear: number;
   mpesaPaybill?: string | null;
+  electionLevel: string;
   websiteUrl?: string | null;
   socialTwitter?: string | null;
   socialFacebook?: string | null;
@@ -49,6 +50,7 @@ const DEFAULTS: BrandingData = {
   tagline: "Your Campaign Tagline",
   electionYear: new Date().getFullYear() + 1,
   mpesaPaybill: "",
+  electionLevel: "Presidential",
   updatedAt: new Date().toISOString(),
 };
 

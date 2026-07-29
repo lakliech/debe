@@ -274,6 +274,8 @@ export interface Branding {
   electionYear: number;
   /** @nullable */
   mpesaPaybill?: string | null;
+  /** One of: Presidential, Gubernatorial, Senatorial, Women Rep, MP, MCA */
+  electionLevel?: string;
   /** @nullable */
   websiteUrl?: string | null;
   /** @nullable */
@@ -298,6 +300,8 @@ export interface BrandingUpdate {
   tagline?: string;
   electionYear?: number;
   mpesaPaybill?: string;
+  /** One of: Presidential, Gubernatorial, Senatorial, Women Rep, MP, MCA */
+  electionLevel?: string;
   websiteUrl?: string;
   socialTwitter?: string;
   socialFacebook?: string;

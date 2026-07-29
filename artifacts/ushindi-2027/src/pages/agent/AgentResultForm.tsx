@@ -4,6 +4,8 @@
  * Can be installed as a PWA on Android.
  */
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useBranding } from "@/contexts/BrandingContext";
+import { getFormName } from "@/lib/electionLevel";
 import { useQuery } from "@tanstack/react-query";
 import {
   WifiOff,
@@ -53,6 +55,8 @@ interface Candidate {
 }
 
 export default function AgentResultForm() {
+  const branding = useBranding();
+  const formName = getFormName(branding.electionLevel);
   const { toast } = useToast();
   const [online, setOnline] = useState(navigator.onLine);
   const [pendingCount, setPendingCount] = useState(0);
@@ -323,7 +327,7 @@ export default function AgentResultForm() {
         <div className="bg-[#1D9BF0]/10 border border-[#1D9BF0] p-3 rounded text-xs">
           <p className="font-bold text-[#1D9BF0] uppercase tracking-wide">Campaign Agent Tool</p>
           <p className="text-muted-foreground mt-0.5">
-            This form is for capturing form 37A data for our campaign records. It is NOT an official declaration by the IEBC.
+            This form is for capturing {formName} data for our campaign records. It is NOT an official declaration by the IEBC.
           </p>
         </div>
 
@@ -365,7 +369,7 @@ export default function AgentResultForm() {
         {step === "ballot" && draft && (
           <div className="space-y-4">
             <h2 className="text-lg font-extrabold uppercase tracking-tight">Ballot Accounting</h2>
-            <p className="text-xs text-muted-foreground">Fill in ALL figures from form 37A exactly as printed.</p>
+            <p className="text-xs text-muted-foreground">Fill in ALL figures from {formName} exactly as printed.</p>
             {[
               ["registeredVoters", "Registered Voters"],
               ["ballotsReceived", "Ballots Received"],
@@ -402,7 +406,7 @@ export default function AgentResultForm() {
         {step === "candidates" && draft && (
           <div className="space-y-4">
             <h2 className="text-lg font-extrabold uppercase tracking-tight">Candidate Votes</h2>
-            <p className="text-xs text-muted-foreground">Enter votes per candidate exactly as on form 37A.</p>
+            <p className="text-xs text-muted-foreground">Enter votes per candidate exactly as on {formName}.</p>
             {Object.entries(draft.candidateVotes).map(([candidateId, v]) => (
               <div key={candidateId} className="flex items-center gap-3">
                 <div className="flex-1">
@@ -449,7 +453,7 @@ export default function AgentResultForm() {
           <div className="space-y-4">
             <h2 className="text-lg font-extrabold uppercase tracking-tight">Observations</h2>
             {[
-              ["agentSigned", "I signed the form (Form 37A)"],
+              ["agentSigned", `I signed the form (${formName})`],
               ["agentReceivedCopy", "I received a copy of the results"],
               ["resultsDisplayed", "Results were publicly displayed"],
               ["objectionRaised", "I raised an objection"],

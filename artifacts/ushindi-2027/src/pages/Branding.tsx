@@ -3,9 +3,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Save, Eye, Palette } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { ELECTION_LEVELS, POSITION_TITLE_BY_ELECTION, type ElectionLevel } from "@/lib/electionLevel";
 
 interface BrandingForm {
   campaignName: string;
@@ -14,6 +16,7 @@ interface BrandingForm {
   partyName: string;
   tagline: string;
   electionYear: number;
+  electionLevel: ElectionLevel;
   primaryColor: string;
   secondaryColor: string;
   accentColor: string;
@@ -32,6 +35,7 @@ const DEFAULTS: BrandingForm = {
   partyName: "Your Party",
   tagline: "Your Campaign Tagline",
   electionYear: new Date().getFullYear() + 1,
+  electionLevel: "Presidential",
   primaryColor: "209 88% 50%",
   secondaryColor: "0 0% 8%",
   accentColor: "0 0% 8%",
@@ -70,6 +74,7 @@ export default function Branding() {
         partyName: (branding as any).partyName ?? DEFAULTS.partyName,
         tagline: branding.tagline ?? DEFAULTS.tagline,
         electionYear: branding.electionYear ?? DEFAULTS.electionYear,
+        electionLevel: ((branding as any).electionLevel ?? DEFAULTS.electionLevel) as ElectionLevel,
         primaryColor: branding.primaryColor ?? DEFAULTS.primaryColor,
         secondaryColor: branding.secondaryColor ?? DEFAULTS.secondaryColor,
         accentColor: branding.accentColor ?? DEFAULTS.accentColor,
@@ -90,15 +95,22 @@ export default function Branding() {
     updateBranding.mutate(
       {
         data: {
-          ...form,
+          campaignName: form.campaignName,
+          candidateName: form.candidateName,
+          positionTitle: form.positionTitle,
+          partyName: form.partyName,
+          tagline: form.tagline,
           electionYear: Number(form.electionYear),
+          electionLevel: form.electionLevel,
+          primaryColor: form.primaryColor,
+          secondaryColor: form.secondaryColor,
           accentColor: form.accentColor || undefined,
           logoUrl: form.logoUrl || undefined,
+          mpesaPaybill: form.mpesaPaybill || undefined,
           websiteUrl: form.websiteUrl || undefined,
           socialTwitter: form.socialTwitter || undefined,
           socialFacebook: form.socialFacebook || undefined,
           socialInstagram: form.socialInstagram || undefined,
-          ...(form as any),
         } as any,
       },
       {
@@ -153,6 +165,33 @@ export default function Branding() {
             <div className="space-y-2">
               <Label className="font-semibold">Campaign Name</Label>
               <Input value={form.campaignName} onChange={f("campaignName")} placeholder="e.g. Jane for Westlands" />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="font-semibold">Election Level</Label>
+              <Select
+                value={form.electionLevel}
+                onValueChange={(val) => {
+                  const level = val as ElectionLevel;
+                  setForm({
+                    ...form,
+                    electionLevel: level,
+                    positionTitle: POSITION_TITLE_BY_ELECTION[level],
+                  });
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select election level" />
+                </SelectTrigger>
+                <SelectContent>
+                  {ELECTION_LEVELS.map((lvl) => (
+                    <SelectItem key={lvl} value={lvl}>{lvl}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Sets the correct IEBC result form name and tally geography. Selecting a level auto-fills the Position field.
+              </p>
             </div>
 
             <div className="space-y-2">

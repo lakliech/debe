@@ -3482,6 +3482,9 @@ components:
           type: integer
         mpesaPaybill:
           type: ["string", "null"]
+        electionLevel:
+          type: string
+          description: "One of: Presidential, Gubernatorial, Senatorial, Women Rep, MP, MCA"
         websiteUrl:
           type: ["string", "null"]
         socialTwitter:
@@ -3520,6 +3523,9 @@ components:
           type: integer
         mpesaPaybill:
           type: string
+        electionLevel:
+          type: string
+          description: "One of: Presidential, Gubernatorial, Senatorial, Women Rep, MP, MCA"
         websiteUrl:
           type: string
         socialTwitter:

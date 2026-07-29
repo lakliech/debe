@@ -43,6 +43,7 @@ export const brandingTable = pgTable("branding", {
   tagline: text("tagline").notNull().default("Your Campaign Tagline"),
   electionYear: integer("election_year").notNull().default(2027),
   mpesaPaybill: text("mpesa_paybill").default(""),
+  electionLevel: text("election_level").notNull().default("Presidential"),
   websiteUrl: text("website_url"),
   socialTwitter: text("social_twitter"),
   socialFacebook: text("social_facebook"),

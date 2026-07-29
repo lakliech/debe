@@ -41,6 +41,7 @@ router.get("/branding", resolveTenantPublic, async (req: any, res: any) => {
       tagline: "Your Campaign Tagline",
       electionYear: new Date().getFullYear() + 1,
       mpesaPaybill: "",
+      electionLevel: "Presidential",
       websiteUrl: null,
       socialTwitter: null,
       socialFacebook: null,
@@ -73,7 +74,7 @@ router.patch("/branding", requireAuth, resolveTenant, canUpdateBranding, async (
     const {
       campaignName, candidateName, positionTitle, partyName,
       primaryColor, secondaryColor, accentColor,
-      logoUrl, faviconUrl, tagline, electionYear, mpesaPaybill, websiteUrl,
+      logoUrl, faviconUrl, tagline, electionYear, mpesaPaybill, electionLevel, websiteUrl,
       socialTwitter, socialFacebook, socialInstagram,
     } = req.body;
 
@@ -90,6 +91,7 @@ router.patch("/branding", requireAuth, resolveTenant, canUpdateBranding, async (
     if (tagline !== undefined) updates.tagline = tagline;
     if (electionYear !== undefined) updates.electionYear = electionYear;
     if (mpesaPaybill !== undefined) updates.mpesaPaybill = mpesaPaybill;
+    if (electionLevel !== undefined) updates.electionLevel = electionLevel;
     if (websiteUrl !== undefined) updates.websiteUrl = websiteUrl;
     if (socialTwitter !== undefined) updates.socialTwitter = socialTwitter;
     if (socialFacebook !== undefined) updates.socialFacebook = socialFacebook;

@@ -19,6 +19,8 @@ export interface BrandingUpdate {
   tagline?: string;
   electionYear?: number;
   mpesaPaybill?: string;
+  /** One of: Presidential, Gubernatorial, Senatorial, Women Rep, MP, MCA */
+  electionLevel?: string;
   websiteUrl?: string;
   socialTwitter?: string;
   socialFacebook?: string;
