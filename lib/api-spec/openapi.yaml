@@ -3450,6 +3450,8 @@ components:
       required:
         - campaignName
         - candidateName
+        - positionTitle
+        - partyName
         - primaryColor
         - secondaryColor
         - tagline
@@ -3459,6 +3461,10 @@ components:
         campaignName:
           type: string
         candidateName:
+          type: string
+        positionTitle:
+          type: string
+        partyName:
           type: string
         primaryColor:
           type: string
@@ -3474,6 +3480,8 @@ components:
           type: string
         electionYear:
           type: integer
+        mpesaPaybill:
+          type: ["string", "null"]
         websiteUrl:
           type: ["string", "null"]
         socialTwitter:
@@ -3492,6 +3500,10 @@ components:
           type: string
         candidateName:
           type: string
+        positionTitle:
+          type: string
+        partyName:
+          type: string
         primaryColor:
           type: string
         secondaryColor:
@@ -3506,6 +3518,8 @@ components:
           type: string
         electionYear:
           type: integer
+        mpesaPaybill:
+          type: string
         websiteUrl:
           type: string
         socialTwitter:

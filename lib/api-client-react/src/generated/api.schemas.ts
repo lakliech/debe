@@ -260,6 +260,8 @@ export interface RoleCount {
 export interface Branding {
   campaignName: string;
   candidateName: string;
+  positionTitle: string;
+  partyName: string;
   primaryColor: string;
   secondaryColor: string;
   /** @nullable */
@@ -270,6 +272,8 @@ export interface Branding {
   faviconUrl?: string | null;
   tagline: string;
   electionYear: number;
+  /** @nullable */
+  mpesaPaybill?: string | null;
   /** @nullable */
   websiteUrl?: string | null;
   /** @nullable */
@@ -284,6 +288,8 @@ export interface Branding {
 export interface BrandingUpdate {
   campaignName?: string;
   candidateName?: string;
+  positionTitle?: string;
+  partyName?: string;
   primaryColor?: string;
   secondaryColor?: string;
   accentColor?: string;
@@ -291,6 +297,7 @@ export interface BrandingUpdate {
   faviconUrl?: string;
   tagline?: string;
   electionYear?: number;
+  mpesaPaybill?: string;
   websiteUrl?: string;
   socialTwitter?: string;
   socialFacebook?: string;

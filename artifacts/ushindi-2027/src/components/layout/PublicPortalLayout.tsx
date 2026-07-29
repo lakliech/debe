@@ -4,6 +4,7 @@ import { Menu, X, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
+import { useBranding } from "@/contexts/BrandingContext";
 
 interface PublicPortalLayoutProps {
   children: React.ReactNode;
@@ -37,6 +38,12 @@ export default function PublicPortalLayout({ children }: PublicPortalLayoutProps
   const [location] = useLocation();
   const { lang, setLang, t } = useLanguage();
   const [menuOpen, setMenuOpen] = useState(false);
+  const branding = useBranding();
+
+  // Split candidateName into two visual lines: first word / rest
+  const nameParts = branding.candidateName.toUpperCase().split(" ");
+  const logoLine1 = nameParts[0] ?? "";
+  const logoLine2 = nameParts.slice(1).join(" ");
 
   return (
     <div className="flex flex-col min-h-screen bg-white">
@@ -58,12 +65,20 @@ export default function PublicPortalLayout({ children }: PublicPortalLayoutProps
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           {/* Logo */}
           <Link href="/" className="flex flex-col leading-none shrink-0">
-            <div className="bg-primary text-white font-black text-sm px-2 py-0.5 tracking-wider">
-              LINDA
-            </div>
-            <div className="text-black font-black text-[10px] tracking-[0.2em] mt-0.5">
-              MWANANCHI
-            </div>
+            {branding.logoUrl ? (
+              <img src={branding.logoUrl} alt={branding.campaignName} className="h-8 object-contain" />
+            ) : (
+              <>
+                <div className="bg-primary text-white font-black text-sm px-2 py-0.5 tracking-wider">
+                  {logoLine1}
+                </div>
+                {logoLine2 && (
+                  <div className="text-black font-black text-[10px] tracking-[0.2em] mt-0.5">
+                    {logoLine2}
+                  </div>
+                )}
+              </>
+            )}
           </Link>
 
           {/* Desktop nav */}
@@ -168,15 +183,23 @@ export default function PublicPortalLayout({ children }: PublicPortalLayoutProps
             {/* Logo + tagline */}
             <div className="flex flex-col gap-4">
               <div className="flex flex-col leading-none">
-                <div className="bg-primary text-white font-black text-sm px-2 py-0.5 tracking-wider inline-block">
-                  LINDA
-                </div>
-                <div className="text-white font-black text-[10px] tracking-[0.2em] mt-0.5">
-                  MWANANCHI
-                </div>
+                {branding.logoUrl ? (
+                  <img src={branding.logoUrl} alt={branding.campaignName} className="h-8 object-contain brightness-0 invert" />
+                ) : (
+                  <>
+                    <div className="bg-primary text-white font-black text-sm px-2 py-0.5 tracking-wider inline-block">
+                      {logoLine1}
+                    </div>
+                    {logoLine2 && (
+                      <div className="text-white font-black text-[10px] tracking-[0.2em] mt-0.5">
+                        {logoLine2}
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
               <p className="text-gray-400 text-xs font-medium tracking-wider uppercase">
-                IT'S TIME. BE PART OF THE CHANGE.
+                {branding.tagline}
               </p>
             </div>
 
@@ -208,9 +231,11 @@ export default function PublicPortalLayout({ children }: PublicPortalLayoutProps
                 <div className="text-xs text-gray-400 uppercase tracking-widest mb-1">
                   {t("Paybill Number", "Nambari ya Paybill")}
                 </div>
-                <div className="text-3xl font-black text-primary tracking-widest">3033049</div>
+                <div className="text-3xl font-black text-primary tracking-widest">
+                  {branding.mpesaPaybill || "—"}
+                </div>
                 <div className="text-xs text-gray-400 mt-2">
-                  {t("Account:", "Akaunti:")} <span className="text-white font-bold">CAMPAIGN</span>
+                  {t("Account:", "Akaunti:")} <span className="text-white font-bold">{branding.campaignName.toUpperCase()}</span>
                 </div>
               </div>
               <div className="mt-4 flex flex-col gap-1">
@@ -226,7 +251,7 @@ export default function PublicPortalLayout({ children }: PublicPortalLayoutProps
 
           <div className="border-t border-white/10 pt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
             <p className="text-gray-500 text-xs">
-              © 2027 Linda Mwananchi. All rights reserved.
+              © {branding.electionYear} {branding.candidateName}. All rights reserved.
             </p>
             <div className="flex items-center gap-4">
               <Link href="/data-request" className="text-xs text-gray-500 hover:text-white transition-colors">

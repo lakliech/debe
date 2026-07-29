@@ -6,6 +6,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { useBranding } from "@/contexts/BrandingContext";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -73,6 +74,30 @@ const settingsNav = [
   { name: "System Config", href: "/settings/system", icon: Settings },
 ];
 
+/** Sidebar header — renders candidate name + "COMMAND CENTRE" from live branding */
+function SidebarHeader() {
+  const branding = useBranding();
+  // Split candidateName into two lines: first word on top, rest below (max 2 lines)
+  const parts = branding.candidateName.toUpperCase().split(" ");
+  const line1 = parts[0] ?? "";
+  const line2 = parts.slice(1).join(" ");
+  return (
+    <div className="flex h-16 shrink-0 items-center px-6 bg-sidebar-primary text-sidebar-primary-foreground font-bold tracking-tight text-xl border-b border-sidebar-border">
+      <div className="flex flex-col leading-none mr-3">
+        <div className="bg-white text-sidebar-primary font-black text-[9px] px-1.5 py-0.5 tracking-wider">
+          {line1}
+        </div>
+        {line2 && (
+          <div className="text-sidebar-foreground/70 font-black text-[7px] tracking-[0.18em] mt-0.5">
+            {line2}
+          </div>
+        )}
+      </div>
+      COMMAND CENTRE
+    </div>
+  );
+}
+
 export default function AppLayout({ children }: AppLayoutProps) {
   const [location] = useLocation();
   const { signOut } = useClerk();
@@ -113,17 +138,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        <div className="flex h-16 shrink-0 items-center px-6 bg-sidebar-primary text-sidebar-primary-foreground font-bold tracking-tight text-xl border-b border-sidebar-border">
-          <div className="flex flex-col leading-none mr-3">
-            <div className="bg-white text-sidebar-primary font-black text-[9px] px-1.5 py-0.5 tracking-wider">
-              LINDA
-            </div>
-            <div className="text-sidebar-foreground/70 font-black text-[7px] tracking-[0.18em] mt-0.5">
-              MWANANCHI
-            </div>
-          </div>
-          COMMAND CENTRE
-        </div>
+        <SidebarHeader />
         
         <div className="flex-1 overflow-y-auto py-4 px-4 space-y-6">
           {[

@@ -9,6 +9,8 @@
 export interface BrandingUpdate {
   campaignName?: string;
   candidateName?: string;
+  positionTitle?: string;
+  partyName?: string;
   primaryColor?: string;
   secondaryColor?: string;
   accentColor?: string;
@@ -16,6 +18,7 @@ export interface BrandingUpdate {
   faviconUrl?: string;
   tagline?: string;
   electionYear?: number;
+  mpesaPaybill?: string;
   websiteUrl?: string;
   socialTwitter?: string;
   socialFacebook?: string;

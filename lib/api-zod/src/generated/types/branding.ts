@@ -9,6 +9,8 @@
 export interface Branding {
   campaignName: string;
   candidateName: string;
+  positionTitle: string;
+  partyName: string;
   primaryColor: string;
   secondaryColor: string;
   /** @nullable */
@@ -19,6 +21,8 @@ export interface Branding {
   faviconUrl?: string | null;
   tagline: string;
   electionYear: number;
+  /** @nullable */
+  mpesaPaybill?: string | null;
   /** @nullable */
   websiteUrl?: string | null;
   /** @nullable */

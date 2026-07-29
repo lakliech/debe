@@ -1,6 +1,7 @@
 import { Link } from "wouter";
 import { ChevronRight, MapPin, Activity, Shield, Users, BookOpen, Newspaper, Calendar, CheckCircle2, Menu, X } from "lucide-react";
 import { useState } from "react";
+import { useBranding } from "@/contexts/BrandingContext";
 
 const NAV_LINKS = [
   { href: "/about",       label: "About" },
@@ -13,6 +14,10 @@ const NAV_LINKS = [
 
 export default function Home() {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const branding = useBranding();
+  const nameParts = branding.candidateName.toUpperCase().split(" ");
+  const logoLine1 = nameParts[0] ?? "";
+  const logoLine2 = nameParts.slice(1).join(" ");
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-white selection:bg-primary selection:text-white">
@@ -33,12 +38,20 @@ export default function Home() {
       <header className="px-6 h-16 flex items-center justify-between border-b border-gray-100 bg-white z-20 relative">
         {/* Logo */}
         <Link href="/" className="flex flex-col leading-none">
-          <div className="bg-primary text-white font-black text-sm px-2 py-0.5 tracking-wider">
-            LINDA
-          </div>
-          <div className="text-black font-black text-[10px] tracking-[0.2em] mt-0.5">
-            MWANANCHI
-          </div>
+          {branding.logoUrl ? (
+            <img src={branding.logoUrl} alt={branding.campaignName} className="h-8 object-contain" />
+          ) : (
+            <>
+              <div className="bg-primary text-white font-black text-sm px-2 py-0.5 tracking-wider">
+                {logoLine1}
+              </div>
+              {logoLine2 && (
+                <div className="text-black font-black text-[10px] tracking-[0.2em] mt-0.5">
+                  {logoLine2}
+                </div>
+              )}
+            </>
+          )}
         </Link>
 
         {/* Desktop nav */}
@@ -109,10 +122,7 @@ export default function Home() {
           {/* Left: Headline */}
           <div className="flex-1 flex flex-col gap-6">
             <h1 className="text-5xl sm:text-6xl lg:text-7xl font-black tracking-tighter text-black leading-[1.0] uppercase">
-              IT'S TIME.{" "}
-              <span className="text-primary">BE PART</span>
-              <br />
-              OF THE CHANGE.
+              {branding.tagline}
             </h1>
             <p className="text-lg text-gray-600 max-w-xl leading-relaxed">
               A new Kenya is possible. Read the plan, join the movement, and make your voice count.
@@ -259,12 +269,20 @@ export default function Home() {
         <footer className="bg-black text-white py-8 px-6">
           <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex flex-col leading-none">
-              <div className="bg-primary text-white font-black text-xs px-1.5 py-0.5 tracking-wider inline-block">
-                LINDA
-              </div>
-              <div className="text-white font-black text-[9px] tracking-[0.2em] mt-0.5">
-                MWANANCHI
-              </div>
+              {branding.logoUrl ? (
+                <img src={branding.logoUrl} alt={branding.campaignName} className="h-6 object-contain brightness-0 invert" />
+              ) : (
+                <>
+                  <div className="bg-primary text-white font-black text-xs px-1.5 py-0.5 tracking-wider inline-block">
+                    {logoLine1}
+                  </div>
+                  {logoLine2 && (
+                    <div className="text-white font-black text-[9px] tracking-[0.2em] mt-0.5">
+                      {logoLine2}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
             <div className="flex flex-wrap justify-center gap-x-6 gap-y-2">
               {NAV_LINKS.map((l) => (
@@ -274,7 +292,7 @@ export default function Home() {
               ))}
             </div>
             <p className="text-gray-500 text-xs text-center">
-              © 2027 Linda Mwananchi Campaign
+              © {branding.electionYear} {branding.candidateName}
             </p>
           </div>
         </footer>

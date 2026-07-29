@@ -28,24 +28,28 @@ const canUpdateBranding = requireRoles([
 router.get("/branding", resolveTenantPublic, async (req: any, res: any) => {
   try {
     const t = (req as any).tenant as import("../lib/withTenant").TenantInfo | undefined;
+    const neutral = {
+      campaignName: "Your Campaign",
+      candidateName: "Your Candidate",
+      positionTitle: "Your Position",
+      partyName: "Your Party",
+      primaryColor: "209 88% 50%",
+      secondaryColor: "0 0% 8%",
+      accentColor: "0 0% 8%",
+      logoUrl: null,
+      faviconUrl: null,
+      tagline: "Your Campaign Tagline",
+      electionYear: new Date().getFullYear() + 1,
+      mpesaPaybill: "",
+      websiteUrl: null,
+      socialTwitter: null,
+      socialFacebook: null,
+      socialInstagram: null,
+      updatedAt: new Date().toISOString(),
+    };
+
     if (!t) {
-      // No tenant context — return neutral defaults for unauthenticated preview
-      return res.json({
-        campaignName: "Campaign",
-        candidateName: "Candidate Name",
-        primaryColor: "#1D9BF0",
-        secondaryColor: "#000000",
-        accentColor: "#000000",
-        logoUrl: null,
-        faviconUrl: null,
-        tagline: "Building a Better Future Together",
-        electionYear: new Date().getFullYear() + 1,
-        websiteUrl: null,
-        socialTwitter: null,
-        socialFacebook: null,
-        socialInstagram: null,
-        updatedAt: new Date().toISOString(),
-      });
+      return res.json(neutral);
     }
     const [branding] = await db
       .select()
@@ -54,22 +58,7 @@ router.get("/branding", resolveTenantPublic, async (req: any, res: any) => {
       .limit(1);
 
     if (!branding) {
-      return res.json({
-        campaignName: "Campaign",
-        candidateName: "Candidate Name",
-        primaryColor: "#1D9BF0",
-        secondaryColor: "#000000",
-        accentColor: "#000000",
-        logoUrl: null,
-        faviconUrl: null,
-        tagline: "Building a Better Future Together",
-        electionYear: new Date().getFullYear() + 1,
-        websiteUrl: null,
-        socialTwitter: null,
-        socialFacebook: null,
-        socialInstagram: null,
-        updatedAt: new Date().toISOString(),
-      });
+      return res.json(neutral);
     }
     res.json({ ...branding, updatedAt: branding.updatedAt?.toISOString() });
   } catch (err: any) {
@@ -82,14 +71,17 @@ router.patch("/branding", requireAuth, resolveTenant, canUpdateBranding, async (
   try {
     const t = assertTenant(req);
     const {
-      campaignName, candidateName, primaryColor, secondaryColor, accentColor,
-      logoUrl, faviconUrl, tagline, electionYear, websiteUrl,
+      campaignName, candidateName, positionTitle, partyName,
+      primaryColor, secondaryColor, accentColor,
+      logoUrl, faviconUrl, tagline, electionYear, mpesaPaybill, websiteUrl,
       socialTwitter, socialFacebook, socialInstagram,
     } = req.body;
 
     const updates: any = {};
     if (campaignName !== undefined) updates.campaignName = campaignName;
     if (candidateName !== undefined) updates.candidateName = candidateName;
+    if (positionTitle !== undefined) updates.positionTitle = positionTitle;
+    if (partyName !== undefined) updates.partyName = partyName;
     if (primaryColor !== undefined) updates.primaryColor = primaryColor;
     if (secondaryColor !== undefined) updates.secondaryColor = secondaryColor;
     if (accentColor !== undefined) updates.accentColor = accentColor;
@@ -97,6 +89,7 @@ router.patch("/branding", requireAuth, resolveTenant, canUpdateBranding, async (
     if (faviconUrl !== undefined) updates.faviconUrl = faviconUrl;
     if (tagline !== undefined) updates.tagline = tagline;
     if (electionYear !== undefined) updates.electionYear = electionYear;
+    if (mpesaPaybill !== undefined) updates.mpesaPaybill = mpesaPaybill;
     if (websiteUrl !== undefined) updates.websiteUrl = websiteUrl;
     if (socialTwitter !== undefined) updates.socialTwitter = socialTwitter;
     if (socialFacebook !== undefined) updates.socialFacebook = socialFacebook;

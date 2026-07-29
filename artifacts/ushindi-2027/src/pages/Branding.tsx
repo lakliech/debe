@@ -3,134 +3,372 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Save, Eye } from "lucide-react";
+import { Save, Eye, Palette } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
+
+interface BrandingForm {
+  campaignName: string;
+  candidateName: string;
+  positionTitle: string;
+  partyName: string;
+  tagline: string;
+  electionYear: number;
+  primaryColor: string;
+  secondaryColor: string;
+  accentColor: string;
+  logoUrl: string;
+  mpesaPaybill: string;
+  websiteUrl: string;
+  socialTwitter: string;
+  socialFacebook: string;
+  socialInstagram: string;
+}
+
+const DEFAULTS: BrandingForm = {
+  campaignName: "Your Campaign",
+  candidateName: "Your Candidate",
+  positionTitle: "Your Position",
+  partyName: "Your Party",
+  tagline: "Your Campaign Tagline",
+  electionYear: new Date().getFullYear() + 1,
+  primaryColor: "209 88% 50%",
+  secondaryColor: "0 0% 8%",
+  accentColor: "0 0% 8%",
+  logoUrl: "",
+  mpesaPaybill: "",
+  websiteUrl: "",
+  socialTwitter: "",
+  socialFacebook: "",
+  socialInstagram: "",
+};
+
+function ColorSwatch({ hsl }: { hsl: string }) {
+  const isValid = /^\d+(\.\d+)?\s+\d+(\.\d+)?%\s+\d+(\.\d+)?%$/.test(hsl.trim());
+  return (
+    <div
+      className="w-8 h-8 rounded border border-border shrink-0"
+      style={isValid ? { backgroundColor: `hsl(${hsl})` } : { backgroundColor: "#e5e7eb" }}
+      title={isValid ? `hsl(${hsl})` : "Enter as: H S% L% e.g. 209 88% 50%"}
+    />
+  );
+}
 
 export default function Branding() {
   const { data: branding, isLoading } = useGetBranding();
   const updateBranding = useUpdateBranding();
   const { toast } = useToast();
 
-  const [form, setForm] = useState({
-    campaignName: "Linda Mwananchi",
-    candidateName: "Linda Mwananchi Campaign",
-    primaryColor: "#1D9BF0",
-    accentColor: "#000000",
-    tagline: "It's Time. Be Part of the Change."
-  });
+  const [form, setForm] = useState<BrandingForm>(DEFAULTS);
 
   useEffect(() => {
     if (branding) {
       setForm({
-        campaignName: branding.campaignName,
-        candidateName: branding.candidateName,
-        primaryColor: branding.primaryColor,
-        accentColor: branding.accentColor || "hsl(350, 80%, 45%)",
-        tagline: branding.tagline,
+        campaignName: branding.campaignName ?? DEFAULTS.campaignName,
+        candidateName: branding.candidateName ?? DEFAULTS.candidateName,
+        positionTitle: (branding as any).positionTitle ?? DEFAULTS.positionTitle,
+        partyName: (branding as any).partyName ?? DEFAULTS.partyName,
+        tagline: branding.tagline ?? DEFAULTS.tagline,
+        electionYear: branding.electionYear ?? DEFAULTS.electionYear,
+        primaryColor: branding.primaryColor ?? DEFAULTS.primaryColor,
+        secondaryColor: branding.secondaryColor ?? DEFAULTS.secondaryColor,
+        accentColor: branding.accentColor ?? DEFAULTS.accentColor,
+        logoUrl: branding.logoUrl ?? "",
+        mpesaPaybill: (branding as any).mpesaPaybill ?? "",
+        websiteUrl: branding.websiteUrl ?? "",
+        socialTwitter: branding.socialTwitter ?? "",
+        socialFacebook: branding.socialFacebook ?? "",
+        socialInstagram: branding.socialInstagram ?? "",
       });
     }
   }, [branding]);
 
+  const f = (key: keyof BrandingForm) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm({ ...form, [key]: e.target.value });
+
   const handleSave = () => {
-    updateBranding.mutate({ data: form as any }, {
-      onSuccess: () => {
-        toast({ title: "Branding updated successfully." });
+    updateBranding.mutate(
+      {
+        data: {
+          ...form,
+          electionYear: Number(form.electionYear),
+          accentColor: form.accentColor || undefined,
+          logoUrl: form.logoUrl || undefined,
+          websiteUrl: form.websiteUrl || undefined,
+          socialTwitter: form.socialTwitter || undefined,
+          socialFacebook: form.socialFacebook || undefined,
+          socialInstagram: form.socialInstagram || undefined,
+          ...(form as any),
+        } as any,
+      },
+      {
+        onSuccess: () => {
+          toast({ title: "Branding saved — changes are live immediately." });
+        },
+        onError: (err: any) => {
+          toast({ title: "Save failed", description: err?.message ?? "Unknown error", variant: "destructive" });
+        },
       }
-    });
+    );
   };
 
-  if (isLoading) return <div>Loading...</div>;
+  const nameParts = form.candidateName.toUpperCase().split(" ");
+  const logoLine1 = nameParts[0] ?? "";
+  const logoLine2 = nameParts.slice(1).join(" ");
+
+  if (isLoading) return <div className="p-8 text-muted-foreground">Loading branding…</div>;
 
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="space-y-6 max-w-5xl">
       <div>
-        <h1 className="text-3xl font-extrabold tracking-tight text-foreground">Branding & Identity</h1>
-        <p className="text-muted-foreground mt-1">Configure public-facing and internal platform identity.</p>
+        <h1 className="text-3xl font-extrabold tracking-tight text-foreground">Branding &amp; Identity</h1>
+        <p className="text-muted-foreground mt-1">
+          Configure every public-facing name, colour, and contact detail. Changes take effect immediately — no code deployment needed.
+        </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* ── Left column: all form controls ── */}
         <div className="space-y-6">
-          <div className="space-y-2">
-            <Label className="font-bold">Campaign Name</Label>
-            <Input 
-              value={form.campaignName} 
-              onChange={e => setForm({...form, campaignName: e.target.value})}
-              className="bg-background"
-            />
-          </div>
-          
-          <div className="space-y-2">
-            <Label className="font-bold">Candidate Name</Label>
-            <Input 
-              value={form.candidateName} 
-              onChange={e => setForm({...form, candidateName: e.target.value})}
-              className="bg-background"
-            />
-          </div>
 
-          <div className="space-y-2">
-            <Label className="font-bold">Tagline</Label>
-            <Input 
-              value={form.tagline} 
-              onChange={e => setForm({...form, tagline: e.target.value})}
-              className="bg-background"
-            />
-          </div>
+          {/* Campaign identity */}
+          <div className="space-y-4">
+            <h2 className="text-sm font-black tracking-widest text-muted-foreground uppercase">Campaign Identity</h2>
 
-          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label className="font-bold">Primary Color (HSL)</Label>
-              <Input 
-                value={form.primaryColor} 
-                onChange={e => setForm({...form, primaryColor: e.target.value})}
-                className="bg-background font-mono text-sm"
-              />
+              <Label className="font-semibold">Candidate Name</Label>
+              <Input value={form.candidateName} onChange={f("candidateName")} placeholder="e.g. Jane Doe" />
             </div>
+
             <div className="space-y-2">
-              <Label className="font-bold">Accent Color (HSL)</Label>
-              <Input 
-                value={form.accentColor} 
-                onChange={e => setForm({...form, accentColor: e.target.value})}
-                className="bg-background font-mono text-sm"
+              <Label className="font-semibold">Position / Office</Label>
+              <Input value={form.positionTitle} onChange={f("positionTitle")} placeholder="e.g. Member of Parliament" />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="font-semibold">Party Name</Label>
+              <Input value={form.partyName} onChange={f("partyName")} placeholder="e.g. National Unity Party" />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="font-semibold">Campaign Name</Label>
+              <Input value={form.campaignName} onChange={f("campaignName")} placeholder="e.g. Jane for Westlands" />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="font-semibold">Campaign Tagline</Label>
+              <Input value={form.tagline} onChange={f("tagline")} placeholder="e.g. A new Kenya for all" />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="font-semibold">Election Year</Label>
+              <Input
+                type="number"
+                value={form.electionYear}
+                onChange={e => setForm({ ...form, electionYear: Number(e.target.value) })}
+                min={2024}
+                max={2040}
               />
             </div>
           </div>
 
-          <Button 
-            onClick={handleSave} 
+          {/* Colours */}
+          <div className="space-y-4">
+            <h2 className="text-sm font-black tracking-widest text-muted-foreground uppercase">Colours</h2>
+            <p className="text-xs text-muted-foreground">
+              Enter HSL components without the <code>hsl()</code> wrapper, e.g. <strong>209 88% 50%</strong> for electric blue.
+              These are applied instantly as CSS variables across the entire site.
+            </p>
+
+            <div className="space-y-2">
+              <Label className="font-semibold">Primary Colour (HSL)</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  value={form.primaryColor}
+                  onChange={f("primaryColor")}
+                  placeholder="209 88% 50%"
+                  className="font-mono text-sm"
+                />
+                <ColorSwatch hsl={form.primaryColor} />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="font-semibold">Secondary Colour (HSL)</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  value={form.secondaryColor}
+                  onChange={f("secondaryColor")}
+                  placeholder="0 0% 8%"
+                  className="font-mono text-sm"
+                />
+                <ColorSwatch hsl={form.secondaryColor} />
+              </div>
+            </div>
+          </div>
+
+          {/* Logo & media */}
+          <div className="space-y-4">
+            <h2 className="text-sm font-black tracking-widest text-muted-foreground uppercase">Logo &amp; Media</h2>
+
+            <div className="space-y-2">
+              <Label className="font-semibold">Logo URL</Label>
+              <Input
+                value={form.logoUrl}
+                onChange={f("logoUrl")}
+                placeholder="https://cdn.example.com/logo.png"
+              />
+              <p className="text-xs text-muted-foreground">
+                Leave blank to use the auto-generated text logo. Provide a public HTTPS URL for a custom image.
+              </p>
+            </div>
+          </div>
+
+          {/* Finance */}
+          <div className="space-y-4">
+            <h2 className="text-sm font-black tracking-widest text-muted-foreground uppercase">Finance &amp; Donations</h2>
+
+            <div className="space-y-2">
+              <Label className="font-semibold">M-Pesa Paybill Number</Label>
+              <Input
+                value={form.mpesaPaybill}
+                onChange={f("mpesaPaybill")}
+                placeholder="e.g. 3033049"
+                className="font-mono"
+              />
+              <p className="text-xs text-muted-foreground">
+                Shown in the public portal footer and crowdfunding page.
+              </p>
+            </div>
+          </div>
+
+          {/* Social / web */}
+          <div className="space-y-4">
+            <h2 className="text-sm font-black tracking-widest text-muted-foreground uppercase">Website &amp; Social</h2>
+
+            <div className="space-y-2">
+              <Label className="font-semibold">Website URL</Label>
+              <Input value={form.websiteUrl} onChange={f("websiteUrl")} placeholder="https://example.ke" />
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1">
+                <Label className="font-semibold text-xs">Twitter / X</Label>
+                <Input value={form.socialTwitter} onChange={f("socialTwitter")} placeholder="@handle" className="text-sm" />
+              </div>
+              <div className="space-y-1">
+                <Label className="font-semibold text-xs">Facebook</Label>
+                <Input value={form.socialFacebook} onChange={f("socialFacebook")} placeholder="page-slug" className="text-sm" />
+              </div>
+              <div className="space-y-1">
+                <Label className="font-semibold text-xs">Instagram</Label>
+                <Input value={form.socialInstagram} onChange={f("socialInstagram")} placeholder="@handle" className="text-sm" />
+              </div>
+            </div>
+          </div>
+
+          <Button
+            onClick={handleSave}
             disabled={updateBranding.isPending}
-            className="w-full bg-primary hover:bg-primary/90 flex items-center gap-2"
+            className="w-full flex items-center gap-2"
           >
-            <Save className="w-4 h-4" /> Save Identity
+            <Save className="w-4 h-4" />
+            {updateBranding.isPending ? "Saving…" : "Save Branding"}
           </Button>
         </div>
 
-        {/* Live Preview */}
-        <div>
-          <Label className="font-bold flex items-center gap-2 mb-2">
+        {/* ── Right column: live preview ── */}
+        <div className="space-y-4">
+          <Label className="font-bold flex items-center gap-2">
             <Eye className="w-4 h-4 text-muted-foreground" /> Live Preview
           </Label>
-          <Card className="overflow-hidden border-2 shadow-sm">
-            <div className="h-2 w-full bg-gradient-to-r from-[hsl(142,60%,20%)] via-[hsl(350,80%,45%)] to-[hsl(142,60%,20%)]" />
-            <CardContent className="p-6 text-center space-y-4">
-              <div className="w-12 h-12 rounded bg-[hsl(142,60%,20%)] text-white mx-auto flex items-center justify-center font-black text-2xl shadow-sm">
-                {form.campaignName.charAt(0)}
+
+          {/* Public portal header preview */}
+          <Card className="overflow-hidden border shadow-sm">
+            <div className="text-[10px] font-black tracking-widest text-muted-foreground px-4 pt-3 pb-1 uppercase">
+              Public Portal Header
+            </div>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3 border-b border-gray-100 pb-3 mb-3">
+                {form.logoUrl ? (
+                  <img src={form.logoUrl} alt={form.campaignName} className="h-8 object-contain" />
+                ) : (
+                  <div className="flex flex-col leading-none">
+                    <div
+                      className="text-white font-black text-xs px-2 py-0.5 tracking-wider"
+                      style={{ backgroundColor: `hsl(${form.primaryColor})` }}
+                    >
+                      {logoLine1}
+                    </div>
+                    {logoLine2 && (
+                      <div className="text-black font-black text-[9px] tracking-[0.2em] mt-0.5">
+                        {logoLine2}
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div className="text-xs text-muted-foreground">{form.campaignName}</div>
               </div>
-              <div>
-                <h2 className="text-xl font-bold tracking-tight">{form.campaignName}</h2>
-                <p className="text-sm font-semibold text-muted-foreground uppercase tracking-widest mt-1">
-                  {form.candidateName}
-                </p>
-              </div>
-              <p className="text-sm italic opacity-80 max-w-xs mx-auto">"{form.tagline}"</p>
-              
-              <div className="pt-4 flex gap-2 justify-center">
-                <div className="w-6 h-6 rounded-full bg-[hsl(142,60%,20%)] shadow-sm" />
-                <div className="w-6 h-6 rounded-full bg-[hsl(350,80%,45%)] shadow-sm" />
+              <div className="text-xs italic opacity-70">"{form.tagline}"</div>
+            </CardContent>
+          </Card>
+
+          {/* Admin sidebar preview */}
+          <Card className="overflow-hidden border shadow-sm">
+            <div className="text-[10px] font-black tracking-widest text-muted-foreground px-4 pt-3 pb-1 uppercase">
+              Admin Sidebar Header
+            </div>
+            <CardContent className="p-0">
+              <div
+                className="flex items-center gap-3 px-4 h-12"
+                style={{ backgroundColor: `hsl(${form.primaryColor})`, color: "white" }}
+              >
+                <div className="flex flex-col leading-none">
+                  <div className="bg-white font-black text-[9px] px-1 py-0.5 tracking-wider"
+                    style={{ color: `hsl(${form.primaryColor})` }}>
+                    {logoLine1}
+                  </div>
+                  {logoLine2 && (
+                    <div className="font-black text-[7px] tracking-[0.18em] mt-0.5 opacity-70">
+                      {logoLine2}
+                    </div>
+                  )}
+                </div>
+                <span className="font-bold tracking-tight text-sm">COMMAND CENTRE</span>
               </div>
             </CardContent>
           </Card>
+
+          {/* Colour palette */}
+          <Card className="overflow-hidden border shadow-sm">
+            <div className="text-[10px] font-black tracking-widest text-muted-foreground px-4 pt-3 pb-1 uppercase">
+              Colour Palette
+            </div>
+            <CardContent className="p-4 flex gap-3 items-center">
+              <div className="flex flex-col items-center gap-1">
+                <div className="w-10 h-10 rounded" style={{ backgroundColor: `hsl(${form.primaryColor})` }} />
+                <span className="text-[9px] font-mono text-muted-foreground">Primary</span>
+              </div>
+              <div className="flex flex-col items-center gap-1">
+                <div className="w-10 h-10 rounded" style={{ backgroundColor: `hsl(${form.secondaryColor})` }} />
+                <span className="text-[9px] font-mono text-muted-foreground">Secondary</span>
+              </div>
+              <div className="ml-auto text-right">
+                <div className="text-xs font-semibold">{form.candidateName}</div>
+                <div className="text-[10px] text-muted-foreground">{form.positionTitle}</div>
+                <div className="text-[10px] text-muted-foreground">{form.partyName} · {form.electionYear}</div>
+                {form.mpesaPaybill && (
+                  <div className="text-[10px] font-mono mt-1">Paybill: {form.mpesaPaybill}</div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Palette icon */}
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Palette className="w-3.5 h-3.5" />
+            Colours apply site-wide the moment you save — no page reload needed.
+          </div>
         </div>
       </div>
     </div>
