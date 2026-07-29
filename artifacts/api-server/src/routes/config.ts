@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
 import { db } from "@workspace/db";
-import { brandingTable, systemConfigTable } from "@workspace/db";
+import { brandingTable, systemConfigTable, tenantsTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
 import { resolveTenant, resolveTenantPublic, resolveTenantMixed } from "../middlewares/resolveTenant";
@@ -124,6 +124,64 @@ router.patch("/branding", requireAuth, resolveTenant, canUpdateBranding, async (
 
     res.json({ ...result, updatedAt: result.updatedAt?.toISOString() });
   } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/config/domain ─────────────────────────────────────────────────
+// Returns the tenant's current custom domain (if any) plus the default subdomain URL.
+router.get("/domain", requireAuth, resolveTenant, async (req: any, res: any) => {
+  try {
+    const t = assertTenant(req);
+    const [tenant] = await db
+      .select({ slug: tenantsTable.slug, customDomain: tenantsTable.customDomain })
+      .from(tenantsTable)
+      .where(eq(tenantsTable.id, t.id))
+      .limit(1);
+    res.json({
+      slug: tenant?.slug ?? null,
+      customDomain: tenant?.customDomain ?? null,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── PATCH /api/config/domain ───────────────────────────────────────────────
+// Lets campaign admins set or clear their custom domain.
+// Requires campaign-exec-director or national-campaign-manager.
+const canUpdateDomain = requireRoles([
+  "campaign-exec-director",
+  "national-campaign-manager",
+]);
+
+router.patch("/domain", requireAuth, resolveTenant, canUpdateDomain, async (req: any, res: any) => {
+  try {
+    const t = assertTenant(req);
+    const { customDomain } = req.body as { customDomain?: string | null };
+
+    // Normalise: lowercase, strip protocol, strip trailing slash
+    const normalised = customDomain
+      ? customDomain.trim().toLowerCase().replace(/^https?:\/\//i, "").replace(/\/.*$/, "") || null
+      : null;
+
+    // Basic hostname validation when a value is provided
+    if (normalised && !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(normalised)) {
+      return res.status(400).json({ error: "Invalid domain format. Use e.g. vote.example.ke" });
+    }
+
+    const [updated] = await db
+      .update(tenantsTable)
+      .set({ customDomain: normalised })
+      .where(eq(tenantsTable.id, t.id))
+      .returning({ slug: tenantsTable.slug, customDomain: tenantsTable.customDomain });
+
+    res.json({ slug: updated.slug, customDomain: updated.customDomain });
+  } catch (err: any) {
+    // Unique-constraint violation → domain already in use
+    if ((err as any).code === "23505") {
+      return res.status(409).json({ error: "That domain is already registered to another campaign." });
+    }
     res.status(500).json({ error: err.message });
   }
 });

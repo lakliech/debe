@@ -127,6 +127,13 @@
       "when": 1785302800000,
       "tag": "0017_platform_admin",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1785353900000,
+      "tag": "0018_custom_domain",
+      "breakpoints": true
     }
   ]
 }

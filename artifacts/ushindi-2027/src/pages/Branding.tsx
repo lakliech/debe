@@ -1,10 +1,11 @@
 import { useGetBranding, useUpdateBranding } from "@workspace/api-client-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Save, Eye, Palette, Globe, Copy, Check, Info } from "lucide-react";
+import { Save, Eye, Palette, Globe, Copy, Check, Info, Link } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { ELECTION_LEVELS, POSITION_TITLE_BY_ELECTION, type ElectionLevel } from "@/lib/electionLevel";
@@ -68,16 +69,54 @@ function deriveSlug(): string | null {
   return parts.length >= 3 && !RESERVED_PARTS.has(parts[0]) ? parts[0] : null;
 }
 
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
 export default function Branding() {
   const { data: branding, isLoading } = useGetBranding();
   const updateBranding = useUpdateBranding();
+  const qc = useQueryClient();
   const { toast } = useToast();
 
   const [form, setForm] = useState<BrandingForm>(DEFAULTS);
   const [copied, setCopied] = useState(false);
+  const [customDomainInput, setCustomDomainInput] = useState("");
 
   const tenantSlug = deriveSlug();
   const portalUrl = tenantSlug ? `https://${tenantSlug}.${PORTAL_DOMAIN}` : null;
+
+  // Fetch current custom domain
+  const { data: domainData } = useQuery<{ slug: string | null; customDomain: string | null }>({
+    queryKey: ["config-domain"],
+    queryFn: () =>
+      fetch(`${BASE}/api/config/domain`, { credentials: "include" }).then((r) => r.json()),
+  });
+
+  // Keep the input in sync when data loads
+  useEffect(() => {
+    if (domainData?.customDomain !== undefined) {
+      setCustomDomainInput(domainData.customDomain ?? "");
+    }
+  }, [domainData?.customDomain]);
+
+  const saveDomain = useMutation({
+    mutationFn: (customDomain: string | null) =>
+      fetch(`${BASE}/api/config/domain`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customDomain: customDomain || null }),
+      }).then(async (r) => {
+        const body = await r.json();
+        if (!r.ok) throw new Error(body.error ?? `HTTP ${r.status}`);
+        return body;
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["config-domain"] });
+      toast({ title: "Custom domain saved." });
+    },
+    onError: (err: any) =>
+      toast({ title: "Save failed", description: err.message, variant: "destructive" }),
+  });
 
   const copyPortalUrl = () => {
     if (!portalUrl) return;
@@ -380,16 +419,32 @@ export default function Branding() {
                       Your portal is already live at{" "}
                       <span className="font-mono">{portalUrl}</span> — no further setup is needed.
                     </p>
-                    <p>
-                      To use a custom subdomain (e.g. <span className="font-mono">vote.example.ke</span>), add a{" "}
-                      <strong>CNAME</strong> record in your DNS provider pointing to{" "}
-                      <span className="font-mono font-semibold">{PORTAL_DOMAIN}</span>, then contact the platform operator
-                      to register the custom domain.
-                    </p>
+                    {domainData?.customDomain ? (
+                      <p>
+                        Your custom domain{" "}
+                        <span className="font-mono font-semibold">{domainData.customDomain}</span>{" "}
+                        is registered. Make sure your DNS has a <strong>CNAME</strong> record pointing{" "}
+                        <span className="font-mono">{domainData.customDomain}</span> →{" "}
+                        <span className="font-mono">{PORTAL_DOMAIN}</span>.
+                      </p>
+                    ) : (
+                      <p>
+                        To use a custom domain (e.g.{" "}
+                        <span className="font-mono">vote.example.ke</span>), enter it in the{" "}
+                        <strong>Custom Domain</strong> field below, then add a{" "}
+                        <strong>CNAME</strong> record in your DNS provider pointing to{" "}
+                        <span className="font-mono font-semibold">{PORTAL_DOMAIN}</span>.
+                      </p>
+                    )}
                     <ol className="list-decimal pl-4 space-y-1">
-                      <li>In your DNS settings, create a CNAME record: <span className="font-mono">vote → {PORTAL_DOMAIN}</span></li>
+                      <li>
+                        In your DNS settings, create a CNAME:{" "}
+                        <span className="font-mono">
+                          {domainData?.customDomain ?? "vote.example.ke"} → {PORTAL_DOMAIN}
+                        </span>
+                      </li>
+                      <li>Enter the domain in the Custom Domain field below and save.</li>
                       <li>Allow up to 48 hours for DNS to propagate worldwide.</li>
-                      <li>Ask the platform operator to add your custom domain to the allowlist.</li>
                     </ol>
                   </div>
                 </details>
@@ -398,6 +453,52 @@ export default function Branding() {
               <p className="text-xs text-muted-foreground italic">
                 Slug not detected. Set the <span className="font-mono">VITE_TENANT_SLUG</span> environment variable or
                 access the portal from its subdomain URL.
+              </p>
+            )}
+          </div>
+
+          {/* Custom domain */}
+          <div className="rounded-sm border border-border bg-card p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <Link className="h-4 w-4 text-primary" />
+              <p className="text-sm font-bold">Custom Domain</p>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Point your own domain (e.g.{" "}
+              <span className="font-mono">vote.amina.ke</span>) to this portal.
+              After saving, add a <strong>CNAME</strong> record in your DNS provider
+              pointing to <span className="font-mono">{PORTAL_DOMAIN}</span>.
+            </p>
+            <div className="flex gap-2">
+              <Input
+                value={customDomainInput}
+                onChange={(e) => setCustomDomainInput(e.target.value)}
+                placeholder="vote.example.ke"
+                className="font-mono text-sm flex-1"
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={saveDomain.isPending}
+                onClick={() => saveDomain.mutate(customDomainInput || null)}
+                className="shrink-0 gap-1.5"
+              >
+                <Save className="h-3.5 w-3.5" />
+                {saveDomain.isPending ? "Saving…" : "Save"}
+              </Button>
+            </div>
+            {domainData?.customDomain && (
+              <p className="text-xs text-green-600 flex items-center gap-1">
+                <Check className="h-3 w-3" />
+                Active:{" "}
+                <a
+                  href={`https://${domainData.customDomain}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-mono underline underline-offset-2"
+                >
+                  {domainData.customDomain}
+                </a>
               </p>
             )}
           </div>

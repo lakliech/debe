@@ -121,30 +121,99 @@ app.use(
   })),
 );
 
-// ── Subdomain → X-Tenant-Slug injection ───────────────────────────────────
+// ── Subdomain / custom-domain → X-Tenant-Slug injection ──────────────────
 // When the reverse proxy / edge maps <slug>.domain.tld to this server it
 // should set X-Tenant-Slug directly.  This middleware is a dev-time / last-
-// resort fallback: it parses the Host header to extract the leading subdomain
-// and injects X-Tenant-Slug when the header is not already present.
+// resort fallback.
 //
-// Examples:
-//   ushindi2027.ushindi.app       → X-Tenant-Slug: ushindi2027
-//   ushindi2027.abc.replit.dev    → X-Tenant-Slug: ushindi2027
-//   abc123.replit.dev             → (no injection — 2-part Replit dev domain)
-//   localhost:5173                → (no injection)
-//   www.ushindi.app               → (skipped — "www" is reserved)
-app.use((req: Request, _res: Response, next: NextFunction) => {
+// Resolution order:
+//  1. If X-Tenant-Slug is already set (by an upstream proxy) → pass through.
+//  2. If the hostname is a KNOWN platform domain → extract the leading label
+//     as the tenant slug (subdomain pattern).
+//  3. Otherwise → DB lookup against tenants.custom_domain.
+//
+// Known platform domain examples (slug extraction):
+//   amina.ushindi.app             → slug: amina
+//   amina.abc123.replit.dev       → slug: amina   (4+ labels ending in .replit.dev)
+//   abc123.replit.dev             → no slug  (base Replit dev host — only 3 labels)
+//   localhost:5173                → no slug
+//   www.ushindi.app               → no slug (reserved label)
+//
+// Custom domain examples (DB lookup):
+//   vote.amina.ke                 → lookup "vote.amina.ke" in tenants.custom_domain
+//   portal.example.com            → lookup "portal.example.com"
+import { db as _tenantDb, tenantsTable as _tenantsTable } from "@workspace/db";
+import { eq as _eq } from "drizzle-orm";
+
+const _PORTAL_BASE = (process.env.PORTAL_DOMAIN ?? "ushindi.app").toLowerCase();
+const _RESERVED_LABELS = new Set(["www", "api", "app", "mail", "localhost"]);
+
+/**
+ * Returns the tenant slug if the hostname matches a known platform subdomain
+ * pattern, or null if it should be treated as a custom domain.
+ *
+ * Rules:
+ *  - <slug>.<PORTAL_BASE>  →  slug  (exact: PORTAL_BASE splits into N parts,
+ *                                    hostname must have N+1 parts)
+ *  - <slug>.<anything>.replit.dev  →  slug  (must have ≥ 4 parts so the bare
+ *                                    Replit dev host abc123.replit.dev is excluded)
+ *  - <slug>.<anything>.repl.co    →  slug  (same rule, 4+ parts)
+ *  - anything else                →  null  (treat as custom domain)
+ */
+function _extractPlatformSlug(hostname: string, parts: string[]): string | null {
+  const slug = parts[0];
+  if (_RESERVED_LABELS.has(slug)) return null;
+
+  // <slug>.<PORTAL_BASE>
+  const portalParts = _PORTAL_BASE.split(".");
+  if (
+    parts.length === portalParts.length + 1 &&
+    hostname.endsWith(`.${_PORTAL_BASE}`)
+  ) {
+    return slug;
+  }
+
+  // <slug>.<repl>.replit.dev  (4+ labels required to exclude abc123.replit.dev)
+  if (hostname.endsWith(".replit.dev") && parts.length >= 4) return slug;
+  if (hostname.endsWith(".repl.co") && parts.length >= 4) return slug;
+
+  return null;
+}
+
+app.use(async (req: Request, _res: Response, next: NextFunction) => {
   if (req.headers["x-tenant-slug"]) return next(); // already set upstream
 
-  const host = (req.headers["x-forwarded-host"] as string | undefined) ?? req.headers["host"] ?? "";
-  const hostname = host.split(":")[0]; // strip optional port
+  const host =
+    (req.headers["x-forwarded-host"] as string | undefined) ??
+    req.headers["host"] ??
+    "";
+  const hostname = host.split(":")[0].toLowerCase(); // strip port, normalise case
   const parts = hostname.split(".");
 
-  // Skip reserved / non-slug first labels and single/two-part hostnames
-  const RESERVED = new Set(["www", "api", "app", "mail", "localhost"]);
-  if (parts.length >= 3 && !RESERVED.has(parts[0])) {
-    req.headers["x-tenant-slug"] = parts[0];
+  // 1. Known platform subdomain → extract slug directly (no DB hit)
+  const platformSlug = _extractPlatformSlug(hostname, parts);
+  if (platformSlug) {
+    req.headers["x-tenant-slug"] = platformSlug;
+    return next();
   }
+
+  // 2. Unknown hostname → custom-domain DB lookup.
+  //    Only attempt for real-looking domains (contains a dot, not localhost).
+  if (hostname.includes(".") && hostname !== "localhost") {
+    try {
+      const [tenant] = await _tenantDb
+        .select({ slug: _tenantsTable.slug })
+        .from(_tenantsTable)
+        .where(_eq(_tenantsTable.customDomain, hostname))
+        .limit(1);
+      if (tenant) {
+        req.headers["x-tenant-slug"] = tenant.slug;
+      }
+    } catch {
+      // Non-fatal — continue without tenant context
+    }
+  }
+
   next();
 });
 

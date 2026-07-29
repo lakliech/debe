@@ -30,6 +30,7 @@ interface TenantRow {
   slug: string;
   plan: string;
   isSuspended: boolean;
+  customDomain: string | null;
   createdAt: string;
   userCount: number;
 }
@@ -349,6 +350,12 @@ function TenantDetail({ tenant, onClose }: { tenant: TenantRow; onClose: () => v
             Share this link with the campaign team. It routes visitors to this campaign automatically via subdomain.
           </p>
           <CopyableUrl url={`https://${tenant.slug}.${PORTAL_DOMAIN}`} />
+          {d.customDomain && (
+            <div className="pt-1 space-y-1">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Custom Domain</p>
+              <CopyableUrl url={`https://${d.customDomain}`} />
+            </div>
+          )}
         </div>
 
         {/* Clerk org ID — useful for debugging */}

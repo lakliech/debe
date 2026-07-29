@@ -22,6 +22,12 @@ export const tenantsTable = pgTable("tenants", {
   /** Billing tier stub — free | pro */
   plan: text("plan").notNull().default("free"),
   isSuspended: boolean("is_suspended").notNull().default(false),
+  /**
+   * Optional fully-qualified custom domain (e.g. vote.amina.ke).
+   * When set, the subdomain middleware matches inbound requests by this hostname
+   * in addition to the default <slug>.ushindi.app subdomain.
+   */
+  customDomain: text("custom_domain").unique(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
