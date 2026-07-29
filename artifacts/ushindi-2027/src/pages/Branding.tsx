@@ -4,7 +4,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Save, Eye, Palette } from "lucide-react";
+import { Save, Eye, Palette, Globe, Copy, Check, Info } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { ELECTION_LEVELS, POSITION_TITLE_BY_ELECTION, type ElectionLevel } from "@/lib/electionLevel";
@@ -58,12 +58,34 @@ function ColorSwatch({ hsl }: { hsl: string }) {
   );
 }
 
+// Derive the tenant slug from env (build-time) or hostname subdomain (runtime)
+const PORTAL_DOMAIN = import.meta.env.VITE_PORTAL_DOMAIN ?? "ushindi.app";
+const RESERVED_PARTS = new Set(["www", "api", "app", "mail", "localhost"]);
+function deriveSlug(): string | null {
+  const envSlug = import.meta.env.VITE_TENANT_SLUG as string | undefined;
+  if (envSlug) return envSlug;
+  const parts = window.location.hostname.split(".");
+  return parts.length >= 3 && !RESERVED_PARTS.has(parts[0]) ? parts[0] : null;
+}
+
 export default function Branding() {
   const { data: branding, isLoading } = useGetBranding();
   const updateBranding = useUpdateBranding();
   const { toast } = useToast();
 
   const [form, setForm] = useState<BrandingForm>(DEFAULTS);
+  const [copied, setCopied] = useState(false);
+
+  const tenantSlug = deriveSlug();
+  const portalUrl = tenantSlug ? `https://${tenantSlug}.${PORTAL_DOMAIN}` : null;
+
+  const copyPortalUrl = () => {
+    if (!portalUrl) return;
+    navigator.clipboard.writeText(portalUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
 
   useEffect(() => {
     if (branding) {
@@ -321,6 +343,64 @@ export default function Branding() {
           <Label className="font-bold flex items-center gap-2">
             <Eye className="w-4 h-4 text-muted-foreground" /> Live Preview
           </Label>
+
+          {/* Public portal URL */}
+          <div className="rounded-sm border border-border bg-card p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <Globe className="h-4 w-4 text-primary" />
+              <p className="text-sm font-bold">Your Public Portal URL</p>
+            </div>
+            {portalUrl ? (
+              <>
+                <div className="flex items-center gap-2 bg-muted/40 rounded border border-border px-3 py-2">
+                  <a
+                    href={portalUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 font-mono text-xs text-primary underline underline-offset-2 truncate"
+                  >
+                    {portalUrl}
+                  </a>
+                  <button
+                    onClick={copyPortalUrl}
+                    className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+                    title="Copy link"
+                  >
+                    {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+                  </button>
+                </div>
+                <details className="group">
+                  <summary className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer hover:text-foreground list-none">
+                    <Info className="h-3 w-3 shrink-0" />
+                    <span>How to set up a custom domain (CNAME)</span>
+                    <span className="ml-auto text-[10px] group-open:rotate-180 transition-transform">▾</span>
+                  </summary>
+                  <div className="mt-2 text-xs text-muted-foreground space-y-1.5 pl-4 border-l border-border">
+                    <p>
+                      Your portal is already live at{" "}
+                      <span className="font-mono">{portalUrl}</span> — no further setup is needed.
+                    </p>
+                    <p>
+                      To use a custom subdomain (e.g. <span className="font-mono">vote.example.ke</span>), add a{" "}
+                      <strong>CNAME</strong> record in your DNS provider pointing to{" "}
+                      <span className="font-mono font-semibold">{PORTAL_DOMAIN}</span>, then contact the platform operator
+                      to register the custom domain.
+                    </p>
+                    <ol className="list-decimal pl-4 space-y-1">
+                      <li>In your DNS settings, create a CNAME record: <span className="font-mono">vote → {PORTAL_DOMAIN}</span></li>
+                      <li>Allow up to 48 hours for DNS to propagate worldwide.</li>
+                      <li>Ask the platform operator to add your custom domain to the allowlist.</li>
+                    </ol>
+                  </div>
+                </details>
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground italic">
+                Slug not detected. Set the <span className="font-mono">VITE_TENANT_SLUG</span> environment variable or
+                access the portal from its subdomain URL.
+              </p>
+            )}
+          </div>
 
           {/* Public portal header preview */}
           <Card className="overflow-hidden border shadow-sm">

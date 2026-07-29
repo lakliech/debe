@@ -11,7 +11,7 @@
  */
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Building2, Plus, Shield, Users, Calendar, ChevronRight, AlertCircle, CheckCircle2, XCircle, RefreshCw, Mail, Loader2 } from "lucide-react";
+import { Building2, Plus, Shield, Users, Calendar, ChevronRight, AlertCircle, CheckCircle2, XCircle, RefreshCw, Mail, Loader2, Globe, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -143,6 +143,38 @@ function NewCampaignForm({ onSuccess }: { onSuccess: () => void }) {
 }
 
 // ── Tenant detail sheet ───────────────────────────────────────────────────────
+const PORTAL_DOMAIN = import.meta.env.VITE_PORTAL_DOMAIN ?? "ushindi.app";
+
+function CopyableUrl({ url }: { url: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+  return (
+    <div className="flex items-center gap-2 bg-muted/40 rounded border border-border px-3 py-2">
+      <Globe className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex-1 font-mono text-xs text-primary underline underline-offset-2 truncate"
+      >
+        {url}
+      </a>
+      <button
+        onClick={copy}
+        className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+        title="Copy link"
+      >
+        {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+      </button>
+    </div>
+  );
+}
+
 function TenantDetail({ tenant, onClose }: { tenant: TenantRow; onClose: () => void }) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -308,6 +340,15 @@ function TenantDetail({ tenant, onClose }: { tenant: TenantRow; onClose: () => v
               Send
             </Button>
           </div>
+        </div>
+
+        {/* Public portal URL */}
+        <div className="rounded-sm border border-border p-4 space-y-2">
+          <p className="text-[10px] font-black tracking-widest text-muted-foreground uppercase">Public Portal URL</p>
+          <p className="text-xs text-muted-foreground">
+            Share this link with the campaign team. It routes visitors to this campaign automatically via subdomain.
+          </p>
+          <CopyableUrl url={`https://${tenant.slug}.${PORTAL_DOMAIN}`} />
         </div>
 
         {/* Clerk org ID — useful for debugging */}
