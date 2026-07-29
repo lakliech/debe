@@ -18,6 +18,7 @@ import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
 import { useBiometrics } from '@/hooks/useBiometrics';
 import { bioSessionState } from '@/utils/bioSessionState';
+import { useCampaignConfig } from '@/context/CampaignConfigContext';
 
 export default function SignInScreen() {
   const { signIn, errors, fetchStatus } = useSignIn();
@@ -25,6 +26,7 @@ export default function SignInScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const colors = useColors();
+  const { candidateName, electionYear } = useCampaignConfig();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -63,7 +65,7 @@ export default function SignInScreen() {
   const handleBiometricSignIn = useCallback(async () => {
     setBioError('');
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const ok = await bio.authenticate('Sign in to Linda Mwananchi Agent');
+    const ok = await bio.authenticate(`Sign in to ${candidateName} Agent`);
     if (ok) {
       bioSessionState.setBypassOnce();
       router.replace('/(home)');
@@ -148,8 +150,8 @@ export default function SignInScreen() {
     return (
       <View style={[s.container, { paddingTop: insets.top + 80, paddingBottom: insets.bottom + 24, alignItems: 'center' }]}>
         <View style={s.brandPill}>
-          <Text style={s.brandLabel}>LINDA MWANANCHI</Text>
-          <Text style={s.brandYear}>2027</Text>
+          <Text style={s.brandLabel}>{candidateName.toUpperCase()}</Text>
+          <Text style={s.brandYear}>{electionYear}</Text>
         </View>
         <Text style={[s.appTagline, { marginBottom: 60 }]}>Field Agent Portal</Text>
 
@@ -189,8 +191,8 @@ export default function SignInScreen() {
       >
         <View style={s.brand}>
           <View style={s.brandPill}>
-            <Text style={s.brandLabel}>LINDA MWANANCHI</Text>
-            <Text style={s.brandYear}>2027</Text>
+            <Text style={s.brandLabel}>{candidateName.toUpperCase()}</Text>
+            <Text style={s.brandYear}>{electionYear}</Text>
           </View>
           <Text style={s.appTagline}>Field Agent Portal</Text>
         </View>

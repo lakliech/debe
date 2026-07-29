@@ -16,12 +16,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
+import { useCampaignConfig } from '@/context/CampaignConfigContext';
 
 export default function SignUpScreen() {
   const { signUp, errors, fetchStatus } = useSignUp();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const colors = useColors();
+  const { candidateName, electionYear } = useCampaignConfig();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -62,8 +64,8 @@ export default function SignUpScreen() {
       >
         <View style={s.brand}>
           <View style={s.brandPill}>
-            <Text style={s.brandLabel}>LINDA MWANANCHI</Text>
-            <Text style={s.brandYear}>2027</Text>
+            <Text style={s.brandLabel}>{candidateName.toUpperCase()}</Text>
+            <Text style={s.brandYear}>{electionYear}</Text>
           </View>
         </View>
 
@@ -133,8 +135,8 @@ export default function SignUpScreen() {
       >
         <View style={s.brand}>
           <View style={s.brandPill}>
-            <Text style={s.brandLabel}>LINDA MWANANCHI</Text>
-            <Text style={s.brandYear}>2027</Text>
+            <Text style={s.brandLabel}>{candidateName.toUpperCase()}</Text>
+            <Text style={s.brandYear}>{electionYear}</Text>
           </View>
           <Text style={s.appTagline}>Field Agent Portal</Text>
         </View>

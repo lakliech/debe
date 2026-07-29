@@ -18,6 +18,7 @@ import { OfflineProvider } from '@/context/OfflineContext';
 import { useBiometrics } from '@/hooks/useBiometrics';
 import { useColors } from '@/hooks/useColors';
 import { bioSessionState } from '@/utils/bioSessionState';
+import { useCampaignConfig } from '@/context/CampaignConfigContext';
 
 /**
  * Minimum time (ms) the app must be in the background before we require
@@ -36,6 +37,7 @@ export default function HomeLayout() {
   const bio = useBiometrics(userId);
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { candidateName, electionYear } = useCampaignConfig();
 
   /**
    * undefined → still waiting for SecureStore read (show spinner, no content)
@@ -100,7 +102,7 @@ export default function HomeLayout() {
   // ── Biometric unlock handler ──────────────────────────────────────────────
   const handleUnlock = useCallback(async () => {
     setBioError('');
-    const ok = await bio.authenticate('Unlock Linda Mwananchi Agent');
+    const ok = await bio.authenticate(`Unlock ${candidateName} Agent`);
     if (ok) {
       setBiometricLocked(false);
     } else {
@@ -175,8 +177,8 @@ export default function HomeLayout() {
         <View style={[s.lockOverlay, { paddingTop: insets.top + 80, paddingBottom: insets.bottom + 32 }]}>
           <View style={s.lockContent}>
             <View style={s.brandPill}>
-              <Text style={s.brandLabel}>LINDA MWANANCHI</Text>
-              <Text style={s.brandYear}>2027</Text>
+              <Text style={s.brandLabel}>{candidateName.toUpperCase()}</Text>
+              <Text style={s.brandYear}>{electionYear}</Text>
             </View>
             <Text style={s.lockTitle}>Session locked</Text>
             <Text style={s.lockSubtitle}>Authenticate to continue</Text>

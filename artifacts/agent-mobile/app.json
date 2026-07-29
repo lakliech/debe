@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "LM Agent",
-    "slug": "agent-mobile",
+    "name": "Campaign Agent",
+    "slug": "campaign-agent",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "agent-mobile",
+    "scheme": "campaign-agent",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
@@ -16,10 +16,10 @@
     "ios": {
       "supportsTablet": false,
       "infoPlist": {
-        "NSCameraUsageDescription": "Allow LM Agent to access your camera to photograph Form 34A as required evidence for election result submissions.",
-        "NSLocationWhenInUseUsageDescription": "Allow LM Agent to record your GPS location when submitting results to verify your presence at the polling station.",
-        "NSPhotoLibraryUsageDescription": "Allow LM Agent to access your photo library to attach Form 34A photos.",
-        "NSFaceIDUsageDescription": "Allow LM Agent to use Face ID so you can sign in quickly without typing your password on election day."
+        "NSCameraUsageDescription": "Allow Campaign Agent to access your camera to photograph the result form as required evidence for election result submissions.",
+        "NSLocationWhenInUseUsageDescription": "Allow Campaign Agent to record your GPS location when submitting results to verify your presence at the polling station.",
+        "NSPhotoLibraryUsageDescription": "Allow Campaign Agent to access your photo library to attach result form photos.",
+        "NSFaceIDUsageDescription": "Allow Campaign Agent to use Face ID so you can sign in quickly without typing your password on election day."
       }
     },
     "android": {
@@ -47,22 +47,22 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow LM Agent to access your photos to attach Form 34A images.",
-          "cameraPermission": "Allow LM Agent to access your camera to photograph Form 34A.",
+          "photosPermission": "Allow Campaign Agent to access your photos to attach result form images.",
+          "cameraPermission": "Allow Campaign Agent to access your camera to photograph the result form.",
           "microphonePermission": false
         }
       ],
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Allow LM Agent to record your location when submitting election results.",
-          "locationWhenInUsePermission": "Allow LM Agent to record your GPS location for result submission verification."
+          "locationAlwaysAndWhenInUsePermission": "Allow Campaign Agent to record your location when submitting election results.",
+          "locationWhenInUsePermission": "Allow Campaign Agent to record your GPS location for result submission verification."
         }
       ],
       [
         "expo-local-authentication",
         {
-          "faceIDPermission": "Allow LM Agent to use Face ID so you can sign in quickly without typing your password on election day."
+          "faceIDPermission": "Allow Campaign Agent to use Face ID so you can sign in quickly without typing your password on election day."
         }
       ]
     ],

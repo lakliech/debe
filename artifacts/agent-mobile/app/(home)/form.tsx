@@ -27,6 +27,7 @@ import * as Location from 'expo-location';
 import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
 import { useOffline, type Draft, type CandidateVote } from '@/context/OfflineContext';
+import { useCampaignConfig } from '@/context/CampaignConfigContext';
 
 type Step = 'station' | 'ballot' | 'candidates' | 'photo' | 'observations' | 'review';
 
@@ -52,6 +53,7 @@ export default function FormScreen() {
   const insets = useSafeAreaInsets();
   const colors = useColors();
   const { draft, setDraft, updateDraft, clearDraft, enqueueItem, isOnline, deviceId, refCache, saveRefCache } = useOffline();
+  const { formName } = useCampaignConfig();
   const s = styles(colors);
 
   const [step, setStep] = useState<Step>('station');
@@ -299,7 +301,7 @@ export default function FormScreen() {
     if (status !== 'granted') {
       Alert.alert(
         'Camera required',
-        'Please allow camera access to photograph Form 34A.',
+        `Please allow camera access to photograph ${formName}.`,
         Platform.OS !== 'web' ? [{ text: 'OK' }] : undefined,
       );
       return;
@@ -343,7 +345,7 @@ export default function FormScreen() {
       validationFlags.push(`Ballot reconciliation: ${recon} ≠ ${draft.ballotsIssued} issued`);
     }
     if (!draft.photoUri) {
-      validationFlags.push('No Form 34A photo captured (required)');
+      validationFlags.push(`No ${formName} photo captured (required)`);
     }
   }
 
@@ -516,7 +518,7 @@ export default function FormScreen() {
           <Ionicons name="close" size={24} color={colors.foreground} />
         </Pressable>
         <View style={{ flex: 1, alignItems: 'center' }}>
-          <Text style={s.headerTitle}>Form 34A Submission</Text>
+          <Text style={s.headerTitle}>{formName} Submission</Text>
           <Text style={s.headerSub}>{STEP_LABELS[step]} · {stepIndex + 1}/{STEPS.length}</Text>
         </View>
         <View style={{ width: 40 }} />
@@ -655,7 +657,7 @@ export default function FormScreen() {
         {step === 'ballot' && draft && (
           <View style={s.stepContainer}>
             <Text style={s.stepTitle}>Ballot Accounting</Text>
-            <Text style={s.stepSub}>Enter figures from Form 34A exactly as printed.</Text>
+            <Text style={s.stepSub}>Enter figures from {formName} exactly as printed.</Text>
             {(
               [
                 ['registeredVoters', 'Registered Voters'],
@@ -689,7 +691,7 @@ export default function FormScreen() {
         {step === 'candidates' && draft && (
           <View style={s.stepContainer}>
             <Text style={s.stepTitle}>Candidate Votes</Text>
-            <Text style={s.stepSub}>Enter votes per candidate from Form 34A.</Text>
+            <Text style={s.stepSub}>Enter votes per candidate from {formName}.</Text>
 
             {candidatesLoading ? (
               <ActivityIndicator color={colors.primary} style={{ marginTop: 24 }} />
@@ -760,8 +762,8 @@ export default function FormScreen() {
         {/* ── STEP: Photo ────────────────────────────────────────────────── */}
         {step === 'photo' && draft && (
           <View style={s.stepContainer}>
-            <Text style={s.stepTitle}>Photograph Form 34A</Text>
-            <Text style={s.stepSub}>Take a clear photo of the signed Form 34A as evidence.</Text>
+            <Text style={s.stepTitle}>Photograph {formName}</Text>
+            <Text style={s.stepSub}>Take a clear photo of the signed {formName} as evidence.</Text>
 
             {draft.photoUri ? (
               <View style={s.photoContainer}>
@@ -784,7 +786,7 @@ export default function FormScreen() {
                 </View>
                 <Text style={s.cameraTitle}>Take Photo</Text>
                 <Text style={s.cameraSub}>
-                  Tap to open camera and photograph the completed Form 34A
+                  Tap to open camera and photograph the completed {formName}
                 </Text>
               </Pressable>
             )}
@@ -806,7 +808,7 @@ export default function FormScreen() {
 
             {(
               [
-                ['agentSigned', 'I signed Form 34A'],
+                ['agentSigned', `I signed ${formName}`],
                 ['agentReceivedCopy', 'I received a copy of the results'],
                 ['resultsDisplayed', 'Results were publicly displayed'],
                 ['objectionRaised', 'I raised a formal objection'],

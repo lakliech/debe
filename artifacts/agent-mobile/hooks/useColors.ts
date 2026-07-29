@@ -1,20 +1,23 @@
 import { useColorScheme } from 'react-native';
 import colors from '@/constants/colors';
+import { useCampaignConfig } from '@/context/CampaignConfigContext';
 
 /**
- * Returns the design tokens for the current color scheme.
+ * Returns the design tokens for the current color scheme, merged with any
+ * runtime primary colour override from the campaign config API.
  *
- * The returned object contains all color tokens for the active palette
- * plus scheme-independent values like `radius`.
+ * The primary colour comes from /api/config/branding so a redeployment
+ * for a different campaign automatically repaints every button, header,
+ * and active state without a new app build.
  *
  * Falls back to the light palette when no dark key is defined in
  * constants/colors.ts (the scaffold ships light-only by default).
- * When a sibling web artifact's dark tokens are synced into a `dark`
- * key, this hook will automatically switch palettes based on the
- * device's appearance setting.
  */
 export function useColors() {
   const scheme = useColorScheme();
   const palette = scheme === 'dark' ? colors.dark : colors.light;
-  return { ...palette, radius: colors.radius };
+  const { primaryColor, isLoading } = useCampaignConfig();
+  // Only override once config has loaded (isLoading = false) to avoid a flash
+  const primary = isLoading ? palette.primary : primaryColor;
+  return { ...palette, primary, radius: colors.radius };
 }

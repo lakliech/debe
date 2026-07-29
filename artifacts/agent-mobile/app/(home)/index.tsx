@@ -21,6 +21,7 @@ import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
 import { useOffline } from '@/context/OfflineContext';
+import { useCampaignConfig } from '@/context/CampaignConfigContext';
 
 export default function Dashboard() {
   const { signOut, getToken, userId } = useAuth();
@@ -30,6 +31,7 @@ export default function Dashboard() {
   const colors = useColors();
   const { isOnline, pendingCount, isSyncing, syncNow, lastSyncAt, failedCount, failedQueue, clearFailedItem, saveRefCache } = useOffline();
   const bio = useBiometrics(userId);
+  const { candidateName, electionYear, formName } = useCampaignConfig();
 
   const domain = process.env.EXPO_PUBLIC_DOMAIN;
 
@@ -139,7 +141,7 @@ export default function Dashboard() {
       {/* Header */}
       <View style={[s.header, { paddingTop: topPad + 12 }]}>
         <View>
-          <Text style={s.headerBrand}>LINDA MWANANCHI 2027</Text>
+          <Text style={s.headerBrand}>{candidateName.toUpperCase()} {electionYear}</Text>
           <Text style={s.headerSub}>Agent Dashboard</Text>
         </View>
         <View style={s.headerRight}>
@@ -321,7 +323,7 @@ export default function Dashboard() {
           onPress={handleStartSubmission}
         >
           <Ionicons name="create-outline" size={22} color="#FFFFFF" style={{ marginRight: 8 }} />
-          <Text style={s.submitBtnText}>Start Form 34A Submission</Text>
+          <Text style={s.submitBtnText}>Start {formName} Submission</Text>
         </Pressable>
       </View>
     </View>
