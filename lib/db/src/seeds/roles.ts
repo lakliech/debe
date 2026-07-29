@@ -3,6 +3,7 @@ import { rolesTable } from "../schema";
 import { sql } from "drizzle-orm";
 
 export const ROLES = [
+  { name: "Platform Administrator", slug: "platform_admin", level: 0, color: "#0f172a", description: "Cross-tenant platform operator — can create and manage campaign tenants. Assigned with NULL tenant_id." },
   { name: "Super Administrator", slug: "super-admin", level: 1, color: "#7c3aed", description: "Full system access — all permissions across all levels" },
   { name: "Presidential Candidate", slug: "presidential-candidate", level: 1, color: "#dc2626", description: "The candidate — read access to all data, authorises comms" },
   { name: "Campaign Executive Director", slug: "campaign-exec-director", level: 2, color: "#b91c1c", description: "Overall campaign operations leader" },

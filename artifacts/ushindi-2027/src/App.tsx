@@ -93,6 +93,9 @@ import AspirantsPage from "./pages/admin/Aspirants";
 // Admin — Contact Messages
 import ContactMessagesPage from "./pages/admin/ContactMessages";
 
+// Platform Admin
+import PlatformAdminPage from "./pages/admin/PlatformAdmin";
+
 // Admin pages — Task 5: Compliance, Reporting, Privileged Access
 import ReportingPage from "./pages/admin/Reporting";
 import CompliancePage from "./pages/admin/Compliance";
@@ -436,6 +439,11 @@ function BrandingAwareClerkProvider() {
           {/* ── Admin (protected) — Contact Messages ── */}
           <Route path="/contact-messages">
             <ProtectedRoute component={ContactMessagesPage} />
+          </Route>
+
+          {/* ── Platform Admin (protected, platform_admin role only — enforced by API) ── */}
+          <Route path="/platform-admin">
+            <ProtectedRoute component={PlatformAdminPage} />
           </Route>
 
           {/* ── Admin (protected) — Task 5: Compliance, Reporting ── */}

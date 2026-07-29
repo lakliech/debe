@@ -1,6 +1,6 @@
-import { Shield, Flag, Users, Activity, Settings, MapPin, Search, Menu, LogOut, ChevronRight, DollarSign, Megaphone, Library, Calendar, AlertTriangle, Settings2, ClipboardList, BarChart3, AlertOctagon, Scale, Monitor, Globe, Download, Lock, Vote, Mail } from "lucide-react";
+import { Shield, Flag, Users, Activity, Settings, MapPin, Search, Menu, LogOut, ChevronRight, DollarSign, Megaphone, Library, Calendar, AlertTriangle, Settings2, ClipboardList, BarChart3, AlertOctagon, Scale, Monitor, Globe, Download, Lock, Vote, Mail, Building2, ChevronsUpDown, Check } from "lucide-react";
 import { Link, useLocation } from "wouter";
-import { useClerk, useUser } from "@clerk/react";
+import { useClerk, useUser, useOrganizationList } from "@clerk/react";
 import { useQuery } from "@tanstack/react-query";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -69,6 +69,11 @@ const adminNav = [
   { name: "Privileged Access", href: "/privileged-access", icon: Shield },
 ];
 
+// Separate section — only meaningful for platform_admin holders
+const platformNav = [
+  { name: "Platform Admin", href: "/platform-admin", icon: Building2 },
+];
+
 const settingsNav = [
   { name: "Branding", href: "/settings/branding", icon: Flag },
   { name: "System Config", href: "/settings/system", icon: Settings },
@@ -94,6 +99,67 @@ function SidebarHeader() {
         )}
       </div>
       COMMAND CENTRE
+    </div>
+  );
+}
+
+// ── Campaign Switcher ─────────────────────────────────────────────────────────
+function CampaignSwitcher() {
+  const { setActive, userMemberships, isLoaded } = useOrganizationList({ userMemberships: true });
+  const [open, setOpen] = useState(false);
+  const orgs = (userMemberships as any)?.data ?? [];
+
+  if (!isLoaded || orgs.length <= 1) return null;
+
+  const activeOrg = orgs.find((m: any) => m.organization) ?? null;
+
+  const handleSwitch = async (orgId: string) => {
+    if (!setActive) return;
+    await setActive({ organization: orgId });
+    setOpen(false);
+    // Hard reload to re-scope all queries to the new tenant
+    window.location.reload();
+  };
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-2 text-sm border border-border rounded-sm px-3 py-1.5 hover:bg-muted/50 transition-colors"
+      >
+        <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
+        <span className="font-semibold truncate max-w-[120px]">
+          {activeOrg?.organization?.name ?? "Select campaign"}
+        </span>
+        <ChevronsUpDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+      </button>
+
+      {open && (
+        <>
+          {/* backdrop */}
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full mt-1 z-50 w-56 bg-popover border border-border rounded-sm shadow-md py-1">
+            <p className="px-3 py-1.5 text-[10px] font-black tracking-widest text-muted-foreground uppercase">
+              Switch Campaign
+            </p>
+            {orgs.map((m: any) => {
+              const org = m.organization;
+              const isCurrent = m.organization?.id === (userMemberships as any)?.activeOrganizationId;
+              return (
+                <button
+                  key={org.id}
+                  onClick={() => handleSwitch(org.id)}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50 transition-colors text-left"
+                >
+                  {isCurrent && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
+                  {!isCurrent && <span className="w-3.5 shrink-0" />}
+                  <span className="truncate">{org.name}</span>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -150,6 +216,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
             { label: "Political", items: politicalNav },
             { label: "Administration", items: adminNav },
             { label: "Settings", items: settingsNav },
+            { label: "Platform", items: platformNav },
           ].map((section) => (
             <div key={section.label}>
               <div className="px-3 mb-1.5 text-[10px] font-black tracking-widest text-sidebar-foreground/40 uppercase">
@@ -231,11 +298,13 @@ export default function AppLayout({ children }: AppLayoutProps) {
             </div>
           </div>
           
-          <div className="flex items-center gap-4 text-sm font-mono text-muted-foreground">
+          <div className="flex items-center gap-3 text-sm font-mono text-muted-foreground">
+            {/* Campaign switcher — only visible when user belongs to multiple orgs */}
+            <CampaignSwitcher />
             {/* Status indicator */}
             <div className="flex items-center gap-2 bg-muted/50 px-3 py-1.5 rounded-sm border border-border">
               <div className="w-2 h-2 rounded-full bg-green-600 animate-pulse" />
-              <span className="text-xs font-bold tracking-widest text-foreground">SYSTEM SECURE</span>
+              <span className="text-xs font-bold tracking-widest text-foreground hidden sm:block">SYSTEM SECURE</span>
             </div>
           </div>
         </header>

@@ -33,6 +33,7 @@ import complianceRouter from "./compliance";
 import privilegedAccessRouter from "./privilegedAccess";
 import aspirantsRouter from "./aspirants";
 import contactMessagesRouter from "./contactMessages";
+import platformRouter from "./platform";
 
 const router: IRouter = Router();
 
@@ -92,5 +93,9 @@ router.use("/compliance", withTenant(complianceRouter));
 router.use("/privileged-access", withTenant(privilegedAccessRouter));
 router.use("/aspirants", withTenant(aspirantsRouter));
 router.use("/contact-messages", withTenant(contactMessagesRouter));
+
+// Platform admin routes — cross-tenant; no resolveTenant wrapper.
+// requireLevel(0) inside the router gates access to platform_admin holders only.
+router.use("/platform", platformRouter);
 
 export default router;
