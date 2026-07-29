@@ -21,3 +21,8 @@ timeoutMs = 120000
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+CLERK_ORGS_DISABLED = "true"

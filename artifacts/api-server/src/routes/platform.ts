@@ -45,10 +45,22 @@ async function clerkPost(path: string, body: Record<string, unknown>) {
   });
   const json: any = await res.json();
   if (!res.ok) {
-    const msg = json?.errors?.[0]?.long_message ?? json?.errors?.[0]?.message ?? `Clerk API ${res.status}`;
-    throw new Error(msg);
+    // Surface the full Clerk error for easier debugging
+    const clerkMsg =
+      json?.errors?.[0]?.long_message ??
+      json?.errors?.[0]?.message ??
+      JSON.stringify(json);
+    throw new Error(`Clerk ${res.status}: ${clerkMsg}`);
   }
   return json;
+}
+
+/**
+ * Returns true when running in dev with Clerk Organizations disabled.
+ * Set CLERK_ORGS_DISABLED=true in .env to use stub org IDs locally.
+ */
+function clerkOrgsDisabled() {
+  return process.env.CLERK_ORGS_DISABLED === "true";
 }
 
 // ── Shared: all-tenant query with user counts ─────────────────────────────────
@@ -115,18 +127,27 @@ router.post("/tenants", requireAuth, requireLevel(0), async (req: any, res: any)
       return res.status(409).json({ error: `Tenant slug '${slug}' is already taken` });
     }
 
-    // Create Clerk organisation — falls back to a stub org ID if Clerk key is missing (dev mode)
+    // Create Clerk organisation.
+    // If CLERK_ORGS_DISABLED=true (local dev without Organizations enabled), use a stub ID.
     let clerkOrgId: string;
-    try {
-      const org = await clerkPost("/organizations", {
-        name,
-        slug,
-        created_by_user_id: req.clerkId,
-      });
-      clerkOrgId = org.id;
-    } catch (clerkErr: any) {
-      // If Clerk org creation fails, surface the error — we cannot proceed without an org ID
-      return res.status(502).json({ error: `Failed to create Clerk organisation: ${clerkErr.message}` });
+    if (clerkOrgsDisabled()) {
+      clerkOrgId = `org_stub_${slug}_${Date.now()}`;
+    } else {
+      try {
+        const org = await clerkPost("/organizations", {
+          name,
+          slug,
+          created_by_user_id: req.clerkId,
+        });
+        clerkOrgId = org.id;
+      } catch (clerkErr: any) {
+        // Surface the full Clerk error so it's visible in logs and the UI
+        console.error("[platform] Clerk org creation failed:", clerkErr.message);
+        return res.status(502).json({
+          error: `Failed to create Clerk organisation: ${clerkErr.message}`,
+          hint: "If you are running locally without Clerk Organizations enabled, set CLERK_ORGS_DISABLED=true in your environment.",
+        });
+      }
     }
 
     // Insert tenant row
