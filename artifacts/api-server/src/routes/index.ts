@@ -38,7 +38,11 @@ import platformRouter from "./platform";
 const router: IRouter = Router();
 
 router.use(healthRouter);
-router.use(withTenantMixed(storageRouter));
+// Storage routes use their own full /storage/... path prefixes internally.
+// Scope resolveTenantMixed to /storage only so it doesn't run on every request
+// (which would block platform-admin users who have no orgId in their JWT).
+router.use("/storage", resolveTenantMixed);
+router.use(storageRouter);
 
 // Resolve tenant for all public-portal routes (unauthenticated; reads X-Tenant-Slug or ?tenant=)
 router.use("/public", resolveTenantPublic);
