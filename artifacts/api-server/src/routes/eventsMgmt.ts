@@ -14,6 +14,7 @@ import {
 import { eq, desc, and, count, ilike, or } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
 import { validate } from "../lib/validate";
+import { tenantFilter, assertTenant } from '../lib/withTenant';
 
 const router = Router();
 
@@ -28,6 +29,14 @@ async function resolveActorUUID(clerkId: string): Promise<string | null> {
   const [row] = await db.select({ id: usersTable.id }).from(usersTable)
     .where(eq(usersTable.clerkId, clerkId)).limit(1);
   return row?.id ?? null;
+}
+
+
+// Helper: verify the event belongs to the active tenant. Returns the event row or null.
+async function verifyEventTenant(eventId: string, tenantId: string) {
+  const [event] = await db.select({ id: eventsTable.id, status: eventsTable.status }).from(eventsTable)
+    .where(and(eq(eventsTable.id, eventId), tenantFilter(eventsTable, tenantId))).limit(1);
+  return event ?? null;
 }
 
 const canViewEvents = requireRoles(["campaign-exec-director","national-campaign-manager","national-organising-director","county-coordinator","constituency-coordinator","ward-coordinator","communications-officer","media-officer","events-coordinator"]);
@@ -135,13 +144,14 @@ const MediaAccreditationSchema = z.object({
 // GET /api/events-mgmt  (admin list, full details)
 router.get("/", requireAuth, canViewEvents, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const { status, countyId, search, page = "1", limit = "20" } = req.query;
     const pageNum = parseInt(page) || 1; const pageSize = Math.min(parseInt(limit) || 20, 50);
-    const conds: any[] = [];
+    const conds: any[] = [tenantFilter(eventsTable, t.id)];
     if (status) conds.push(eq(eventsTable.status, status));
     if (countyId) conds.push(eq(eventsTable.countyId, countyId));
     if (search) conds.push(ilike(eventsTable.title, `%${search}%`));
-    const where = conds.length ? and(...conds) : undefined;
+    const where = and(...conds);
     const [rows, [{ total }]] = await Promise.all([
       db.select().from(eventsTable).where(where).orderBy(desc(eventsTable.eventDate)).limit(pageSize).offset((pageNum - 1) * pageSize),
       db.select({ total: count() }).from(eventsTable).where(where),
@@ -155,10 +165,11 @@ router.get("/", requireAuth, canViewEvents, async (req: any, res: any) => {
 // POST /api/events-mgmt  — proposal (starts in draft/pending_approval)
 router.post("/", requireAuth, canManageEvents, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const body = validate(EventCreateSchema, req.body, res);
     if (!body) return;
 
-    const [event] = await db.insert(eventsTable).values({ ...body, status: body.status ?? "draft" }).returning();
+    const [event] = await db.insert(eventsTable).values({ ...body, tenantId: t.id, status: body.status ?? "draft" }).returning();
     res.status(201).json(event);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -168,7 +179,8 @@ router.post("/", requireAuth, canManageEvents, async (req: any, res: any) => {
 // GET /api/events-mgmt/:id
 router.get("/:id", requireAuth, canViewEvents, async (req: any, res: any) => {
   try {
-    const [event] = await db.select().from(eventsTable).where(eq(eventsTable.id, req.params.id)).limit(1);
+    const t = assertTenant(req);
+    const [event] = await db.select().from(eventsTable).where(and(eq(eventsTable.id, req.params.id), tenantFilter(eventsTable, t.id))).limit(1);
     if (!event) return res.status(404).json({ error: "Event not found" });
     const [registrations, speakers, incidents, reconciliation] = await Promise.all([
       db.select({ count: count() }).from(eventRegistrationsTable).where(eq(eventRegistrationsTable.eventId, req.params.id)),
@@ -185,10 +197,11 @@ router.get("/:id", requireAuth, canViewEvents, async (req: any, res: any) => {
 // PATCH /api/events-mgmt/:id
 router.patch("/:id", requireAuth, canManageEvents, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const body = validate(EventPatchSchema, req.body, res);
     if (!body) return;
 
-    const [updated] = await db.update(eventsTable).set(body).where(eq(eventsTable.id, req.params.id)).returning();
+    const [updated] = await db.update(eventsTable).set(body).where(and(eq(eventsTable.id, req.params.id), tenantFilter(eventsTable, t.id))).returning();
     if (!updated) return res.status(404).json({ error: "Not found" });
     res.json(updated);
   } catch (err: any) {
@@ -199,9 +212,10 @@ router.patch("/:id", requireAuth, canManageEvents, async (req: any, res: any) =>
 // POST /api/events-mgmt/:id/approve
 router.post("/:id/approve", requireAuth, canApproveEvents, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const [updated] = await db.update(eventsTable)
       .set({ status: "approved" })
-      .where(and(eq(eventsTable.id, req.params.id), eq(eventsTable.status, "pending_approval")))
+      .where(and(eq(eventsTable.id, req.params.id), tenantFilter(eventsTable, t.id), eq(eventsTable.status, "pending_approval")))
       .returning();
     if (!updated) return res.status(400).json({ error: "Event not in pending_approval status" });
     res.json(updated);
@@ -213,9 +227,10 @@ router.post("/:id/approve", requireAuth, canApproveEvents, async (req: any, res:
 // POST /api/events-mgmt/:id/submit-approval
 router.post("/:id/submit-approval", requireAuth, canManageEvents, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const [updated] = await db.update(eventsTable)
       .set({ status: "pending_approval" })
-      .where(and(eq(eventsTable.id, req.params.id), eq(eventsTable.status, "draft")))
+      .where(and(eq(eventsTable.id, req.params.id), tenantFilter(eventsTable, t.id), eq(eventsTable.status, "draft")))
       .returning();
     if (!updated) return res.status(400).json({ error: "Event must be in draft status" });
     res.json(updated);
@@ -232,8 +247,11 @@ router.post("/:id/register", async (req: any, res: any) => {
     const body = validate(RegistrationSchema, req.body, res);
     if (!body) return;
 
+    const tenantId = req.tenant?.id;
+    // Tenant context is required — public callers must supply X-Tenant-Slug / ?tenant=
+    if (!tenantId) return res.status(404).json({ error: "Event not found" });
     const [event] = await db.select({ id: eventsTable.id, status: eventsTable.status }).from(eventsTable)
-      .where(eq(eventsTable.id, req.params.id)).limit(1);
+      .where(and(eq(eventsTable.id, req.params.id), tenantFilter(eventsTable, tenantId))).limit(1);
     if (!event) return res.status(404).json({ error: "Event not found" });
     if (!["approved", "active"].includes(event.status)) return res.status(400).json({ error: "Event is not open for registration" });
 
@@ -252,6 +270,8 @@ router.post("/:id/register", async (req: any, res: any) => {
 // GET /api/events-mgmt/:id/registrations
 router.get("/:id/registrations", requireAuth, canCheckIn, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    if (!await verifyEventTenant(req.params.id, t.id)) return res.status(404).json({ error: "Event not found" });
     const { checkedIn, search, page = "1", limit = "50" } = req.query;
     const pageNum = parseInt(page) || 1; const pageSize = Math.min(parseInt(limit) || 50, 200);
     const conds: any[] = [eq(eventRegistrationsTable.eventId, req.params.id)];
@@ -272,6 +292,8 @@ router.get("/:id/registrations", requireAuth, canCheckIn, async (req: any, res: 
 // POST /api/events-mgmt/:id/check-in  — QR code or manual check-in
 router.post("/:id/check-in", requireAuth, canCheckIn, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    if (!await verifyEventTenant(req.params.id, t.id)) return res.status(404).json({ error: "Event not found" });
     const body = validate(CheckInSchema, req.body, res);
     if (!body) return;
 
@@ -299,6 +321,8 @@ router.post("/:id/check-in", requireAuth, canCheckIn, async (req: any, res: any)
 
 router.post("/:id/incidents", requireAuth, canViewEvents, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    if (!await verifyEventTenant(req.params.id, t.id)) return res.status(404).json({ error: "Event not found" });
     const body = validate(IncidentCreateSchema, req.body, res);
     if (!body) return;
 
@@ -313,6 +337,8 @@ router.post("/:id/incidents", requireAuth, canViewEvents, async (req: any, res: 
 
 router.patch("/:id/incidents/:incidentId/resolve", requireAuth, canManageEvents, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    if (!await verifyEventTenant(req.params.id, t.id)) return res.status(404).json({ error: "Event not found" });
     const body = validate(IncidentResolveSchema, req.body, res);
     if (!body) return;
 
@@ -332,6 +358,8 @@ router.patch("/:id/incidents/:incidentId/resolve", requireAuth, canManageEvents,
 
 router.post("/:id/reconciliation", requireAuth, canManageEvents, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    if (!await verifyEventTenant(req.params.id, t.id)) return res.status(404).json({ error: "Event not found" });
     const body = validate(ReconciliationSchema, req.body, res);
     if (!body) return;
 
@@ -339,7 +367,7 @@ router.post("/:id/reconciliation", requireAuth, canManageEvents, async (req: any
     if (!actorId) return res.status(403).json({ error: "Actor not found" });
     const [row] = await db.insert(eventReconciliationsTable).values({ ...body, eventId: req.params.id, submittedBy: actorId }).returning();
     // Update event status to completed
-    await db.update(eventsTable).set({ status: "completed" }).where(eq(eventsTable.id, req.params.id));
+    await db.update(eventsTable).set({ status: "completed" }).where(and(eq(eventsTable.id, req.params.id), tenantFilter(eventsTable, t.id)));
     res.status(201).json(row);
   } catch (err: any) {
     if (err.message?.includes("unique")) return res.status(409).json({ error: "Reconciliation already submitted for this event" });
@@ -351,6 +379,8 @@ router.post("/:id/reconciliation", requireAuth, canManageEvents, async (req: any
 
 router.get("/:id/speakers", requireAuth, canViewEvents, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    if (!await verifyEventTenant(req.params.id, t.id)) return res.status(404).json({ error: "Event not found" });
     const rows = await db.select().from(eventSpeakersTable).where(eq(eventSpeakersTable.eventId, req.params.id)).orderBy(eventSpeakersTable.talkOrder);
     res.json(rows);
   } catch (err: any) {
@@ -360,6 +390,8 @@ router.get("/:id/speakers", requireAuth, canViewEvents, async (req: any, res: an
 
 router.post("/:id/speakers", requireAuth, canManageEvents, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    if (!await verifyEventTenant(req.params.id, t.id)) return res.status(404).json({ error: "Event not found" });
     const body = validate(SpeakerSchema, req.body, res);
     if (!body) return;
 
@@ -374,6 +406,8 @@ router.post("/:id/speakers", requireAuth, canManageEvents, async (req: any, res:
 
 router.get("/:id/transport", requireAuth, canViewTransport, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    if (!await verifyEventTenant(req.params.id, t.id)) return res.status(404).json({ error: "Event not found" });
     const rows = await db.select().from(eventTransportTable).where(eq(eventTransportTable.eventId, req.params.id));
     res.json(rows);
   } catch (err: any) {
@@ -383,6 +417,8 @@ router.get("/:id/transport", requireAuth, canViewTransport, async (req: any, res
 
 router.post("/:id/transport", requireAuth, canViewTransport, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    if (!await verifyEventTenant(req.params.id, t.id)) return res.status(404).json({ error: "Event not found" });
     const body = validate(TransportSchema, req.body, res);
     if (!body) return;
 
@@ -398,6 +434,8 @@ router.post("/:id/transport", requireAuth, canViewTransport, async (req: any, re
 
 router.get("/:id/media-accreditations", requireAuth, canViewEvents, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    if (!await verifyEventTenant(req.params.id, t.id)) return res.status(404).json({ error: "Event not found" });
     const rows = await db.select().from(eventMediaAccreditationsTable).where(eq(eventMediaAccreditationsTable.eventId, req.params.id)).orderBy(desc(eventMediaAccreditationsTable.createdAt));
     res.json(rows);
   } catch (err: any) {
@@ -407,8 +445,15 @@ router.get("/:id/media-accreditations", requireAuth, canViewEvents, async (req: 
 
 router.post("/:id/media-accreditations", async (req: any, res: any) => {
   try {
+    const tenantId = req.tenant?.id;
     const body = validate(MediaAccreditationSchema, req.body, res);
     if (!body) return;
+
+    // Tenant context is required — public callers must supply X-Tenant-Slug / ?tenant=
+    if (!tenantId) return res.status(404).json({ error: "Event not found" });
+    const [evt] = await db.select({ id: eventsTable.id }).from(eventsTable)
+      .where(and(eq(eventsTable.id, req.params.id), tenantFilter(eventsTable, tenantId))).limit(1);
+    if (!evt) return res.status(404).json({ error: "Event not found" });
 
     const qrCode = `MEDIA-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
     const [row] = await db.insert(eventMediaAccreditationsTable).values({ ...body, eventId: req.params.id, status: "pending", qrCode }).returning();
@@ -420,6 +465,8 @@ router.post("/:id/media-accreditations", async (req: any, res: any) => {
 
 router.patch("/:id/media-accreditations/:accId/approve", requireAuth, canManageEvents, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    if (!await verifyEventTenant(req.params.id, t.id)) return res.status(404).json({ error: "Event not found" });
     const actorId = await resolveActorUUID(req.clerkId);
     const [row] = await db.update(eventMediaAccreditationsTable)
       .set({ status: "approved", approvedBy: actorId ?? undefined })

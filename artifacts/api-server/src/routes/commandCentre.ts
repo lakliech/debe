@@ -12,10 +12,12 @@ import {
   agentSyncStatusTable,
   pollingStationsTable,
   electionDisputesTable,
+  pollingAgentsTable,
   usersTable,
 } from "@workspace/db";
 import { eq, desc, and, count, inArray } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
+import { tenantFilter, assertTenant } from '../lib/withTenant';
 
 const router = Router();
 
@@ -44,6 +46,7 @@ const canManageCC = requireRoles([
 // GET /api/command-centre/dashboard/:electionId
 router.get("/dashboard/:electionId", requireAuth, canViewCC, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const { electionId } = req.params;
 
     const [
@@ -64,6 +67,7 @@ router.get("/dashboard/:electionId", requireAuth, canViewCC, async (req: any, re
       })
         .from(tallySnapshotsTable)
         .where(and(
+          tenantFilter(tallySnapshotsTable, t.id),
           eq(tallySnapshotsTable.electionId, electionId),
           eq(tallySnapshotsTable.level, "national"),
         ))
@@ -76,7 +80,7 @@ router.get("/dashboard/:electionId", requireAuth, canViewCC, async (req: any, re
         total: count(resultSubmissionsTable.id),
       })
         .from(resultSubmissionsTable)
-        .where(eq(resultSubmissionsTable.electionId, electionId))
+        .where(and(tenantFilter(resultSubmissionsTable, t.id), eq(resultSubmissionsTable.electionId, electionId)))
         .groupBy(resultSubmissionsTable.status),
 
       // Incident summary — count by severity
@@ -85,21 +89,26 @@ router.get("/dashboard/:electionId", requireAuth, canViewCC, async (req: any, re
         total: count(electionIncidentReportsTable.id),
       })
         .from(electionIncidentReportsTable)
-        .where(eq(electionIncidentReportsTable.electionId, electionId))
+        .where(and(tenantFilter(electionIncidentReportsTable, t.id), eq(electionIncidentReportsTable.electionId, electionId)))
         .groupBy(electionIncidentReportsTable.severity),
 
-      // Agent sync summary
+      // Agent sync summary — scoped to tenant via inner join on pollingAgentsTable
       db.select({
         syncStatus: agentSyncStatusTable.syncStatus,
         total: count(agentSyncStatusTable.id),
       })
         .from(agentSyncStatusTable)
+        .innerJoin(pollingAgentsTable, and(
+          eq(agentSyncStatusTable.agentId, pollingAgentsTable.id),
+          tenantFilter(pollingAgentsTable, t.id),
+        ))
         .groupBy(agentSyncStatusTable.syncStatus),
 
       // Pending tasks
       db.select()
         .from(commandCentreTasksTable)
         .where(and(
+          tenantFilter(commandCentreTasksTable, t.id),
           eq(commandCentreTasksTable.electionId, electionId),
           eq(commandCentreTasksTable.status, "open"),
         ))
@@ -116,6 +125,7 @@ router.get("/dashboard/:electionId", requireAuth, canViewCC, async (req: any, re
       })
         .from(electionDisputesTable)
         .where(and(
+          tenantFilter(electionDisputesTable, t.id),
           eq(electionDisputesTable.electionId, electionId),
           eq(electionDisputesTable.status, "open"),
         ))
@@ -150,6 +160,7 @@ router.get("/dashboard/:electionId", requireAuth, canViewCC, async (req: any, re
 // GET /api/command-centre/county-dashboard/:electionId/:countyId
 router.get("/county-dashboard/:electionId/:countyId", requireAuth, canViewCC, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const { electionId, countyId } = req.params;
 
     // Get station IDs for county
@@ -175,6 +186,7 @@ router.get("/county-dashboard/:electionId/:countyId", requireAuth, canViewCC, as
       })
         .from(tallySnapshotsTable)
         .where(and(
+          tenantFilter(tallySnapshotsTable, t.id),
           eq(tallySnapshotsTable.electionId, electionId),
           eq(tallySnapshotsTable.level, "county"),
           eq(tallySnapshotsTable.entityId, countyId),
@@ -190,6 +202,7 @@ router.get("/county-dashboard/:electionId/:countyId", requireAuth, canViewCC, as
           })
           .from(resultSubmissionsTable)
           .where(and(
+            tenantFilter(resultSubmissionsTable, t.id),
             eq(resultSubmissionsTable.electionId, electionId),
             inArray(resultSubmissionsTable.pollingStationId, stationIds),
           ))
@@ -203,6 +216,7 @@ router.get("/county-dashboard/:electionId/:countyId", requireAuth, canViewCC, as
       })
         .from(electionIncidentReportsTable)
         .where(and(
+          tenantFilter(electionIncidentReportsTable, t.id),
           eq(electionIncidentReportsTable.electionId, electionId),
           eq(electionIncidentReportsTable.countyId, countyId),
         ))
@@ -212,6 +226,7 @@ router.get("/county-dashboard/:electionId/:countyId", requireAuth, canViewCC, as
       db.select()
         .from(commandCentreTasksTable)
         .where(and(
+          tenantFilter(commandCentreTasksTable, t.id),
           eq(commandCentreTasksTable.electionId, electionId),
           eq(commandCentreTasksTable.status, "open"),
         ))
@@ -229,6 +244,7 @@ router.get("/county-dashboard/:electionId/:countyId", requireAuth, canViewCC, as
           })
           .from(electionDisputesTable)
           .where(and(
+            tenantFilter(electionDisputesTable, t.id),
             eq(electionDisputesTable.electionId, electionId),
             eq(electionDisputesTable.status, "open"),
             inArray(electionDisputesTable.pollingStationId, stationIds),
@@ -257,12 +273,13 @@ router.get("/county-dashboard/:electionId/:countyId", requireAuth, canViewCC, as
 // GET /api/command-centre/tasks
 router.get("/tasks", requireAuth, canViewCC, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const { electionId, status, priority, assignedTo, page = "1", limit = "20" } = req.query;
     const pageNum = parseInt(page) || 1;
     const pageSize = Math.min(parseInt(limit) || 20, 100);
     const offset = (pageNum - 1) * pageSize;
 
-    const conditions: any[] = [];
+    const conditions: any[] = [tenantFilter(commandCentreTasksTable, t.id)];
     if (electionId) conditions.push(eq(commandCentreTasksTable.electionId, electionId));
     if (status) conditions.push(eq(commandCentreTasksTable.status, status));
     if (priority) conditions.push(eq(commandCentreTasksTable.priority, priority));
@@ -284,10 +301,12 @@ router.get("/tasks", requireAuth, canViewCC, async (req: any, res: any) => {
 // POST /api/command-centre/tasks
 router.post("/tasks", requireAuth, canManageCC, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const actorId = await resolveActorUUID(req.clerkId);
     if (!actorId) return res.status(403).json({ error: "Actor not found" });
     const [row] = await db.insert(commandCentreTasksTable).values({
       ...req.body,
+      tenantId: t.id,
       createdBy: actorId,
       status: req.body.status ?? "open",
     }).returning();
@@ -300,11 +319,12 @@ router.post("/tasks", requireAuth, canManageCC, async (req: any, res: any) => {
 // PATCH /api/command-centre/tasks/:id
 router.patch("/tasks/:id", requireAuth, canManageCC, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const updateData: any = { ...req.body };
     if (updateData.status === "completed") updateData.completedAt = new Date();
 
     const [row] = await db.update(commandCentreTasksTable).set(updateData)
-      .where(eq(commandCentreTasksTable.id, req.params.id)).returning();
+      .where(and(eq(commandCentreTasksTable.id, req.params.id), tenantFilter(commandCentreTasksTable, t.id))).returning();
     if (!row) return res.status(404).json({ error: "Task not found" });
     res.json(row);
   } catch (err: any) {

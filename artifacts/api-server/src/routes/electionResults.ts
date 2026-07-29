@@ -25,6 +25,7 @@ import { eq, desc, and, or, count, inArray } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
 import { validate } from "../lib/validate";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
+import { tenantFilter, assertTenant } from "../lib/withTenant";
 
 // ─── VALIDATION SCHEMAS ───────────────────────────────────────────────────────
 
@@ -121,11 +122,12 @@ const canSubmitResults = requireRoles([
 
 // ─── AUTO-VALIDATION ──────────────────────────────────────────────────────────
 
-async function runAutoValidation(submissionId: string): Promise<{ valid: boolean; flags: string[] }> {
+async function runAutoValidation(submissionId: string, tenantId: string): Promise<{ valid: boolean; flags: string[] }> {
   const flags: string[] = [];
 
+  // Always scope submission lookup to the active tenant — prevents cross-tenant validation
   const [submission] = await db.select().from(resultSubmissionsTable)
-    .where(eq(resultSubmissionsTable.id, submissionId)).limit(1);
+    .where(and(eq(resultSubmissionsTable.id, submissionId), tenantFilter(resultSubmissionsTable, tenantId))).limit(1);
   if (!submission) return { valid: false, flags: ["Submission not found"] };
 
   const votes = await db.select().from(submissionCandidateVotesTable)
@@ -224,12 +226,13 @@ router.post("/photo-upload-url", requireAuth, canSubmitResults, async (_req: any
 // GET /api/election-results/submissions
 router.get("/submissions", requireAuth, canViewResults, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const { status, pollingStationId, countyId, constituencyId, electionId, page = "1", limit = "20" } = req.query;
     const pageNum = parseInt(page) || 1;
     const pageSize = Math.min(parseInt(limit) || 20, 100);
     const offset = (pageNum - 1) * pageSize;
 
-    const conditions: any[] = [];
+    const conditions: any[] = [tenantFilter(resultSubmissionsTable, t.id)];
     // Support both single status= and repeated status= (from URLSearchParams.append)
     const statusValues = Array.isArray(status) ? status : (status ? [status] : []);
     if (statusValues.length === 1) {
@@ -274,15 +277,24 @@ router.get("/submissions", requireAuth, canViewResults, async (req: any, res: an
 // MUST be before POST /submissions/:id/* routes to avoid :id shadowing
 router.post("/submissions/agent-submit", requireAuth, canSubmitResults, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const parsed = validate(submissionBodySchema, req.body, res);
     if (!parsed) return;
     const { candidateVotes, ...body } = parsed;
+
+    // Validate foreign-key inputs belong to this tenant before creating any submission record
+    if (body.agentId) {
+      const [ownedAgent] = await db.select({ id: pollingAgentsTable.id }).from(pollingAgentsTable)
+        .where(and(eq(pollingAgentsTable.id, body.agentId), tenantFilter(pollingAgentsTable, t.id))).limit(1);
+      if (!ownedAgent) return res.status(400).json({ error: "agentId not found or not owned by this campaign" });
+    }
 
     // Idempotency: check for existing submission by deviceId + offlineCapturedAt
     if (body.deviceId && body.offlineCapturedAt) {
       const [dup] = await db.select({ id: resultSubmissionsTable.id, status: resultSubmissionsTable.status })
         .from(resultSubmissionsTable)
         .where(and(
+          tenantFilter(resultSubmissionsTable, t.id),
           eq(resultSubmissionsTable.deviceId, body.deviceId),
           eq(resultSubmissionsTable.offlineCapturedAt, new Date(body.offlineCapturedAt)),
         )).limit(1);
@@ -291,9 +303,10 @@ router.post("/submissions/agent-submit", requireAuth, canSubmitResults, async (r
       }
     }
 
-    // Create draft
+    // Create draft — scoped to this tenant
     const [existing] = await db.select().from(resultSubmissionsTable)
       .where(and(
+        tenantFilter(resultSubmissionsTable, t.id),
         eq(resultSubmissionsTable.pollingStationId, body.pollingStationId),
         eq(resultSubmissionsTable.electionId, body.electionId),
         eq(resultSubmissionsTable.agentId, body.agentId),
@@ -305,11 +318,11 @@ router.post("/submissions/agent-submit", requireAuth, canSubmitResults, async (r
 
     if (existing && existing.status === "draft") {
       await db.update(resultSubmissionsTable).set({ ...dbBody, status: "draft" })
-        .where(eq(resultSubmissionsTable.id, existing.id));
+        .where(and(eq(resultSubmissionsTable.id, existing.id), tenantFilter(resultSubmissionsTable, t.id)));
       submissionId = existing.id;
     } else {
       const version = existing ? (existing.version ?? 1) + 1 : 1;
-      const [created] = await db.insert(resultSubmissionsTable).values({ ...dbBody, status: "draft", version }).returning();
+      const [created] = await db.insert(resultSubmissionsTable).values({ ...dbBody, tenantId: t.id, status: "draft", version }).returning();
       submissionId = created.id;
     }
 
@@ -336,13 +349,13 @@ router.post("/submissions/agent-submit", requireAuth, canSubmitResults, async (r
 
     // Submit
     await db.update(resultSubmissionsTable).set({ status: "submitted", submittedAt: new Date() })
-      .where(eq(resultSubmissionsTable.id, submissionId));
+      .where(and(eq(resultSubmissionsTable.id, submissionId), tenantFilter(resultSubmissionsTable, t.id)));
 
-    // Auto-validation
-    const { valid, flags } = await runAutoValidation(submissionId);
+    // Auto-validation — pass tenantId so cross-tenant submissions are never consulted
+    const { valid, flags } = await runAutoValidation(submissionId, t.id);
     const newStatus = valid ? "auto_validated" : "exception";
     const [final] = await db.update(resultSubmissionsTable).set({ status: newStatus })
-      .where(eq(resultSubmissionsTable.id, submissionId)).returning();
+      .where(and(eq(resultSubmissionsTable.id, submissionId), tenantFilter(resultSubmissionsTable, t.id))).returning();
 
     await db.insert(submissionVerificationStepsTable).values({
       submissionId,
@@ -362,14 +375,16 @@ router.post("/submissions/agent-submit", requireAuth, canSubmitResults, async (r
 // canSubmitResults includes polling agents and supervisors
 router.post("/submissions", requireAuth, canSubmitResults, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const parsed = validate(submissionBodySchema, req.body, res);
     if (!parsed) return;
     const { candidateVotes, forceNew, ...body } = parsed;
 
-    // Duplicate check
+    // Duplicate check — scoped to this tenant
     const [existing] = await db.select()
       .from(resultSubmissionsTable)
       .where(and(
+        tenantFilter(resultSubmissionsTable, t.id),
         eq(resultSubmissionsTable.pollingStationId, body.pollingStationId),
         eq(resultSubmissionsTable.electionId, body.electionId),
         eq(resultSubmissionsTable.agentId, body.agentId),
@@ -388,7 +403,7 @@ router.post("/submissions", requireAuth, canSubmitResults, async (req: any, res:
       const [updated] = await db.update(resultSubmissionsTable).set({
         ...dbBody,
         status: "draft",
-      }).where(eq(resultSubmissionsTable.id, existing.id)).returning();
+      }).where(and(eq(resultSubmissionsTable.id, existing.id), tenantFilter(resultSubmissionsTable, t.id))).returning();
 
       // Upsert candidate votes
       if (candidateVotes && Array.isArray(candidateVotes)) {
@@ -408,6 +423,7 @@ router.post("/submissions", requireAuth, canSubmitResults, async (req: any, res:
     const dbBody: any = { ...body, offlineCapturedAt: body.offlineCapturedAt ? new Date(body.offlineCapturedAt) : undefined };
     const [submission] = await db.insert(resultSubmissionsTable).values({
       ...dbBody,
+      tenantId: t.id,
       status: "draft",
       version,
     }).returning();
@@ -427,8 +443,9 @@ router.post("/submissions", requireAuth, canSubmitResults, async (req: any, res:
 // GET /api/election-results/submissions/:id
 router.get("/submissions/:id", requireAuth, canViewResults, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const [submission] = await db.select().from(resultSubmissionsTable)
-      .where(eq(resultSubmissionsTable.id, req.params.id)).limit(1);
+      .where(and(eq(resultSubmissionsTable.id, req.params.id), tenantFilter(resultSubmissionsTable, t.id))).limit(1);
     if (!submission) return res.status(404).json({ error: "Submission not found" });
 
     const [votes, images, steps, corrections] = await Promise.all([
@@ -453,8 +470,9 @@ router.get("/submissions/:id", requireAuth, canViewResults, async (req: any, res
 // POST /api/election-results/submissions/:id/submit
 router.post("/submissions/:id/submit", requireAuth, canSubmitResults, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const [submission] = await db.select().from(resultSubmissionsTable)
-      .where(eq(resultSubmissionsTable.id, req.params.id)).limit(1);
+      .where(and(eq(resultSubmissionsTable.id, req.params.id), tenantFilter(resultSubmissionsTable, t.id))).limit(1);
     if (!submission) return res.status(404).json({ error: "Submission not found" });
     if (submission.status !== "draft") {
       return res.status(400).json({ error: `Cannot submit from status: ${submission.status}` });
@@ -464,15 +482,15 @@ router.post("/submissions/:id/submit", requireAuth, canSubmitResults, async (req
     await db.update(resultSubmissionsTable).set({
       status: "submitted",
       submittedAt: new Date(),
-    }).where(eq(resultSubmissionsTable.id, req.params.id));
+    }).where(and(eq(resultSubmissionsTable.id, req.params.id), tenantFilter(resultSubmissionsTable, t.id)));
 
-    // Run auto-validation
-    const { valid, flags } = await runAutoValidation(req.params.id);
+    // Run auto-validation — pass tenantId so cross-tenant submissions are never consulted
+    const { valid, flags } = await runAutoValidation(req.params.id, t.id);
     const newStatus = valid ? "auto_validated" : "exception";
 
     const [updated] = await db.update(resultSubmissionsTable).set({
       status: newStatus,
-    }).where(eq(resultSubmissionsTable.id, req.params.id)).returning();
+    }).where(and(eq(resultSubmissionsTable.id, req.params.id), tenantFilter(resultSubmissionsTable, t.id))).returning();
 
     // Record step
     await db.insert(submissionVerificationStepsTable).values({
@@ -492,6 +510,12 @@ router.post("/submissions/:id/submit", requireAuth, canSubmitResults, async (req
 // POST /api/election-results/submissions/:id/images
 router.post("/submissions/:id/images", requireAuth, canSubmitResults, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    // Verify parent submission belongs to this tenant
+    const [parentSub] = await db.select({ id: resultSubmissionsTable.id }).from(resultSubmissionsTable)
+      .where(and(eq(resultSubmissionsTable.id, req.params.id), tenantFilter(resultSubmissionsTable, t.id))).limit(1);
+    if (!parentSub) return res.status(404).json({ error: "Submission not found" });
+
     const parsed = validate(imageUploadSchema, req.body, res);
     if (!parsed) return;
     const { imageType, objectPath, imageHash, sizeBytes, mimeType, pageNumber, isRequired, deviceId } = parsed;
@@ -519,6 +543,11 @@ router.post("/submissions/:id/images", requireAuth, canSubmitResults, async (req
 // so result-verifier / returning-officer roles can view submission evidence.
 router.get("/submissions/:id/images/:imageId/file", requireAuth, canViewResults, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    // Verify the parent submission belongs to this tenant first
+    const [parentSub] = await db.select({ id: resultSubmissionsTable.id }).from(resultSubmissionsTable)
+      .where(and(eq(resultSubmissionsTable.id, req.params.id), tenantFilter(resultSubmissionsTable, t.id))).limit(1);
+    if (!parentSub) return res.status(404).json({ error: "Submission not found" });
     // Verify the image row exists and belongs to this submission
     const [img] = await db
       .select({ id: submissionFormImagesTable.id, objectPath: submissionFormImagesTable.objectPath, mimeType: submissionFormImagesTable.mimeType })
@@ -560,17 +589,19 @@ router.get("/submissions/:id/images/:imageId/file", requireAuth, canViewResults,
 // POST /api/election-results/submissions/:id/verify
 router.post("/submissions/:id/verify", requireAuth, canVerifyResults, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const actorId = await resolveActorUUID(req.clerkId);
     const parsed = validate(verifySchema, req.body, res);
     if (!parsed) return;
     const { action, notes, queriedFields, toStatus } = parsed;
 
     const [submission] = await db.select({ id: resultSubmissionsTable.id, status: resultSubmissionsTable.status })
-      .from(resultSubmissionsTable).where(eq(resultSubmissionsTable.id, req.params.id)).limit(1);
+      .from(resultSubmissionsTable)
+      .where(and(eq(resultSubmissionsTable.id, req.params.id), tenantFilter(resultSubmissionsTable, t.id))).limit(1);
     if (!submission) return res.status(404).json({ error: "Submission not found" });
 
     const [updated] = await db.update(resultSubmissionsTable).set({ status: toStatus })
-      .where(eq(resultSubmissionsTable.id, req.params.id)).returning();
+      .where(and(eq(resultSubmissionsTable.id, req.params.id), tenantFilter(resultSubmissionsTable, t.id))).returning();
 
     await db.insert(submissionVerificationStepsTable).values({
       submissionId: req.params.id,
@@ -591,10 +622,15 @@ router.post("/submissions/:id/verify", requireAuth, canVerifyResults, async (req
 // POST /api/election-results/submissions/:id/correct
 router.post("/submissions/:id/correct", requireAuth, canVerifyResults, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const actorId = await resolveActorUUID(req.clerkId);
     const parsed = validate(correctSchema, req.body, res);
     if (!parsed) return;
     const { fieldName, originalValue, correctedValue, correctionReason, evidenceUrl } = parsed;
+    // Verify parent submission belongs to this tenant
+    const [parentSub] = await db.select({ id: resultSubmissionsTable.id }).from(resultSubmissionsTable)
+      .where(and(eq(resultSubmissionsTable.id, req.params.id), tenantFilter(resultSubmissionsTable, t.id))).limit(1);
+    if (!parentSub) return res.status(404).json({ error: "Submission not found" });
 
     const [row] = await db.insert(submissionCorrectionsTable).values({
       submissionId: req.params.id,
@@ -614,6 +650,11 @@ router.post("/submissions/:id/correct", requireAuth, canVerifyResults, async (re
 // GET /api/election-results/submissions/:id/corrections
 router.get("/submissions/:id/corrections", requireAuth, canViewResults, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    // Verify the parent submission belongs to this tenant
+    const [parentSub] = await db.select({ id: resultSubmissionsTable.id }).from(resultSubmissionsTable)
+      .where(and(eq(resultSubmissionsTable.id, req.params.id), tenantFilter(resultSubmissionsTable, t.id))).limit(1);
+    if (!parentSub) return res.status(404).json({ error: "Submission not found" });
     const rows = await db.select().from(submissionCorrectionsTable)
       .where(eq(submissionCorrectionsTable.submissionId, req.params.id))
       .orderBy(desc(submissionCorrectionsTable.createdAt));
@@ -626,6 +667,11 @@ router.get("/submissions/:id/corrections", requireAuth, canViewResults, async (r
 // GET /api/election-results/submissions/:id/ocr
 router.get("/submissions/:id/ocr", requireAuth, canViewResults, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    // Verify the parent submission belongs to this tenant
+    const [parentSub] = await db.select({ id: resultSubmissionsTable.id }).from(resultSubmissionsTable)
+      .where(and(eq(resultSubmissionsTable.id, req.params.id), tenantFilter(resultSubmissionsTable, t.id))).limit(1);
+    if (!parentSub) return res.status(404).json({ error: "Submission not found" });
     const rows = await db.select().from(submissionOcrSuggestionsTable)
       .where(eq(submissionOcrSuggestionsTable.submissionId, req.params.id))
       .orderBy(desc(submissionOcrSuggestionsTable.createdAt));
@@ -638,10 +684,15 @@ router.get("/submissions/:id/ocr", requireAuth, canViewResults, async (req: any,
 // POST /api/election-results/submissions/:id/ocr/review
 router.post("/submissions/:id/ocr/review", requireAuth, canVerifyResults, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const actorId = await resolveActorUUID(req.clerkId);
     const parsed = validate(ocrReviewSchema, req.body, res);
     if (!parsed) return;
     const { suggestionId, accepted } = parsed;
+    // Verify parent submission belongs to this tenant
+    const [parentSub] = await db.select({ id: resultSubmissionsTable.id }).from(resultSubmissionsTable)
+      .where(and(eq(resultSubmissionsTable.id, req.params.id), tenantFilter(resultSubmissionsTable, t.id))).limit(1);
+    if (!parentSub) return res.status(404).json({ error: "Submission not found" });
 
     const [row] = await db.update(submissionOcrSuggestionsTable).set({
       accepted,

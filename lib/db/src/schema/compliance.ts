@@ -1,16 +1,14 @@
 /**
- * Compliance & Data Protection Schema — NEW tables only.
- * Note: dataSubjectRequestsTable already exists in config.ts — use that one.
- *
- * New tables added here:
- *   dpia_register, vendor_register, data_breach_register,
- *   consent_audit, data_retention_policies, export_audit_log, data_processing_records
+ * Compliance & Data Protection Schema.
+ * Note: dataSubjectRequestsTable lives in config.ts.
  */
 import { pgTable, uuid, text, boolean, timestamp, integer, jsonb } from "drizzle-orm/pg-core";
+import { tenantsTable } from "./core";
 
 // ── Data Processing Records (Article 30 GDPR) ─────────────────────────────
 export const dataProcessingRecordsTable = pgTable("data_processing_records", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   processName: text("process_name").notNull(),
   purpose: text("purpose").notNull(),
   legalBasis: text("legal_basis").notNull(),
@@ -30,13 +28,14 @@ export type DataProcessingRecord = typeof dataProcessingRecordsTable.$inferSelec
 // ── DPIA Register ──────────────────────────────────────────────────────────
 export const dpiaRegisterTable = pgTable("dpia_register", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   description: text("description").notNull(),
   processId: uuid("process_id"),
   riskLevel: text("risk_level").notNull().default("medium"),
   riskDescription: text("risk_description"),
   mitigationMeasures: text("mitigation_measures"),
-  status: text("status").notNull().default("draft"), // draft|under_review|approved|requires_remediation
+  status: text("status").notNull().default("draft"),
   reviewedBy: uuid("reviewed_by"),
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
   approvedAt: timestamp("approved_at", { withTimezone: true }),
@@ -50,6 +49,7 @@ export type DpiaRegister = typeof dpiaRegisterTable.$inferSelect;
 // ── Vendor Register ────────────────────────────────────────────────────────
 export const vendorRegisterTable = pgTable("vendor_register", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   vendorName: text("vendor_name").notNull(),
   vendorType: text("vendor_type").notNull(),
   servicesProvided: text("services_provided").notNull(),
@@ -72,6 +72,7 @@ export type VendorRegister = typeof vendorRegisterTable.$inferSelect;
 // ── Data Breach Register ───────────────────────────────────────────────────
 export const dataBreachRegisterTable = pgTable("data_breach_register", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   description: text("description").notNull(),
   discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull(),
@@ -95,10 +96,11 @@ export type DataBreachRegister = typeof dataBreachRegisterTable.$inferSelect;
 // ── Consent Audit Trail ────────────────────────────────────────────────────
 export const consentAuditTable = pgTable("consent_audit", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   subjectEmail: text("subject_email").notNull(),
   subjectName: text("subject_name"),
   consentType: text("consent_type").notNull(),
-  action: text("action").notNull(), // granted|withdrawn|updated
+  action: text("action").notNull(),
   purpose: text("purpose"),
   ipAddress: text("ip_address"),
   userAgent: text("user_agent"),
@@ -111,6 +113,7 @@ export type ConsentAudit = typeof consentAuditTable.$inferSelect;
 // ── Data Retention Policies ────────────────────────────────────────────────
 export const dataRetentionPoliciesTable = pgTable("data_retention_policies", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   dataCategory: text("data_category").notNull(),
   retentionDays: integer("retention_days").notNull(),
   legalBasis: text("legal_basis").notNull(),
@@ -127,6 +130,7 @@ export type DataRetentionPolicy = typeof dataRetentionPoliciesTable.$inferSelect
 // ── Export Audit Log ───────────────────────────────────────────────────────
 export const exportAuditLogTable = pgTable("export_audit_log", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   exportedBy: uuid("exported_by"),
   reportType: text("report_type").notNull(),
   format: text("format").notNull().default("csv"),

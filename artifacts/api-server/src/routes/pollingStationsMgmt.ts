@@ -1,5 +1,9 @@
 /**
  * Polling Stations Management API
+ *
+ * polling_stations holds shared geographic/infrastructure data only.
+ * Per-tenant campaign state (accreditation, training, agent assignments) is stored
+ * in campaign_station_profiles, scoped to the active tenant.
  */
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
@@ -7,15 +11,16 @@ import { db } from "@workspace/db";
 import {
   pollingStationsTable,
   pollingAgentsTable,
+  campaignStationProfilesTable,
   resultSubmissionsTable,
   pollingCentresTable,
   wardsTable,
   constituenciesTable,
   countiesTable,
-  usersTable,
 } from "@workspace/db";
-import { eq, desc, and, or, ilike, count, inArray } from "drizzle-orm";
+import { eq, desc, and, or, ilike, count, inArray, sql } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
+import { tenantFilter, assertTenant } from '../lib/withTenant';
 
 const router = Router();
 
@@ -43,22 +48,47 @@ const canManageStations = requireRoles([
 ]);
 
 // GET /api/polling-stations-mgmt/stations
+// Returns only stations where this campaign has deployed at least one agent.
 router.get("/stations", requireAuth, canViewStations, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const { countyId, constituencyId, wardId, search, page = "1", limit = "20" } = req.query;
     const pageNum = parseInt(page) || 1;
     const pageSize = Math.min(parseInt(limit) || 20, 100);
     const offset = (pageNum - 1) * pageSize;
 
-    const conditions: any[] = [];
-    if (countyId) conditions.push(eq(pollingStationsTable.countyId, countyId));
-    if (constituencyId) conditions.push(eq(pollingStationsTable.constituencyId, constituencyId));
-    if (wardId) conditions.push(eq(pollingStationsTable.wardId, wardId));
-    if (search) conditions.push(or(
+    // Base conditions on the shared stations table
+    const stationConditions: any[] = [];
+    if (countyId) stationConditions.push(eq(pollingStationsTable.countyId, countyId));
+    if (constituencyId) stationConditions.push(eq(pollingStationsTable.constituencyId, constituencyId));
+    if (wardId) stationConditions.push(eq(pollingStationsTable.wardId, wardId));
+    if (search) stationConditions.push(or(
       ilike(pollingStationsTable.name, `%${search}%`),
       ilike(pollingStationsTable.code, `%${search}%`),
     ));
-    const where = conditions.length ? and(...conditions) : undefined;
+
+    // Scope to stations where this tenant has agents
+    const agentStationIds = await db
+      .selectDistinct({ stationId: pollingAgentsTable.pollingStationId })
+      .from(pollingAgentsTable)
+      .where(tenantFilter(pollingAgentsTable, t.id));
+    const tenantStationIds = agentStationIds
+      .map(r => r.stationId)
+      .filter((id): id is string => !!id);
+
+    if (tenantStationIds.length === 0) {
+      const [counties, constituencies] = await Promise.all([
+        db.select({ id: countiesTable.id, name: countiesTable.name }).from(countiesTable).orderBy(countiesTable.name),
+        db.select({ id: constituenciesTable.id, name: constituenciesTable.name, countyId: constituenciesTable.countyId })
+          .from(constituenciesTable).orderBy(constituenciesTable.name),
+      ]);
+      return res.json({ data: [], total: 0, page: pageNum, pageSize, counties, constituencies });
+    }
+
+    const where = and(
+      inArray(pollingStationsTable.id, tenantStationIds),
+      ...(stationConditions.length ? stationConditions : []),
+    );
 
     const [rows, [{ total }], counties, constituencies] = await Promise.all([
       db.select().from(pollingStationsTable)
@@ -72,7 +102,16 @@ router.get("/stations", requireAuth, canViewStations, async (req: any, res: any)
         .from(constituenciesTable).orderBy(constituenciesTable.name),
     ]);
 
-    res.json({ data: rows, total: Number(total), page: pageNum, pageSize, counties, constituencies });
+    // Attach tenant-specific profiles to each station row
+    const profiles = await db.select().from(campaignStationProfilesTable)
+      .where(and(
+        inArray(campaignStationProfilesTable.stationId, rows.map(r => r.id)),
+        tenantFilter(campaignStationProfilesTable, t.id),
+      ));
+    const profileMap = new Map(profiles.map(p => [p.stationId, p]));
+
+    const data = rows.map(s => ({ ...s, campaignProfile: profileMap.get(s.id) ?? null }));
+    res.json({ data, total: Number(total), page: pageNum, pageSize, counties, constituencies });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -81,35 +120,52 @@ router.get("/stations", requireAuth, canViewStations, async (req: any, res: any)
 // GET /api/polling-stations-mgmt/stations/:id
 router.get("/stations/:id", requireAuth, canViewStations, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+
+    // Verify this tenant has at least one agent at this station
+    const [tenantAgent] = await db.select({ id: pollingAgentsTable.id }).from(pollingAgentsTable)
+      .where(and(eq(pollingAgentsTable.pollingStationId, req.params.id), tenantFilter(pollingAgentsTable, t.id))).limit(1);
+    if (!tenantAgent) return res.status(404).json({ error: "Station not found" });
+
     const [station] = await db.select().from(pollingStationsTable)
       .where(eq(pollingStationsTable.id, req.params.id)).limit(1);
     if (!station) return res.status(404).json({ error: "Station not found" });
 
-    const [agents, submissions] = await Promise.all([
+    // Fetch tenant-specific campaign profile and tenant-scoped child records
+    const [campaignProfile, agents, submissions] = await Promise.all([
+      db.select().from(campaignStationProfilesTable)
+        .where(and(eq(campaignStationProfilesTable.stationId, req.params.id), tenantFilter(campaignStationProfilesTable, t.id)))
+        .limit(1).then(rows => rows[0] ?? null),
       db.select().from(pollingAgentsTable)
-        .where(eq(pollingAgentsTable.pollingStationId, req.params.id)),
+        .where(and(eq(pollingAgentsTable.pollingStationId, req.params.id), tenantFilter(pollingAgentsTable, t.id))),
       db.select({ id: resultSubmissionsTable.id, status: resultSubmissionsTable.status, submittedAt: resultSubmissionsTable.submittedAt })
         .from(resultSubmissionsTable)
-        .where(eq(resultSubmissionsTable.pollingStationId, req.params.id))
+        .where(and(eq(resultSubmissionsTable.pollingStationId, req.params.id), tenantFilter(resultSubmissionsTable, t.id)))
         .orderBy(desc(resultSubmissionsTable.createdAt))
         .limit(10),
     ]);
 
-    // Derive primaryAgent / backupAgent from agents array for frontend compatibility
-    const primaryAgent = agents.find(a => !a.isBackup) ?? null;
-    const backupAgent = agents.find(a => a.isBackup) ?? null;
+    const primaryAgent = agents.find((a: any) => !a.isBackup) ?? null;
+    const backupAgent = agents.find((a: any) => a.isBackup) ?? null;
 
-    res.json({ ...station, agents, primaryAgent, backupAgent, submissionSummary: submissions });
+    res.json({ ...station, campaignProfile, agents, primaryAgent, backupAgent, submissionSummary: submissions });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // PATCH /api/polling-stations-mgmt/stations/:id
+// Updates this tenant's campaign_station_profiles row (upsert). Never touches shared station fields.
 router.patch("/stations/:id", requireAuth, canManageStations, async (req: any, res: any) => {
   try {
-    const { primaryAgentId, backupAgentId, accreditationStatus, trainingStatus, contactStatus, reportingStatus, ...rest } = req.body;
-    const updateData: any = { ...rest };
+    const t = assertTenant(req);
+    // Verify tenant has at least one agent at this station
+    const [tenantAgent] = await db.select({ id: pollingAgentsTable.id }).from(pollingAgentsTable)
+      .where(and(eq(pollingAgentsTable.pollingStationId, req.params.id), tenantFilter(pollingAgentsTable, t.id))).limit(1);
+    if (!tenantAgent) return res.status(404).json({ error: "Station not found" });
+
+    const { primaryAgentId, backupAgentId, accreditationStatus, trainingStatus, contactStatus, reportingStatus } = req.body;
+    const updateData: any = {};
     if (primaryAgentId !== undefined) updateData.primaryAgentId = primaryAgentId;
     if (backupAgentId !== undefined) updateData.backupAgentId = backupAgentId;
     if (accreditationStatus !== undefined) updateData.accreditationStatus = accreditationStatus;
@@ -117,10 +173,15 @@ router.patch("/stations/:id", requireAuth, canManageStations, async (req: any, r
     if (contactStatus !== undefined) updateData.contactStatus = contactStatus;
     if (reportingStatus !== undefined) updateData.reportingStatus = reportingStatus;
 
-    const [row] = await db.update(pollingStationsTable).set(updateData)
-      .where(eq(pollingStationsTable.id, req.params.id)).returning();
-    if (!row) return res.status(404).json({ error: "Station not found" });
-    res.json(row);
+    // Upsert into campaign_station_profiles — tenant-scoped, never touches shared station rows
+    const [profile] = await db.insert(campaignStationProfilesTable)
+      .values({ tenantId: t.id, stationId: req.params.id, ...updateData })
+      .onConflictDoUpdate({
+        target: [campaignStationProfilesTable.tenantId, campaignStationProfilesTable.stationId],
+        set: { ...updateData, updatedAt: new Date() },
+      })
+      .returning();
+    res.json(profile);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -129,6 +190,8 @@ router.patch("/stations/:id", requireAuth, canManageStations, async (req: any, r
 // POST /api/polling-stations-mgmt/stations/import
 router.post("/stations/import", requireAuth, canManageStations, async (req: any, res: any) => {
   try {
+    // assertTenant so only authenticated campaign users can import station master data
+    assertTenant(req);
     const stations: any[] = req.body;
     if (!Array.isArray(stations) || stations.length === 0) {
       return res.status(400).json({ error: "Expected a non-empty JSON array" });
@@ -139,10 +202,7 @@ router.post("/stations/import", requireAuth, canManageStations, async (req: any,
 
     for (const s of stations) {
       try {
-        // Resolve centreId from centreCode if provided
-        let centreId = s.centreId;
-        if (!centreId && s.centreCode) {
-          // centreCode lookup not directly available — skip for now, require centreId
+        if (!s.centreId) {
           return res.status(400).json({ error: `Station ${s.code}: centreId required` });
         }
 
@@ -176,12 +236,21 @@ router.post("/stations/import", requireAuth, canManageStations, async (req: any,
 });
 
 // POST /api/polling-stations-mgmt/stations/bulk-status
+// Bulk-upserts campaign_station_profiles for stations where this tenant has agents.
 router.post("/stations/bulk-status", requireAuth, canManageStations, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const { stationIds, accreditationStatus, trainingStatus, contactStatus, reportingStatus } = req.body;
     if (!Array.isArray(stationIds) || stationIds.length === 0) {
       return res.status(400).json({ error: "stationIds array required" });
     }
+
+    // Only allow updates on stations where this tenant has agents
+    const tenantStations = await db.select({ stationId: pollingAgentsTable.pollingStationId })
+      .from(pollingAgentsTable)
+      .where(and(inArray(pollingAgentsTable.pollingStationId, stationIds), tenantFilter(pollingAgentsTable, t.id)));
+    const allowedIds = [...new Set(tenantStations.map(r => r.stationId).filter(Boolean))] as string[];
+    if (allowedIds.length === 0) return res.json({ updated: 0 });
 
     const updateData: any = {};
     if (accreditationStatus !== undefined) updateData.accreditationStatus = accreditationStatus;
@@ -193,10 +262,19 @@ router.post("/stations/bulk-status", requireAuth, canManageStations, async (req:
       return res.status(400).json({ error: "No status fields to update" });
     }
 
-    const rows = await db.update(pollingStationsTable).set(updateData)
-      .where(inArray(pollingStationsTable.id, stationIds)).returning({ id: pollingStationsTable.id });
+    // Upsert a profile row per station, scoped to this tenant
+    let updated = 0;
+    for (const stationId of allowedIds) {
+      await db.insert(campaignStationProfilesTable)
+        .values({ tenantId: t.id, stationId, ...updateData })
+        .onConflictDoUpdate({
+          target: [campaignStationProfilesTable.tenantId, campaignStationProfilesTable.stationId],
+          set: { ...updateData, updatedAt: new Date() },
+        });
+      updated++;
+    }
 
-    res.json({ updated: rows.length });
+    res.json({ updated });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

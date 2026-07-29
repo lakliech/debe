@@ -6,16 +6,15 @@ import {
   supportersTable,
   countiesTable,
   constituenciesTable,
-  wardsTable,
   consentRecordsTable,
   supporterAccessLogsTable,
   usersTable,
 } from "@workspace/db";
 import { eq, desc, and, ilike, or, count, inArray } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
-import { validate } from "../lib/validate";
+import { resolveTenant } from "../middlewares/resolveTenant";
+import { tenantFilter, assertTenant } from "../lib/withTenant";
 
-/** Resolve a Clerk text ID to the local UUID from the users table. Returns null if not found. */
 async function resolveActorUUID(clerkId: string): Promise<string | null> {
   const [row] = await db
     .select({ id: usersTable.id })
@@ -56,8 +55,6 @@ const canViewConsents = requireRoles([
   "communications-officer",
 ]);
 
-// ─── Schemas ──────────────────────────────────────────────────────────────────
-
 const SupporterPatchSchema = z.object({
   fullName: z.string().min(1).optional(),
   email: z.string().email().optional(),
@@ -83,105 +80,66 @@ const ConsentWithdrawSchema = z.object({
 });
 
 // GET /api/supporters
-router.get("/", requireAuth, async (req: any, res: any) => {
+router.get("/", requireAuth, resolveTenant, canManageSupporters, async (req: any, res: any) => {
   try {
-    const { search, countyId, constituencyId, optedOut, page = "1", limit = "20" } = req.query;
-    const pageNum = parseInt(page) || 1;
-    const limitNum = Math.min(parseInt(limit) || 20, 100);
-    const offset = (pageNum - 1) * limitNum;
+    const t = assertTenant(req);
+    const { status, countyId, search, page = "1", limit = "25" } = req.query;
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const pageSize = Math.min(100, parseInt(limit) || 25);
+    const offset = (pageNum - 1) * pageSize;
 
-    const rows = await db
+    const conditions: any[] = [tenantFilter(supportersTable, t.id)];
+    if (status === "opted-out") conditions.push(eq(supportersTable.optedOut, true));
+    else if (status === "active") conditions.push(eq(supportersTable.optedOut, false));
+    if (countyId) conditions.push(eq(supportersTable.countyId, countyId));
+    if (search) conditions.push(or(
+      ilike(supportersTable.fullName, `%${search}%`),
+      ilike(supportersTable.email, `%${search}%`),
+      ilike(supportersTable.phoneNumber, `%${search}%`),
+    ));
+
+    const where = and(...conditions);
+
+    const [{ total }] = await db
+      .select({ total: count() })
+      .from(supportersTable)
+      .where(where);
+
+    const data = await db
       .select({
         id: supportersTable.id,
         fullName: supportersTable.fullName,
         email: supportersTable.email,
         phoneNumber: supportersTable.phoneNumber,
+        countyId: supportersTable.countyId,
         membershipStatus: supportersTable.membershipStatus,
         optedOut: supportersTable.optedOut,
-        consentMarketing: supportersTable.consentMarketing,
-        consentSms: supportersTable.consentSms,
-        countyId: supportersTable.countyId,
-        constituencyId: supportersTable.constituencyId,
         createdAt: supportersTable.createdAt,
         countyName: countiesTable.name,
       })
       .from(supportersTable)
       .leftJoin(countiesTable, eq(supportersTable.countyId, countiesTable.id))
-      .where(
-        and(
-          countyId ? eq(supportersTable.countyId, countyId) : undefined,
-          constituencyId ? eq(supportersTable.constituencyId, constituencyId) : undefined,
-          optedOut !== undefined ? eq(supportersTable.optedOut, optedOut === "true") : undefined,
-          search
-            ? or(
-                ilike(supportersTable.fullName, `%${search}%`),
-                ilike(supportersTable.email, `%${search}%`),
-                ilike(supportersTable.phoneNumber, `%${search}%`)
-              )
-            : undefined
-        )
-      )
+      .where(where)
       .orderBy(desc(supportersTable.createdAt))
-      .limit(limitNum)
+      .limit(pageSize)
       .offset(offset);
 
-    const [totalRow] = await db.select({ total: count() }).from(supportersTable)
-      .where(and(
-        countyId ? eq(supportersTable.countyId, countyId) : undefined,
-        optedOut !== undefined ? eq(supportersTable.optedOut, optedOut === "true") : undefined,
-      ));
-
-    res.json({ data: rows, total: totalRow?.total ?? 0, page: pageNum, limit: limitNum });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// GET /api/supporters/stats
-router.get("/stats", requireAuth, async (req: any, res: any) => {
-  try {
-    const [totals] = await db.select({ total: count() }).from(supportersTable);
-    const [optedOutCount] = await db.select({ total: count() }).from(supportersTable).where(eq(supportersTable.optedOut, true));
-    const [consentSmsCount] = await db.select({ total: count() }).from(supportersTable).where(eq(supportersTable.consentSms, true));
-    const [consentEmailCount] = await db.select({ total: count() }).from(supportersTable).where(eq(supportersTable.consentEmail, true));
-
-    res.json({
-      total: Number(totals?.total ?? 0),
-      optedOut: Number(optedOutCount?.total ?? 0),
-      consentSms: Number(consentSmsCount?.total ?? 0),
-      consentEmail: Number(consentEmailCount?.total ?? 0),
-    });
+    res.json({ data, total: Number(total), page: pageNum, limit: pageSize });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // GET /api/supporters/:id
-router.get("/:id", requireAuth, async (req: any, res: any) => {
+router.get("/:id", requireAuth, resolveTenant, canManageSupporters, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const [supporter] = await db
       .select()
       .from(supportersTable)
-      .where(eq(supportersTable.id, req.params.id))
+      .where(and(eq(supportersTable.id, req.params.id), tenantFilter(supportersTable, t.id)))
       .limit(1);
-
     if (!supporter) return res.status(404).json({ error: "Supporter not found" });
-
-    // Log access — resolve Clerk text ID to local UUID (required for UUID column)
-    const actorUUID = req.actorId ?? await resolveActorUUID(req.clerkId).catch(() => null);
-    if (actorUUID) {
-      await db.insert(supporterAccessLogsTable).values({
-        supporterId: req.params.id,
-        accessedBy: actorUUID,
-        accessedByEmail: req.auth?.userEmail,
-        action: "view",
-      }).catch((err: any) => {
-        console.warn("[supporters] access log write failed:", err?.message);
-      });
-    } else {
-      console.warn("[supporters] access log skipped: could not resolve actor UUID for clerkId", req.clerkId);
-    }
-
     res.json(supporter);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -189,63 +147,46 @@ router.get("/:id", requireAuth, async (req: any, res: any) => {
 });
 
 // PATCH /api/supporters/:id
-router.patch("/:id", requireAuth, canManageSupporters, async (req: any, res: any) => {
+router.patch("/:id", requireAuth, resolveTenant, canManageSupporters, async (req: any, res: any) => {
   try {
-    const body = validate(SupporterPatchSchema, req.body, res);
-    if (!body) return;
-
-    const {
-      fullName, email, phoneNumber, countyId, constituencyId, wardId,
-      membershipStatus, policyInterests,
-      consentMarketing, consentSms, consentEmail,
-    } = body;
-
+    const t = assertTenant(req);
+    const parsed = SupporterPatchSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Validation failed", details: parsed.error.flatten() });
     const [updated] = await db
       .update(supportersTable)
-      .set({
-        ...(fullName !== undefined && { fullName }),
-        ...(email !== undefined && { email }),
-        ...(phoneNumber !== undefined && { phoneNumber }),
-        ...(countyId !== undefined && { countyId }),
-        ...(constituencyId !== undefined && { constituencyId }),
-        ...(wardId !== undefined && { wardId }),
-        ...(membershipStatus !== undefined && { membershipStatus }),
-        ...(policyInterests !== undefined && { policyInterests }),
-        ...(consentMarketing !== undefined && { consentMarketing }),
-        ...(consentSms !== undefined && { consentSms }),
-        ...(consentEmail !== undefined && { consentEmail }),
-      })
-      .where(eq(supportersTable.id, req.params.id))
+      .set(parsed.data)
+      .where(and(eq(supportersTable.id, req.params.id), tenantFilter(supportersTable, t.id)))
       .returning();
-
     if (!updated) return res.status(404).json({ error: "Supporter not found" });
-
-    const editActorUUID = req.actorId ?? await resolveActorUUID(req.clerkId).catch(() => null);
-    if (editActorUUID) {
-      await db.insert(supporterAccessLogsTable).values({
-        supporterId: req.params.id,
-        accessedBy: editActorUUID,
-        action: "edit",
-      }).catch((err: any) => {
-        console.warn("[supporters] access log write failed:", err?.message);
-      });
-    } else {
-      console.warn("[supporters] access log skipped: could not resolve actor UUID for clerkId", req.clerkId);
-    }
-
     res.json(updated);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// POST /api/supporters/:id/opt-out
-router.post("/:id/opt-out", requireAuth, async (req: any, res: any) => {
+// DELETE /api/supporters/:id — GDPR erasure
+router.delete("/:id", requireAuth, resolveTenant, canExportSupporters, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    const [deleted] = await db
+      .delete(supportersTable)
+      .where(and(eq(supportersTable.id, req.params.id), tenantFilter(supportersTable, t.id)))
+      .returning({ id: supportersTable.id });
+    if (!deleted) return res.status(404).json({ error: "Supporter not found" });
+    res.json({ deleted: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/supporters/:id/opt-out
+router.post("/:id/opt-out", requireAuth, resolveTenant, canManageSupporters, async (req: any, res: any) => {
+  try {
+    const t = assertTenant(req);
     const [updated] = await db
       .update(supportersTable)
-      .set({ optedOut: true, optedOutAt: new Date(), consentMarketing: false, consentSms: false, consentEmail: false })
-      .where(eq(supportersTable.id, req.params.id))
+      .set({ optedOut: true, optedOutAt: new Date() })
+      .where(and(eq(supportersTable.id, req.params.id), tenantFilter(supportersTable, t.id)))
       .returning();
     if (!updated) return res.status(404).json({ error: "Supporter not found" });
     res.json(updated);
@@ -255,12 +196,22 @@ router.post("/:id/opt-out", requireAuth, async (req: any, res: any) => {
 });
 
 // GET /api/supporters/:id/consents
-router.get("/:id/consents", requireAuth, canViewConsents, async (req: any, res: any) => {
+router.get("/:id/consents", requireAuth, resolveTenant, canViewConsents, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    const [supporter] = await db.select({ id: supportersTable.id })
+      .from(supportersTable)
+      .where(and(eq(supportersTable.id, req.params.id), tenantFilter(supportersTable, t.id)))
+      .limit(1);
+    if (!supporter) return res.status(404).json({ error: "Supporter not found" });
+
     const consents = await db
       .select()
       .from(consentRecordsTable)
-      .where(and(eq(consentRecordsTable.subjectId, req.params.id), eq(consentRecordsTable.subjectType, "supporter")))
+      .where(and(
+        eq(consentRecordsTable.subjectType, "supporter"),
+        eq(consentRecordsTable.subjectId, req.params.id),
+      ))
       .orderBy(desc(consentRecordsTable.createdAt));
     res.json(consents);
   } catch (err: any) {
@@ -268,82 +219,83 @@ router.get("/:id/consents", requireAuth, canViewConsents, async (req: any, res: 
   }
 });
 
-// POST /api/supporters/:id/consents
-router.post("/:id/consents", requireAuth, canManageSupporters, async (req: any, res: any) => {
+// POST /api/supporters/:id/consents — grant or update a consent
+router.post("/:id/consents", requireAuth, resolveTenant, canManageSupporters, async (req: any, res: any) => {
   try {
-    const body = validate(ConsentGrantSchema, req.body, res);
-    if (!body) return;
+    const t = assertTenant(req);
+    const [supporter] = await db.select({ id: supportersTable.id })
+      .from(supportersTable)
+      .where(and(eq(supportersTable.id, req.params.id), tenantFilter(supportersTable, t.id)))
+      .limit(1);
+    if (!supporter) return res.status(404).json({ error: "Supporter not found" });
 
-    const { consentType, granted } = body;
-    const [record] = await db
-      .insert(consentRecordsTable)
-      .values({
-        subjectType: "supporter",
-        subjectId: req.params.id,
-        consentType,
-        granted: granted ?? true,
-        grantedAt: granted !== false ? new Date() : undefined,
-      })
-      .returning();
-    res.status(201).json(record);
+    const { consentType, granted = true, ipAddress } = req.body;
+    if (!consentType) return res.status(400).json({ error: "consentType required" });
+
+    const actorId = await resolveActorUUID(req.clerkId);
+    const [row] = await db.insert(consentRecordsTable).values({
+      subjectType: "supporter",
+      subjectId: req.params.id,
+      consentType,
+      granted,
+      grantedAt: granted ? new Date() : undefined,
+      ipAddress: ipAddress ?? req.ip,
+      collectedBy: actorId ?? undefined,
+    }).returning();
+    res.status(201).json(row);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// POST /api/supporters/:id/consents/withdraw
-router.post("/:id/consents/withdraw", requireAuth, async (req: any, res: any) => {
+// POST /api/supporters/:id/consents/withdraw — withdraw all or a specific consent type
+router.post("/:id/consents/withdraw", requireAuth, resolveTenant, canManageSupporters, async (req: any, res: any) => {
   try {
-    const body = validate(ConsentWithdrawSchema, req.body, res);
-    if (!body) return;
+    const t = assertTenant(req);
+    const [supporter] = await db.select({ id: supportersTable.id })
+      .from(supportersTable)
+      .where(and(eq(supportersTable.id, req.params.id), tenantFilter(supportersTable, t.id)))
+      .limit(1);
+    if (!supporter) return res.status(404).json({ error: "Supporter not found" });
 
-    const { consentType } = body;
-    // Mark all active consents of this type as withdrawn
-    await db
-      .update(consentRecordsTable)
-      .set({ granted: false, withdrawnAt: new Date() })
-      .where(
-        and(
-          eq(consentRecordsTable.subjectId, req.params.id),
-          eq(consentRecordsTable.subjectType, "supporter"),
-          consentType ? eq(consentRecordsTable.consentType, consentType) : undefined,
-          eq(consentRecordsTable.granted, true)
-        )
-      );
-    // Also update the supporter table flags
-    const updates: any = {};
-    if (!consentType || consentType === "marketing") updates.consentMarketing = false;
-    if (!consentType || consentType === "sms") updates.consentSms = false;
-    if (!consentType || consentType === "email") updates.consentEmail = false;
-    if (Object.keys(updates).length) {
-      await db.update(supportersTable).set(updates).where(eq(supportersTable.id, req.params.id));
-    }
+    const { consentType } = req.body;
+    const actorId = await resolveActorUUID(req.clerkId);
+
+    const conditions: any[] = [
+      eq(consentRecordsTable.subjectType, "supporter"),
+      eq(consentRecordsTable.subjectId, req.params.id),
+    ];
+    if (consentType) conditions.push(eq(consentRecordsTable.consentType, consentType));
+
+    await db.update(consentRecordsTable).set({
+      granted: false,
+      withdrawnAt: new Date(),
+      withdrawnBy: actorId ?? undefined,
+    }).where(and(...conditions));
+
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// GET /api/supporters/:id/access-logs
-router.get("/:id/access-logs", requireAuth, canViewConsents, async (req: any, res: any) => {
+// GET /api/supporters/:id/access-logs — DPO audit trail of who viewed this supporter
+router.get("/:id/access-logs", requireAuth, resolveTenant, canViewConsents, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    const [supporter] = await db.select({ id: supportersTable.id })
+      .from(supportersTable)
+      .where(and(eq(supportersTable.id, req.params.id), tenantFilter(supportersTable, t.id)))
+      .limit(1);
+    if (!supporter) return res.status(404).json({ error: "Supporter not found" });
+
     const logs = await db
       .select()
       .from(supporterAccessLogsTable)
       .where(eq(supporterAccessLogsTable.supporterId, req.params.id))
       .orderBy(desc(supporterAccessLogsTable.createdAt))
-      .limit(50);
+      .limit(200);
     res.json(logs);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// DELETE /api/supporters/:id — data deletion request (hard delete, restricted)
-router.delete("/:id", requireAuth, canExportSupporters, async (req: any, res: any) => {
-  try {
-    await db.delete(supportersTable).where(eq(supportersTable.id, req.params.id));
-    res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

@@ -4,6 +4,7 @@ import { getAuth } from '@clerk/express';
 import { db } from '@workspace/db';
 import { contentAssetsTable, usersTable, userRolesTable, rolesTable } from '@workspace/db';
 import { eq, and } from 'drizzle-orm';
+import { tenantFilter, assertTenant } from '../lib/withTenant';
 
 // Inline validation helpers (replaces codegen-derived Zod schemas)
 const RequestUploadUrlBody = {
@@ -39,16 +40,19 @@ function requireClerkAuth(req: Request, res: Response): string | null {
   return auth.userId;
 }
 
-/** Resolve actor roles from Clerk userId. Returns empty array if user not found. */
-async function getActorRoles(clerkUserId: string): Promise<string[]> {
+/** Resolve actor roles from Clerk userId, scoped to the active tenant. Returns empty array if user not found. */
+async function getActorRoles(clerkUserId: string, tenantId?: string): Promise<string[]> {
   const [user] = await db.select({ id: usersTable.id })
     .from(usersTable).where(eq(usersTable.clerkId, clerkUserId)).limit(1);
   if (!user) return [];
+  const roleWhere = tenantId
+    ? and(eq(userRolesTable.userId, user.id), eq(userRolesTable.tenantId, tenantId))
+    : eq(userRolesTable.userId, user.id);
   const roleRows = await db
     .select({ slug: rolesTable.slug })
     .from(userRolesTable)
     .innerJoin(rolesTable, eq(userRolesTable.roleId, rolesTable.id))
-    .where(eq(userRolesTable.userId, user.id));
+    .where(roleWhere);
   return roleRows.map(r => r.slug);
 }
 
@@ -64,8 +68,11 @@ router.post(
     const clerkUserId = requireClerkAuth(req, res);
     if (!clerkUserId) return;
 
-    // Only content managers may request upload URLs
-    const roles = await getActorRoles(clerkUserId);
+    // Require resolved tenant — upload URL must be scoped to an active campaign
+    const t = assertTenant(req as any);
+
+    // Only content managers may request upload URLs — check within active tenant
+    const roles = await getActorRoles(clerkUserId, t.id);
     const isManager = roles.some(r => CONTENT_MANAGER_ROLES.has(r));
     if (!isManager) {
       res.status(403).json({ error: 'Forbidden: content manager role required' });
@@ -141,25 +148,28 @@ router.get('/storage/objects/*path', async (req: Request, res: Response) => {
     const clerkUserId = requireClerkAuth(req, res);
     if (!clerkUserId) return;
 
+    // Require resolved tenant — private object access must be scoped to an active campaign
+    const t = assertTenant(req as any);
+
     const raw = req.params.path;
     const wildcardPath = Array.isArray(raw) ? raw.join('/') : raw;
     const objectPath = `/objects/${wildcardPath}`;
 
-    // Look up the asset by objectPath in the content catalogue
+    // Look up the asset by objectPath, restricted to the active tenant's catalogue
     const [asset] = await db
       .select({ id: contentAssetsTable.id, approvalStatus: contentAssetsTable.approvalStatus })
       .from(contentAssetsTable)
-      .where(eq(contentAssetsTable.objectPath, objectPath))
+      .where(and(eq(contentAssetsTable.objectPath, objectPath), tenantFilter(contentAssetsTable, t.id)))
       .limit(1);
 
     if (!asset) {
-      // Not catalogued — deny all access (no orphan object serving)
+      // Not catalogued under this tenant — deny access
       res.status(404).json({ error: 'Object not found in catalogue' });
       return;
     }
 
-    // Resolve caller's roles
-    const roles = await getActorRoles(clerkUserId);
+    // Resolve caller's roles scoped to active tenant
+    const roles = await getActorRoles(clerkUserId, t.id);
     const isManager = roles.some(r => CONTENT_MANAGER_ROLES.has(r));
 
     const VIEW_ROLES = new Set([

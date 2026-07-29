@@ -14,13 +14,14 @@ import {
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { countiesTable, constituenciesTable, wardsTable } from "./geography";
-import { usersTable } from "./core";
+import { usersTable, tenantsTable } from "./core";
 import { volunteersTable } from "./config";
 
 // ── Manifesto Sectors (20 sectors) ───────────────────────────────────────────
 export const manifestoSectorsTable = pgTable("manifesto_sectors", {
   id: uuid("id").primaryKey().defaultRandom(),
-  slug: text("slug").notNull().unique(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
+  slug: text("slug").notNull(),
   titleEn: text("title_en").notNull(),
   titleSw: text("title_sw").notNull(),
   descriptionEn: text("description_en"),
@@ -53,6 +54,7 @@ export type ManifestoItem = typeof manifestoItemsTable.$inferSelect;
 // ── County Priorities ─────────────────────────────────────────────────────────
 export const countyPrioritiesTable = pgTable("county_priorities", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   countyId: uuid("county_id").notNull().references(() => countiesTable.id),
   sectorId: uuid("sector_id").references(() => manifestoSectorsTable.id),
   titleEn: text("title_en").notNull(),
@@ -68,8 +70,9 @@ export type CountyPriority = typeof countyPrioritiesTable.$inferSelect;
 // ── News Articles / Speeches / Statements ────────────────────────────────────
 export const newsArticlesTable = pgTable("news_articles", {
   id: uuid("id").primaryKey().defaultRandom(),
-  slug: text("slug").notNull().unique(),
-  category: text("category").notNull().default("news"), // news | speech | statement | press-release
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
+  slug: text("slug").notNull(),
+  category: text("category").notNull().default("news"),
   titleEn: text("title_en").notNull(),
   titleSw: text("title_sw"),
   bodyEn: text("body_en"),
@@ -80,7 +83,7 @@ export const newsArticlesTable = pgTable("news_articles", {
   videoUrl: text("video_url"),
   authorId: uuid("author_id"),
   publishedAt: timestamp("published_at", { withTimezone: true }),
-  status: text("status").notNull().default("draft"), // draft | published | archived
+  status: text("status").notNull().default("draft"),
   countyId: uuid("county_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
@@ -91,6 +94,7 @@ export type NewsArticle = typeof newsArticlesTable.$inferSelect;
 // ── FAQ Items ─────────────────────────────────────────────────────────────────
 export const faqItemsTable = pgTable("faq_items", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   category: text("category").default("general"),
   questionEn: text("question_en").notNull(),
   questionSw: text("question_sw"),
@@ -106,11 +110,12 @@ export type FaqItem = typeof faqItemsTable.$inferSelect;
 // ── Fact Check Entries ────────────────────────────────────────────────────────
 export const factCheckItemsTable = pgTable("fact_check_items", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   claimEn: text("claim_en").notNull(),
   claimSw: text("claim_sw"),
   verdictEn: text("verdict_en").notNull(),
   verdictSw: text("verdict_sw"),
-  rating: text("rating").notNull().default("false"), // true | false | misleading | unverified
+  rating: text("rating").notNull().default("false"),
   sourceUrl: text("source_url"),
   checkedBy: uuid("checked_by"),
   publishedAt: timestamp("published_at", { withTimezone: true }),
@@ -122,9 +127,9 @@ export type FactCheckItem = typeof factCheckItemsTable.$inferSelect;
 // ── Consent Records ───────────────────────────────────────────────────────────
 export const consentRecordsTable = pgTable("consent_records", {
   id: uuid("id").primaryKey().defaultRandom(),
-  subjectType: text("subject_type").notNull(), // volunteer | supporter | user
+  subjectType: text("subject_type").notNull(),
   subjectId: uuid("subject_id").notNull(),
-  consentType: text("consent_type").notNull(), // marketing | sms | email | data_processing | code_of_conduct
+  consentType: text("consent_type").notNull(),
   granted: boolean("granted").notNull().default(false),
   grantedAt: timestamp("granted_at", { withTimezone: true }),
   withdrawnAt: timestamp("withdrawn_at", { withTimezone: true }),
@@ -140,6 +145,7 @@ export type ConsentRecord = typeof consentRecordsTable.$inferSelect;
 // ── Training Courses ──────────────────────────────────────────────────────────
 export const trainingCoursesTable = pgTable("training_courses", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   titleSw: text("title_sw"),
   description: text("description"),
@@ -148,7 +154,7 @@ export const trainingCoursesTable = pgTable("training_courses", {
   mandatory: boolean("mandatory").default(false),
   passMark: integer("pass_mark").default(70),
   certificateTemplate: text("certificate_template"),
-  status: text("status").notNull().default("draft"), // draft | published | archived
+  status: text("status").notNull().default("draft"),
   createdBy: uuid("created_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
@@ -162,7 +168,7 @@ export const trainingModulesTable = pgTable("training_modules", {
   courseId: uuid("course_id").notNull().references(() => trainingCoursesTable.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   titleSw: text("title_sw"),
-  contentType: text("content_type").notNull().default("text"), // text | video | document | quiz
+  contentType: text("content_type").notNull().default("text"),
   contentEn: text("content_en"),
   contentSw: text("content_sw"),
   videoUrl: text("video_url"),
@@ -180,7 +186,7 @@ export const quizQuestionsTable = pgTable("quiz_questions", {
   moduleId: uuid("module_id").notNull().references(() => trainingModulesTable.id, { onDelete: "cascade" }),
   questionEn: text("question_en").notNull(),
   questionSw: text("question_sw"),
-  options: jsonb("options").notNull(), // [{ id, textEn, textSw }]
+  options: jsonb("options").notNull(),
   correctOptionId: text("correct_option_id").notNull(),
   explanationEn: text("explanation_en"),
   explanationSw: text("explanation_sw"),
@@ -196,7 +202,7 @@ export const trainingEnrollmentsTable = pgTable("training_enrollments", {
   courseId: uuid("course_id").notNull().references(() => trainingCoursesTable.id),
   volunteerId: uuid("volunteer_id").references(() => volunteersTable.id),
   userId: uuid("user_id"),
-  status: text("status").notNull().default("enrolled"), // enrolled | in_progress | completed | failed
+  status: text("status").notNull().default("enrolled"),
   score: integer("score"),
   startedAt: timestamp("started_at", { withTimezone: true }),
   completedAt: timestamp("completed_at", { withTimezone: true }),
@@ -231,7 +237,7 @@ export const badgeDefinitionsTable = pgTable("badge_definitions", {
   description: text("description"),
   iconUrl: text("icon_url"),
   criteria: text("criteria"),
-  level: text("level").default("bronze"), // bronze | silver | gold | platinum
+  level: text("level").default("bronze"),
   category: text("category").default("participation"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -254,19 +260,20 @@ export type BadgeAward = typeof badgeAwardsTable.$inferSelect;
 // ── Volunteer Tasks ───────────────────────────────────────────────────────────
 export const volunteerTasksTable = pgTable("volunteer_tasks", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   description: text("description"),
-  taskType: text("task_type").default("fieldwork"), // fieldwork | digital | logistics | outreach
+  taskType: text("task_type").default("fieldwork"),
   countyId: uuid("county_id"),
   constituencyId: uuid("constituency_id"),
   wardId: uuid("ward_id"),
   dueDate: text("due_date"),
   estimatedHours: integer("estimated_hours"),
   maxAssignees: integer("max_assignees").default(1),
-  status: text("status").notNull().default("open"), // open | in_progress | completed | cancelled
+  status: text("status").notNull().default("open"),
   createdBy: uuid("created_by").notNull(),
   supervisorId: uuid("supervisor_id"),
-  priority: text("priority").default("normal"), // low | normal | high | urgent
+  priority: text("priority").default("normal"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
@@ -280,7 +287,7 @@ export const taskAssignmentsTable = pgTable("task_assignments", {
   volunteerId: uuid("volunteer_id").notNull().references(() => volunteersTable.id),
   assignedBy: uuid("assigned_by").notNull(),
   approvedBy: uuid("approved_by"),
-  status: text("status").notNull().default("pending"), // pending | approved | in_progress | completed | declined
+  status: text("status").notNull().default("pending"),
   hoursLogged: integer("hours_logged").default(0),
   notes: text("notes"),
   completedAt: timestamp("completed_at", { withTimezone: true }),
@@ -294,7 +301,7 @@ export type TaskAssignment = typeof taskAssignmentsTable.$inferSelect;
 export const volunteerAttendanceTable = pgTable("volunteer_attendance", {
   id: uuid("id").primaryKey().defaultRandom(),
   volunteerId: uuid("volunteer_id").notNull().references(() => volunteersTable.id),
-  activityType: text("activity_type").notNull(), // training | rally | meetup | canvassing | polling_duty
+  activityType: text("activity_type").notNull(),
   activityId: uuid("activity_id"),
   activityName: text("activity_name"),
   checkInAt: timestamp("check_in_at", { withTimezone: true }).notNull().defaultNow(),
@@ -314,7 +321,7 @@ export const supporterAccessLogsTable = pgTable("supporter_access_logs", {
   supporterId: uuid("supporter_id").notNull(),
   accessedBy: uuid("accessed_by").notNull(),
   accessedByEmail: text("accessed_by_email"),
-  action: text("action").notNull(), // view | export | edit | delete
+  action: text("action").notNull(),
   reason: text("reason"),
   ipAddress: text("ip_address"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

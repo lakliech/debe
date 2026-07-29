@@ -15,6 +15,7 @@ import {
 } from "@workspace/db";
 import { eq, and, desc, count, sql } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
+import { tenantFilter, assertTenant } from '../lib/withTenant';
 
 const router = Router();
 
@@ -40,14 +41,17 @@ const canViewCoordinator = requireRoles([
 // Query params: scope=national|county|constituency|ward, id=<uuid>
 router.get("/dashboard", requireAuth, canViewCoordinator, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const { scope = "national", id } = req.query;
 
     const whereClause = (table: any) => {
-      if (!id) return undefined;
-      if (scope === "county") return eq(table.countyId, id as string);
-      if (scope === "constituency") return eq(table.constituencyId, id as string);
-      if (scope === "ward") return eq(table.wardId, id as string);
-      return undefined;
+      const conditions: any[] = [tenantFilter(table, t.id)];
+      if (id) {
+        if (scope === "county") conditions.push(eq(table.countyId, id as string));
+        else if (scope === "constituency") conditions.push(eq(table.constituencyId, id as string));
+        else if (scope === "ward") conditions.push(eq(table.wardId, id as string));
+      }
+      return and(...conditions);
     };
 
     const [volunteerTotal] = await db.select({ total: count() }).from(volunteersTable)
@@ -109,6 +113,7 @@ router.get("/dashboard", requireAuth, canViewCoordinator, async (req: any, res: 
 // Returns per-county volunteer counts for heatmap
 router.get("/coverage", requireAuth, canViewCoordinator, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const countyCounts = await db
       .select({
         countyId: volunteersTable.countyId,
@@ -121,7 +126,7 @@ router.get("/coverage", requireAuth, canViewCoordinator, async (req: any, res: a
       })
       .from(volunteersTable)
       .leftJoin(countiesTable, eq(volunteersTable.countyId, countiesTable.id))
-      .where(sql`${volunteersTable.countyId} IS NOT NULL`)
+      .where(and(tenantFilter(volunteersTable, t.id), sql`${volunteersTable.countyId} IS NOT NULL`))
       .groupBy(volunteersTable.countyId, countiesTable.name, countiesTable.code, countiesTable.latitude, countiesTable.longitude)
       .orderBy(desc(count()));
 
@@ -151,7 +156,8 @@ router.get("/coverage", requireAuth, canViewCoordinator, async (req: any, res: a
 // GET /api/coordinator/gap-alerts
 router.get("/gap-alerts", requireAuth, canViewCoordinator, async (req: any, res: any) => {
   try {
-    // Counties with fewer than 5 active volunteers
+    const t = assertTenant(req);
+    // Counties with fewer than 5 active volunteers (scoped to tenant)
     const lowCoverageCounties = await db
       .select({
         countyId: volunteersTable.countyId,
@@ -160,7 +166,7 @@ router.get("/gap-alerts", requireAuth, canViewCoordinator, async (req: any, res:
       })
       .from(volunteersTable)
       .leftJoin(countiesTable, eq(volunteersTable.countyId, countiesTable.id))
-      .where(sql`${volunteersTable.countyId} IS NOT NULL`)
+      .where(and(tenantFilter(volunteersTable, t.id), sql`${volunteersTable.countyId} IS NOT NULL`))
       .groupBy(volunteersTable.countyId, countiesTable.name)
       .having(sql`COUNT(*) FILTER (WHERE ${volunteersTable.status} = 'active') < 5`)
       .orderBy(sql`COUNT(*) FILTER (WHERE ${volunteersTable.status} = 'active') ASC`)
@@ -172,6 +178,7 @@ router.get("/gap-alerts", requireAuth, canViewCoordinator, async (req: any, res:
       .from(volunteersTable)
       .where(
         and(
+          tenantFilter(volunteersTable, t.id),
           eq(volunteersTable.status, "pending"),
           sql`${volunteersTable.createdAt} < NOW() - INTERVAL '7 days'`
         )
@@ -190,6 +197,7 @@ router.get("/gap-alerts", requireAuth, canViewCoordinator, async (req: any, res:
 // Paginated, filtered to coordinator's area
 router.get("/volunteers", requireAuth, canViewCoordinator, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const { countyId, constituencyId, wardId, status, page = "1" } = req.query;
     const pageNum = parseInt(page as string) || 1;
     const limit = 20;
@@ -211,6 +219,7 @@ router.get("/volunteers", requireAuth, canViewCoordinator, async (req: any, res:
       .leftJoin(constituenciesTable, eq(volunteersTable.constituencyId, constituenciesTable.id))
       .where(
         and(
+          tenantFilter(volunteersTable, t.id),
           countyId ? eq(volunteersTable.countyId, countyId as string) : undefined,
           constituencyId ? eq(volunteersTable.constituencyId, constituencyId as string) : undefined,
           wardId ? eq(volunteersTable.wardId, wardId as string) : undefined,
@@ -223,6 +232,7 @@ router.get("/volunteers", requireAuth, canViewCoordinator, async (req: any, res:
 
     const [totalRow] = await db.select({ total: count() }).from(volunteersTable)
       .where(and(
+        tenantFilter(volunteersTable, t.id),
         countyId ? eq(volunteersTable.countyId, countyId as string) : undefined,
         constituencyId ? eq(volunteersTable.constituencyId, constituencyId as string) : undefined,
         status ? eq(volunteersTable.status, status as string) : undefined,

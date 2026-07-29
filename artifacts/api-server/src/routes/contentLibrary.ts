@@ -10,6 +10,7 @@ import {
 } from "@workspace/db";
 import { eq, desc, and, ilike, or, count } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
+import { tenantFilter, assertTenant } from '../lib/withTenant';
 
 const router = Router();
 
@@ -49,14 +50,15 @@ function redactAsset(asset: any, actorRoles: string[]): any {
 // GET /api/content/assets
 router.get("/assets", requireAuth, canViewLibrary, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const { category, approvalStatus, countyId, search, page = "1", limit = "20" } = req.query;
     const pageNum = parseInt(page) || 1; const pageSize = Math.min(parseInt(limit) || 20, 100);
-    const conds: any[] = [];
+    const conds: any[] = [tenantFilter(contentAssetsTable, t.id)];
     if (category) conds.push(eq(contentAssetsTable.category, category));
     if (approvalStatus) conds.push(eq(contentAssetsTable.approvalStatus, approvalStatus));
     if (countyId) conds.push(eq(contentAssetsTable.countyId, countyId));
     if (search) conds.push(or(ilike(contentAssetsTable.title, `%${search}%`), ilike(contentAssetsTable.description, `%${search}%`)));
-    const where = conds.length ? and(...conds) : undefined;
+    const where = and(...conds);
     const [rows, [{ total }]] = await Promise.all([
       db.select().from(contentAssetsTable).where(where).orderBy(desc(contentAssetsTable.updatedAt)).limit(pageSize).offset((pageNum - 1) * pageSize),
       db.select({ total: count() }).from(contentAssetsTable).where(where),
@@ -71,9 +73,10 @@ router.get("/assets", requireAuth, canViewLibrary, async (req: any, res: any) =>
 // POST /api/content/assets — create catalogue entry after file is uploaded to GCS
 router.post("/assets", requireAuth, canManageLibrary, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const actorId = await resolveActorUUID(req.clerkId);
     if (!actorId) return res.status(403).json({ error: "Actor not found" });
-    const [asset] = await db.insert(contentAssetsTable).values({ ...req.body, owner: actorId, approvalStatus: "pending" }).returning();
+    const [asset] = await db.insert(contentAssetsTable).values({ ...req.body, tenantId: t.id, owner: actorId, approvalStatus: "pending" }).returning();
     // Create initial version record
     await db.insert(assetVersionsTable).values({ assetId: asset.id, version: 1, objectPath: asset.objectPath, uploadedBy: actorId });
     res.status(201).json(asset);
@@ -85,7 +88,8 @@ router.post("/assets", requireAuth, canManageLibrary, async (req: any, res: any)
 // GET /api/content/assets/:id
 router.get("/assets/:id", requireAuth, canViewLibrary, async (req: any, res: any) => {
   try {
-    const [asset] = await db.select().from(contentAssetsTable).where(eq(contentAssetsTable.id, req.params.id)).limit(1);
+    const t = assertTenant(req);
+    const [asset] = await db.select().from(contentAssetsTable).where(and(eq(contentAssetsTable.id, req.params.id), tenantFilter(contentAssetsTable, t.id))).limit(1);
     if (!asset) return res.status(404).json({ error: "Asset not found" });
     const versions = await db.select().from(assetVersionsTable).where(eq(assetVersionsTable.assetId, req.params.id)).orderBy(desc(assetVersionsTable.version));
     const [{ total: dlCount }] = await db.select({ total: count() }).from(downloadRecordsTable).where(eq(downloadRecordsTable.assetId, req.params.id));
@@ -109,6 +113,7 @@ router.get("/assets/:id", requireAuth, canViewLibrary, async (req: any, res: any
 //   Allowed fields restricted to: title, description, tags, language.
 router.patch("/assets/:id", requireAuth, canViewLibrary, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const actorRoles: string[] = (req as any).actorRoles ?? [];
     const isManager = actorRoles.some(r => MANAGER_ROLES.has(r));
 
@@ -116,7 +121,7 @@ router.patch("/assets/:id", requireAuth, canViewLibrary, async (req: any, res: a
     const [[actorRow], [asset]] = await Promise.all([
       db.select({ id: usersTable.id, countyId: usersTable.countyId })
         .from(usersTable).where(eq(usersTable.clerkId, req.clerkId)).limit(1),
-      db.select().from(contentAssetsTable).where(eq(contentAssetsTable.id, req.params.id)).limit(1),
+      db.select().from(contentAssetsTable).where(and(eq(contentAssetsTable.id, req.params.id), tenantFilter(contentAssetsTable, t.id))).limit(1),
     ]);
 
     if (!asset) return res.status(404).json({ error: "Not found" });
@@ -153,7 +158,7 @@ router.patch("/assets/:id", requireAuth, canViewLibrary, async (req: any, res: a
 
     const [updated] = await db.update(contentAssetsTable)
       .set(editableBody)
-      .where(eq(contentAssetsTable.id, req.params.id))
+      .where(and(eq(contentAssetsTable.id, req.params.id), tenantFilter(contentAssetsTable, t.id)))
       .returning();
     res.json(updated);
   } catch (err: any) {
@@ -164,10 +169,11 @@ router.patch("/assets/:id", requireAuth, canViewLibrary, async (req: any, res: a
 // POST /api/content/assets/:id/approve
 router.post("/assets/:id/approve", requireAuth, canApproveAssets, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const actorId = await resolveActorUUID(req.clerkId);
     const [updated] = await db.update(contentAssetsTable)
       .set({ approvalStatus: "approved", approvedBy: actorId ?? undefined, approvedAt: new Date() })
-      .where(eq(contentAssetsTable.id, req.params.id)).returning();
+      .where(and(eq(contentAssetsTable.id, req.params.id), tenantFilter(contentAssetsTable, t.id))).returning();
     if (!updated) return res.status(404).json({ error: "Not found" });
     res.json(updated);
   } catch (err: any) {
@@ -178,9 +184,10 @@ router.post("/assets/:id/approve", requireAuth, canApproveAssets, async (req: an
 // POST /api/content/assets/:id/reject
 router.post("/assets/:id/reject", requireAuth, canApproveAssets, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const [updated] = await db.update(contentAssetsTable)
       .set({ approvalStatus: "rejected" })
-      .where(eq(contentAssetsTable.id, req.params.id)).returning();
+      .where(and(eq(contentAssetsTable.id, req.params.id), tenantFilter(contentAssetsTable, t.id))).returning();
     if (!updated) return res.status(404).json({ error: "Not found" });
     res.json(updated);
   } catch (err: any) {
@@ -191,8 +198,13 @@ router.post("/assets/:id/reject", requireAuth, canApproveAssets, async (req: any
 // POST /api/content/assets/:id/versions — upload a new version
 router.post("/assets/:id/versions", requireAuth, canManageLibrary, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const actorId = await resolveActorUUID(req.clerkId);
     if (!actorId) return res.status(403).json({ error: "Actor not found" });
+    // Verify parent asset belongs to this tenant BEFORE any child-table write
+    const [asset] = await db.select({ id: contentAssetsTable.id }).from(contentAssetsTable)
+      .where(and(eq(contentAssetsTable.id, req.params.id), tenantFilter(contentAssetsTable, t.id))).limit(1);
+    if (!asset) return res.status(404).json({ error: "Asset not found" });
     const [latest] = await db.select({ version: assetVersionsTable.version }).from(assetVersionsTable)
       .where(eq(assetVersionsTable.assetId, req.params.id)).orderBy(desc(assetVersionsTable.version)).limit(1);
     const newVersion = (latest?.version ?? 0) + 1;
@@ -201,7 +213,7 @@ router.post("/assets/:id/versions", requireAuth, canManageLibrary, async (req: a
       changeNote: req.body.changeNote, uploadedBy: actorId,
     }).returning();
     await db.update(contentAssetsTable).set({ currentVersion: newVersion, objectPath: req.body.objectPath, approvalStatus: "pending" })
-      .where(eq(contentAssetsTable.id, req.params.id));
+      .where(and(eq(contentAssetsTable.id, req.params.id), tenantFilter(contentAssetsTable, t.id)));
     res.status(201).json(row);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -211,8 +223,9 @@ router.post("/assets/:id/versions", requireAuth, canManageLibrary, async (req: a
 // POST /api/content/assets/:id/download — record download and return signed URL
 router.post("/assets/:id/download", requireAuth, canViewLibrary, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const actorId = await resolveActorUUID(req.clerkId);
-    const [asset] = await db.select().from(contentAssetsTable).where(eq(contentAssetsTable.id, req.params.id)).limit(1);
+    const [asset] = await db.select().from(contentAssetsTable).where(and(eq(contentAssetsTable.id, req.params.id), tenantFilter(contentAssetsTable, t.id))).limit(1);
     if (!asset) return res.status(404).json({ error: "Not found" });
     if (asset.approvalStatus !== "approved") return res.status(403).json({ error: "Asset not yet approved for download" });
 
@@ -233,6 +246,11 @@ router.post("/assets/:id/download", requireAuth, canViewLibrary, async (req: any
 // GET /api/content/assets/:id/history
 router.get("/assets/:id/history", requireAuth, canViewLibrary, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    // Verify the parent asset belongs to this tenant before reading download records
+    const [asset] = await db.select({ id: contentAssetsTable.id }).from(contentAssetsTable)
+      .where(and(eq(contentAssetsTable.id, req.params.id), tenantFilter(contentAssetsTable, t.id))).limit(1);
+    if (!asset) return res.status(404).json({ error: "Asset not found" });
     const rows = await db.select().from(downloadRecordsTable)
       .where(eq(downloadRecordsTable.assetId, req.params.id))
       .orderBy(desc(downloadRecordsTable.createdAt)).limit(100);

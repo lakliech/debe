@@ -4,6 +4,7 @@ import { db } from "@workspace/db";
 import { rolesTable, permissionsTable, rolePermissionsTable } from "@workspace/db";
 import { eq, inArray, sql } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
+import { assertTenant } from '../lib/withTenant';
 
 const router = Router();
 
@@ -35,7 +36,8 @@ router.get("/", requireAuth, async (req: any, res: any) => {
     .from(rolesTable)
     .orderBy(rolesTable.level);
 
-  // Count users per role
+  // Count users per role — scoped to the active tenant so no cross-tenant disclosure
+  const t = assertTenant(req);
   const { userRolesTable } = await import("@workspace/db");
   const counts = await db
     .select({
@@ -43,6 +45,7 @@ router.get("/", requireAuth, async (req: any, res: any) => {
       count: sql<number>`cast(count(*) as int)`,
     })
     .from(userRolesTable)
+    .where(eq(userRolesTable.tenantId, t.id))
     .groupBy(userRolesTable.roleId);
 
   const countMap: Record<string, number> = {};

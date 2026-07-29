@@ -9,6 +9,8 @@ import {
 } from "@workspace/db";
 import { eq, and, desc, inArray } from "drizzle-orm";
 import { requireRoles, requireLevel } from "../middlewares/rbac";
+import { resolveTenant } from "../middlewares/resolveTenant";
+import { tenantFilter, assertTenant } from '../lib/withTenant';
 
 const router = Router();
 
@@ -49,8 +51,24 @@ async function resolveActorUUID(clerkId: string): Promise<string | null> {
   return row?.id ?? null;
 }
 
-// Helper: get user with roles by local UUID
-async function getUserWithRoles(id: string) {
+// Helper: verify that a user has at least one role in the given tenant.
+// Used to gate mutations (PATCH, suspend) so a tenant admin cannot modify
+// users who belong to a different campaign.
+async function userBelongsToTenant(userId: string, tenantId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: userRolesTable.userId })
+    .from(userRolesTable)
+    .where(and(eq(userRolesTable.userId, userId), eq(userRolesTable.tenantId, tenantId)))
+    .limit(1);
+  return !!row;
+}
+
+// Helper: get user with roles by local UUID.
+// When tenantId is provided, only roles belonging to that tenant are returned
+// (scopes role lookups to the active campaign). Without tenantId all roles are
+// returned (used by /me and internal provisioning helpers where tenant may not
+// yet be resolved).
+async function getUserWithRoles(id: string, tenantId?: string | null) {
   const user = await db
     .select()
     .from(usersTable)
@@ -58,18 +76,23 @@ async function getUserWithRoles(id: string) {
     .limit(1);
   if (!user[0]) return null;
 
+  const roleWhere = tenantId
+    ? and(eq(userRolesTable.userId, id), eq(userRolesTable.tenantId, tenantId))
+    : eq(userRolesTable.userId, id);
+
   const roles = await db
     .select({
       roleId: rolesTable.id,
       roleName: rolesTable.name,
       roleSlug: rolesTable.slug,
+      tenantId: userRolesTable.tenantId,
       countyId: userRolesTable.countyId,
       constituencyId: userRolesTable.constituencyId,
       wardId: userRolesTable.wardId,
     })
     .from(userRolesTable)
     .innerJoin(rolesTable, eq(userRolesTable.roleId, rolesTable.id))
-    .where(eq(userRolesTable.userId, id));
+    .where(roleWhere);
 
   return { ...user[0], roles };
 }
@@ -95,8 +118,9 @@ async function getOrCreateLocalUser(
   return getUserWithRoles(created.id);
 }
 
-// GET /api/users/me
+// GET /api/users/me — uses tenant from resolveTenant (applied globally via withTenant wrapper)
 router.get("/me", requireAuth, async (req: any, res: any) => {
+  const tenantId: string | undefined = req.tenant?.id;
   const existing = await db
     .select()
     .from(usersTable)
@@ -105,14 +129,24 @@ router.get("/me", requireAuth, async (req: any, res: any) => {
 
   if (!existing[0]) {
     const newUser = await getOrCreateLocalUser(req.clerkId);
+    // Return with tenant-scoped roles if available
+    if (newUser && tenantId) {
+      const tenantRoles = await db
+        .select({ roleId: rolesTable.id, roleName: rolesTable.name, roleSlug: rolesTable.slug, tenantId: userRolesTable.tenantId, countyId: userRolesTable.countyId, constituencyId: userRolesTable.constituencyId, wardId: userRolesTable.wardId })
+        .from(userRolesTable)
+        .innerJoin(rolesTable, eq(userRolesTable.roleId, rolesTable.id))
+        .where(and(eq(userRolesTable.userId, newUser.id!), eq(userRolesTable.tenantId, tenantId)));
+      return res.json({ ...newUser, roles: tenantRoles });
+    }
     return res.json(newUser);
   }
-  const full = await getUserWithRoles(existing[0].id);
+  const full = await getUserWithRoles(existing[0].id, tenantId);
   res.json(full);
 });
 
-// GET /api/users
+// GET /api/users — list users belonging to the current tenant (have at least one role in it)
 router.get("/", requireAuth, async (req: any, res: any) => {
+  const tenantId: string | undefined = req.tenant?.id;
   const { role, status, countyId, limit = "50", offset = "0" } = req.query as any;
   const lim = Math.min(Number(limit), 200);
   const off = Number(offset);
@@ -121,45 +155,86 @@ router.get("/", requireAuth, async (req: any, res: any) => {
   if (status) conditions.push(eq(usersTable.status, status));
   if (countyId) conditions.push(eq(usersTable.countyId as any, countyId));
 
-  const users = await db
-    .select({
-      id: usersTable.id,
-      clerkId: usersTable.clerkId,
-      email: usersTable.email,
-      fullName: usersTable.fullName,
-      phoneNumber: usersTable.phoneNumber,
-      photoUrl: usersTable.photoUrl,
-      status: usersTable.status,
-      countyId: usersTable.countyId,
-      constituencyId: usersTable.constituencyId,
-      wardId: usersTable.wardId,
-      lastLoginAt: usersTable.lastLoginAt,
-      createdAt: usersTable.createdAt,
-      updatedAt: usersTable.updatedAt,
-    })
-    .from(usersTable)
-    .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(desc(usersTable.createdAt))
-    .limit(lim)
-    .offset(off);
+  // When a tenant context exists, restrict to users who have a role in this tenant.
+  // Use a subquery: SELECT DISTINCT user_id FROM user_roles WHERE tenant_id = ?
+  let users: any[];
+  if (tenantId) {
+    // Fetch member IDs for this tenant first (avoids a complex Drizzle subquery)
+    const memberRows = await db
+      .selectDistinct({ userId: userRolesTable.userId })
+      .from(userRolesTable)
+      .where(eq(userRolesTable.tenantId, tenantId));
+    const memberIds = memberRows.map((r) => r.userId);
+    if (memberIds.length === 0) return res.json([]);
 
-  // Batch-fetch roles for all returned users
+    const memberConditions: any[] = [inArray(usersTable.id, memberIds), ...conditions];
+    users = await db
+      .select({
+        id: usersTable.id,
+        clerkId: usersTable.clerkId,
+        email: usersTable.email,
+        fullName: usersTable.fullName,
+        phoneNumber: usersTable.phoneNumber,
+        photoUrl: usersTable.photoUrl,
+        status: usersTable.status,
+        countyId: usersTable.countyId,
+        constituencyId: usersTable.constituencyId,
+        wardId: usersTable.wardId,
+        lastLoginAt: usersTable.lastLoginAt,
+        createdAt: usersTable.createdAt,
+        updatedAt: usersTable.updatedAt,
+      })
+      .from(usersTable)
+      .where(and(...memberConditions))
+      .orderBy(desc(usersTable.createdAt))
+      .limit(lim)
+      .offset(off);
+  } else {
+    users = await db
+      .select({
+        id: usersTable.id,
+        clerkId: usersTable.clerkId,
+        email: usersTable.email,
+        fullName: usersTable.fullName,
+        phoneNumber: usersTable.phoneNumber,
+        photoUrl: usersTable.photoUrl,
+        status: usersTable.status,
+        countyId: usersTable.countyId,
+        constituencyId: usersTable.constituencyId,
+        wardId: usersTable.wardId,
+        lastLoginAt: usersTable.lastLoginAt,
+        createdAt: usersTable.createdAt,
+        updatedAt: usersTable.updatedAt,
+      })
+      .from(usersTable)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(usersTable.createdAt))
+      .limit(lim)
+      .offset(off);
+  }
+
+  // Batch-fetch roles — always scoped to the current tenant when available
   const userIds = users.map((u) => u.id);
   const roleMap: Record<string, any[]> = {};
   if (userIds.length > 0) {
+    const roleWhere = tenantId
+      ? and(inArray(userRolesTable.userId, userIds), eq(userRolesTable.tenantId, tenantId))
+      : inArray(userRolesTable.userId, userIds);
+
     const allRoles = await db
       .select({
         userId: userRolesTable.userId,
         roleId: rolesTable.id,
         roleName: rolesTable.name,
         roleSlug: rolesTable.slug,
+        tenantId: userRolesTable.tenantId,
         countyId: userRolesTable.countyId,
         constituencyId: userRolesTable.constituencyId,
         wardId: userRolesTable.wardId,
       })
       .from(userRolesTable)
       .innerJoin(rolesTable, eq(userRolesTable.roleId, rolesTable.id))
-      .where(inArray(userRolesTable.userId, userIds));
+      .where(roleWhere);
 
     for (const r of allRoles) {
       if (!roleMap[r.userId]) roleMap[r.userId] = [];
@@ -171,7 +246,7 @@ router.get("/", requireAuth, async (req: any, res: any) => {
 
   // Filter by role slug if provided (post-fetch; role filter is on junction table)
   if (role) {
-    return res.json(result.filter((u) => u.roles.some((r) => r.roleSlug === role)));
+    return res.json(result.filter((u) => u.roles.some((r: any) => r.roleSlug === role)));
   }
   res.json(result);
 });
@@ -199,9 +274,11 @@ router.post("/", requireAuth, canManageUsers, async (req: any, res: any) => {
     .returning();
 
   if (roleId) {
+    const t = req.tenant as any;
     await db.insert(userRolesTable).values({
       userId: user.id,
       roleId,
+      tenantId: t?.id ?? null,
       countyId: countyId ?? null,
       constituencyId: constituencyId ?? null,
       wardId: wardId ?? null,
@@ -216,25 +293,37 @@ router.post("/", requireAuth, canManageUsers, async (req: any, res: any) => {
 
 // GET /api/users/:id
 router.get("/:id", requireAuth, async (req: any, res: any) => {
-  const full = await getUserWithRoles(req.params.id);
+  const tenantId: string | undefined = (req as any).tenant?.id;
+  // Verify target user belongs to this tenant before exposing their profile
+  if (tenantId && !(await userBelongsToTenant(req.params.id, tenantId))) {
+    return res.status(404).json({ error: "Not found" });
+  }
+  const full = await getUserWithRoles(req.params.id, tenantId);
   if (!full) return res.status(404).json({ error: "Not found" });
   res.json(full);
 });
 
 // PATCH /api/users/:id
 router.patch("/:id", requireAuth, canManageUsers, async (req: any, res: any) => {
-  const { fullName, phoneNumber, photoUrl, status, countyId, constituencyId, wardId } = req.body;
+  const tenantId: string | undefined = (req as any).tenant?.id;
+  // Verify target user belongs to this tenant before allowing mutation
+  if (tenantId && !(await userBelongsToTenant(req.params.id, tenantId))) {
+    return res.status(404).json({ error: "Not found" });
+  }
+  // NOTE: `status` is a global account field — tenant admins must not mutate it
+  // (changing it would affect the user across all tenants). Suspension is handled
+  // via the tenant-scoped userSuspensionsTable in POST /:id/suspend.
+  const { fullName, phoneNumber, photoUrl, countyId, constituencyId, wardId } = req.body;
   const updates: Partial<typeof usersTable.$inferInsert> = {};
   if (fullName !== undefined) updates.fullName = fullName;
   if (phoneNumber !== undefined) updates.phoneNumber = phoneNumber;
   if (photoUrl !== undefined) updates.photoUrl = photoUrl;
-  if (status !== undefined) updates.status = status;
   if (countyId !== undefined) updates.countyId = countyId;
   if (constituencyId !== undefined) updates.constituencyId = constituencyId;
   if (wardId !== undefined) updates.wardId = wardId;
 
   await db.update(usersTable).set(updates).where(eq(usersTable.id, req.params.id));
-  const full = await getUserWithRoles(req.params.id);
+  const full = await getUserWithRoles(req.params.id, tenantId);
   if (!full) return res.status(404).json({ error: "Not found" });
   res.json(full);
 });
@@ -247,16 +336,19 @@ router.post("/:id/roles", requireAuth, canAssignRoles, async (req: any, res: any
   // Resolve actor to local UUID before writing
   const actorUUID = await resolveActorUUID(req.clerkId);
 
+  const t = (req as any).tenant;
   await db.insert(userRolesTable).values({
     userId: req.params.id,
     roleId,
+    tenantId: t?.id ?? null,
     countyId: countyId ?? null,
     constituencyId: constituencyId ?? null,
     wardId: wardId ?? null,
     assignedBy: actorUUID ?? undefined,
   });
 
-  const full = await getUserWithRoles(req.params.id);
+  // Scope response to active tenant so caller only sees roles they can manage
+  const full = await getUserWithRoles(req.params.id, t?.id);
   res.json(full);
 });
 
@@ -264,6 +356,12 @@ router.post("/:id/roles", requireAuth, canAssignRoles, async (req: any, res: any
 router.post("/:id/suspend", requireAuth, canSuspendUsers, async (req: any, res: any) => {
   const { reason } = req.body;
   if (!reason) return res.status(400).json({ error: "reason required" });
+
+  const t = (req as any).tenant;
+  // Verify target user belongs to this tenant before allowing suspension
+  if (t?.id && !(await userBelongsToTenant(req.params.id, t.id))) {
+    return res.status(404).json({ error: "Not found" });
+  }
 
   // Resolve actor to local UUID — suspendedBy is a UUID column
   const actorUUID = await resolveActorUUID(req.clerkId);
@@ -273,19 +371,18 @@ router.post("/:id/suspend", requireAuth, canSuspendUsers, async (req: any, res: 
     });
   }
 
-  await db
-    .update(usersTable)
-    .set({ status: "suspended" })
-    .where(eq(usersTable.id, req.params.id));
-
+  // Record suspension in the tenant-scoped table ONLY — do NOT update the global
+  // usersTable.status, which would affect the user's account in every other tenant.
+  // Auth middleware should check userSuspensionsTable for active suspensions per tenant.
   await db.insert(userSuspensionsTable).values({
     userId: req.params.id,
+    tenantId: t?.id ?? null,
     reason,
     suspendedBy: actorUUID,
     active: true,
   });
 
-  const full = await getUserWithRoles(req.params.id);
+  const full = await getUserWithRoles(req.params.id, t?.id);
   res.json(full);
 });
 

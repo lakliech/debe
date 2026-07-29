@@ -15,6 +15,7 @@ import { eq, desc, and, or, ilike, count, sum, gte, lte, ne } from "drizzle-orm"
 import { requireRoles } from "../middlewares/rbac";
 import { createMpesaAdapter, parseStkCallback } from "../lib/mpesa";
 import { validate } from "../lib/validate";
+import { tenantFilter, assertTenant } from "../lib/withTenant";
 
 const router = Router();
 const mpesa = createMpesaAdapter();
@@ -152,8 +153,11 @@ router.post("/mpesa/stk-push", async (req: any, res: any) => {
 
     if (!stkRes.success) return res.status(400).json({ error: stkRes.error });
 
-    // Persist transaction record
+    // Persist transaction record — capture tenant from resolved context so
+    // callback can later look up the correct campaign for auto-contribution
+    const tenantId: string | undefined = (req as any).tenant?.id;
     const [txn] = await db.insert(mpesaTransactionsTable).values({
+      ...(tenantId ? { tenantId } : {}),
       merchantRequestId: stkRes.merchantRequestId,
       checkoutRequestId: stkRes.checkoutRequestId,
       phoneNumber, amount: String(amount),
@@ -187,10 +191,12 @@ router.post("/mpesa/callback", async (req: any, res: any) => {
       completedAt: new Date(),
     }).where(eq(mpesaTransactionsTable.id, txn.id));
 
-    // Auto-create contribution record if successful
+    // Auto-create contribution record if successful — propagate tenantId
+    // that was stored on the transaction row at STK-push time
     if (parsed.success && txn.accountReference) {
       const ref = generateRef("LIND");
       const [contribution] = await db.insert(contributionsTable).values({
+        ...(txn.tenantId ? { tenantId: txn.tenantId } : {}),
         referenceNumber: ref,
         donorFullName: "M-Pesa Donor",
         donorPhone: parsed.phoneNumber ?? txn.phoneNumber,
@@ -215,12 +221,15 @@ router.post("/mpesa/callback", async (req: any, res: any) => {
 // GET /api/finance/mpesa/transactions
 router.get("/mpesa/transactions", requireAuth, canViewFinance, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const { status, page = "1", limit = "20" } = req.query;
     const pageNum = parseInt(page) || 1;
     const pageSize = Math.min(parseInt(limit) || 20, 100);
     const offset = (pageNum - 1) * pageSize;
 
-    const where = status ? eq(mpesaTransactionsTable.status, status) : undefined;
+    const conditions: any[] = [tenantFilter(mpesaTransactionsTable, t.id)];
+    if (status) conditions.push(eq(mpesaTransactionsTable.status, status));
+    const where = and(...conditions);
     const [rows, [{ total }]] = await Promise.all([
       db.select().from(mpesaTransactionsTable).where(where).orderBy(desc(mpesaTransactionsTable.createdAt)).limit(pageSize).offset(offset),
       db.select({ total: count() }).from(mpesaTransactionsTable).where(where),
@@ -236,6 +245,7 @@ router.get("/mpesa/transactions", requireAuth, canViewFinance, async (req: any, 
 // POST /api/finance/contributions  (record any-channel contribution)
 router.post("/contributions", requireAuth, canManageFinance, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const body = validate(ContributionSchema, req.body, res);
     if (!body) return;
 
@@ -245,6 +255,7 @@ router.post("/contributions", requireAuth, canManageFinance, async (req: any, re
     const { inKind, ...rest } = body;
     const [contribution] = await db.insert(contributionsTable).values({
       ...rest,
+      tenantId: t.id,
       referenceNumber: ref,
       recordedBy: actorId ?? undefined,
     }).returning();
@@ -255,11 +266,12 @@ router.post("/contributions", requireAuth, canManageFinance, async (req: any, re
       );
     }
 
-    // Duplicate detection: same phone + amount within 10 min
+    // Duplicate detection: same phone + amount within 10 min — scoped to tenant
     const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000);
     if (rest.donorPhone) {
       const [dup] = await db.select({ id: contributionsTable.id }).from(contributionsTable)
         .where(and(
+          tenantFilter(contributionsTable, t.id),
           eq(contributionsTable.donorPhone, rest.donorPhone),
           eq(contributionsTable.amount, String(rest.amount)),
           gte(contributionsTable.createdAt, tenMinAgo),
@@ -267,6 +279,7 @@ router.post("/contributions", requireAuth, canManageFinance, async (req: any, re
         )).limit(1);
       if (dup) {
         await db.insert(donorAlertsTable).values({
+          tenantId: t.id,
           alertType: "duplicate",
           severity: "high",
           contributionId: contribution.id,
@@ -288,12 +301,13 @@ router.post("/contributions", requireAuth, canManageFinance, async (req: any, re
 // GET /api/finance/contributions
 router.get("/contributions", requireAuth, canViewFinance, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const { channel, verificationStatus, complianceFlag, ledger, search, page = "1", limit = "20" } = req.query;
     const pageNum = parseInt(page) || 1;
     const pageSize = Math.min(parseInt(limit) || 20, 100);
     const offset = (pageNum - 1) * pageSize;
 
-    const conditions: any[] = [];
+    const conditions: any[] = [tenantFilter(contributionsTable, t.id)];
     if (channel) conditions.push(eq(contributionsTable.channel, channel));
     if (verificationStatus) conditions.push(eq(contributionsTable.verificationStatus, verificationStatus));
     if (complianceFlag) conditions.push(eq(contributionsTable.complianceFlag, complianceFlag));
@@ -303,7 +317,7 @@ router.get("/contributions", requireAuth, canViewFinance, async (req: any, res: 
       ilike(contributionsTable.donorPhone, `%${search}%`),
       ilike(contributionsTable.referenceNumber, `%${search}%`),
     ));
-    const where = conditions.length ? and(...conditions) : undefined;
+    const where = and(...conditions);
 
     const [rows, [{ total }]] = await Promise.all([
       db.select().from(contributionsTable).where(where).orderBy(desc(contributionsTable.createdAt)).limit(pageSize).offset(offset),
@@ -318,7 +332,9 @@ router.get("/contributions", requireAuth, canViewFinance, async (req: any, res: 
 // GET /api/finance/contributions/:id
 router.get("/contributions/:id", requireAuth, canViewFinance, async (req: any, res: any) => {
   try {
-    const [contribution] = await db.select().from(contributionsTable).where(eq(contributionsTable.id, req.params.id)).limit(1);
+    const t = assertTenant(req);
+    const [contribution] = await db.select().from(contributionsTable)
+      .where(and(eq(contributionsTable.id, req.params.id), tenantFilter(contributionsTable, t.id))).limit(1);
     if (!contribution) return res.status(404).json({ error: "Contribution not found" });
     const inKind = await db.select().from(inKindContributionsTable).where(eq(inKindContributionsTable.contributionId, req.params.id));
     res.json({ ...contribution, inKind });
@@ -330,6 +346,7 @@ router.get("/contributions/:id", requireAuth, canViewFinance, async (req: any, r
 // PATCH /api/finance/contributions/:id/verify
 router.patch("/contributions/:id/verify", requireAuth, canManageFinance, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const body = validate(ContributionVerifySchema, req.body, res);
     if (!body) return;
 
@@ -340,7 +357,7 @@ router.patch("/contributions/:id/verify", requireAuth, canManageFinance, async (
       verifiedBy: actorId ?? undefined,
       verifiedAt: new Date(),
       rejectionReason: rejectionReason ?? null,
-    }).where(eq(contributionsTable.id, req.params.id)).returning();
+    }).where(and(eq(contributionsTable.id, req.params.id), tenantFilter(contributionsTable, t.id))).returning();
     if (!updated) return res.status(404).json({ error: "Not found" });
     await logFinance("contribution", updated.id, status === "verified" ? "verified" : "rejected", actorId);
     res.json(updated);
@@ -352,17 +369,18 @@ router.patch("/contributions/:id/verify", requireAuth, canManageFinance, async (
 // GET /api/finance/dashboard  — summary stats
 router.get("/dashboard", requireAuth, canViewFinance, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const [totals, todayTotals, byChannel, alerts, pendingVerification] = await Promise.all([
       db.select({ total: sum(contributionsTable.amount), count: count() }).from(contributionsTable)
-        .where(eq(contributionsTable.verificationStatus, "verified")),
+        .where(and(tenantFilter(contributionsTable, t.id), eq(contributionsTable.verificationStatus, "verified"))),
       db.select({ total: sum(contributionsTable.amount), count: count() }).from(contributionsTable)
-        .where(and(eq(contributionsTable.verificationStatus, "verified"), gte(contributionsTable.createdAt, today))),
+        .where(and(tenantFilter(contributionsTable, t.id), eq(contributionsTable.verificationStatus, "verified"), gte(contributionsTable.createdAt, today))),
       db.select({ channel: contributionsTable.channel, total: sum(contributionsTable.amount), count: count() })
-        .from(contributionsTable).where(eq(contributionsTable.verificationStatus, "verified"))
+        .from(contributionsTable).where(and(tenantFilter(contributionsTable, t.id), eq(contributionsTable.verificationStatus, "verified")))
         .groupBy(contributionsTable.channel),
-      db.select({ count: count() }).from(donorAlertsTable).where(eq(donorAlertsTable.status, "open")),
-      db.select({ count: count() }).from(contributionsTable).where(eq(contributionsTable.verificationStatus, "pending")),
+      db.select({ count: count() }).from(donorAlertsTable).where(and(tenantFilter(donorAlertsTable, t.id), eq(donorAlertsTable.status, "open"))),
+      db.select({ count: count() }).from(contributionsTable).where(and(tenantFilter(contributionsTable, t.id), eq(contributionsTable.verificationStatus, "pending"))),
     ]);
     res.json({
       totalRaisedKes: totals[0]?.total ?? "0",
@@ -382,9 +400,11 @@ router.get("/dashboard", requireAuth, canViewFinance, async (req: any, res: any)
 
 router.get("/alerts", requireAuth, canViewFinance, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const { status } = req.query;
-    const where = status ? eq(donorAlertsTable.status, status) : undefined;
-    const rows = await db.select().from(donorAlertsTable).where(where).orderBy(desc(donorAlertsTable.createdAt)).limit(50);
+    const conditions: any[] = [tenantFilter(donorAlertsTable, t.id)];
+    if (status) conditions.push(eq(donorAlertsTable.status, status));
+    const rows = await db.select().from(donorAlertsTable).where(and(...conditions)).orderBy(desc(donorAlertsTable.createdAt)).limit(50);
     res.json(rows);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -393,6 +413,7 @@ router.get("/alerts", requireAuth, canViewFinance, async (req: any, res: any) =>
 
 router.patch("/alerts/:id/resolve", requireAuth, canManageFinance, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const body = validate(AlertResolveSchema, req.body, res);
     if (!body) return;
 
@@ -400,7 +421,7 @@ router.patch("/alerts/:id/resolve", requireAuth, canManageFinance, async (req: a
     const { status, resolutionNotes } = body;
     const [updated] = await db.update(donorAlertsTable).set({
       status: status ?? "resolved", resolutionNotes, resolvedBy: actorId ?? undefined, resolvedAt: new Date(),
-    }).where(eq(donorAlertsTable.id, req.params.id)).returning();
+    }).where(and(eq(donorAlertsTable.id, req.params.id), tenantFilter(donorAlertsTable, t.id))).returning();
     if (!updated) return res.status(404).json({ error: "Alert not found" });
     res.json(updated);
   } catch (err: any) {
@@ -410,9 +431,12 @@ router.patch("/alerts/:id/resolve", requireAuth, canManageFinance, async (req: a
 
 // ─── BUDGET CATEGORIES ────────────────────────────────────────────────────────
 
-router.get("/budget-categories", requireAuth, canViewFinance, async (_req: any, res: any) => {
+router.get("/budget-categories", requireAuth, canViewFinance, async (req: any, res: any) => {
   try {
-    const rows = await db.select().from(budgetCategoriesTable).orderBy(budgetCategoriesTable.name);
+    const t = assertTenant(req);
+    const rows = await db.select().from(budgetCategoriesTable)
+      .where(tenantFilter(budgetCategoriesTable, t.id))
+      .orderBy(budgetCategoriesTable.name);
     res.json(rows);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -421,11 +445,12 @@ router.get("/budget-categories", requireAuth, canViewFinance, async (_req: any, 
 
 router.post("/budget-categories", requireAuth, canManageFinance, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const body = validate(BudgetCategorySchema, req.body, res);
     if (!body) return;
 
     const actorId = await resolveActorUUID(req.clerkId);
-    const [row] = await db.insert(budgetCategoriesTable).values({ ...body, createdBy: actorId ?? undefined }).returning();
+    const [row] = await db.insert(budgetCategoriesTable).values({ ...body, tenantId: t.id, createdBy: actorId ?? undefined }).returning();
     res.status(201).json(row);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -436,11 +461,12 @@ router.post("/budget-categories", requireAuth, canManageFinance, async (req: any
 
 router.get("/budget-lines", requireAuth, canViewFinance, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const { categoryId, fiscalPeriod } = req.query;
-    const conditions: any[] = [];
+    const conditions: any[] = [tenantFilter(budgetLinesTable, t.id)];
     if (categoryId) conditions.push(eq(budgetLinesTable.categoryId, categoryId));
     if (fiscalPeriod) conditions.push(eq(budgetLinesTable.fiscalPeriod, fiscalPeriod));
-    const where = conditions.length ? and(...conditions) : undefined;
+    const where = and(...conditions);
     const rows = await db.select().from(budgetLinesTable).where(where).orderBy(budgetLinesTable.fiscalPeriod);
     res.json(rows);
   } catch (err: any) {
@@ -450,11 +476,12 @@ router.get("/budget-lines", requireAuth, canViewFinance, async (req: any, res: a
 
 router.post("/budget-lines", requireAuth, canManageFinance, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const body = validate(BudgetLineSchema, req.body, res);
     if (!body) return;
 
     const actorId = await resolveActorUUID(req.clerkId);
-    const [row] = await db.insert(budgetLinesTable).values({ ...body, createdBy: actorId ?? undefined }).returning();
+    const [row] = await db.insert(budgetLinesTable).values({ ...body, tenantId: t.id, createdBy: actorId ?? undefined }).returning();
     await logFinance("budget_line", row.id, "created", actorId);
     res.status(201).json(row);
   } catch (err: any) {
@@ -466,9 +493,12 @@ router.post("/budget-lines", requireAuth, canManageFinance, async (req: any, res
 
 router.get("/expenditure-requests", requireAuth, canViewFinance, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const { status, page = "1", limit = "20" } = req.query;
     const pageNum = parseInt(page) || 1; const pageSize = Math.min(parseInt(limit) || 20, 50);
-    const where = status ? eq(expenditureRequestsTable.status, status) : undefined;
+    const conditions: any[] = [tenantFilter(expenditureRequestsTable, t.id)];
+    if (status) conditions.push(eq(expenditureRequestsTable.status, status));
+    const where = and(...conditions);
     const [rows, [{ total }]] = await Promise.all([
       db.select().from(expenditureRequestsTable).where(where).orderBy(desc(expenditureRequestsTable.createdAt)).limit(pageSize).offset((pageNum - 1) * pageSize),
       db.select({ total: count() }).from(expenditureRequestsTable).where(where),
@@ -481,6 +511,7 @@ router.get("/expenditure-requests", requireAuth, canViewFinance, async (req: any
 
 router.post("/expenditure-requests", requireAuth, canManageFinance, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const body = validate(ExpenditureRequestSchema, req.body, res);
     if (!body) return;
 
@@ -488,7 +519,7 @@ router.post("/expenditure-requests", requireAuth, canManageFinance, async (req: 
     if (!actorId) return res.status(403).json({ error: "Actor not found" });
     const ref = generateRef("EXP");
     const [row] = await db.insert(expenditureRequestsTable).values({
-      ...body, referenceNumber: ref, requestedBy: actorId, status: "pending_first",
+      ...body, tenantId: t.id, referenceNumber: ref, requestedBy: actorId, status: "pending_first",
     }).returning();
     await logFinance("expenditure", row.id, "created", actorId);
     res.status(201).json(row);
@@ -499,7 +530,9 @@ router.post("/expenditure-requests", requireAuth, canManageFinance, async (req: 
 
 router.get("/expenditure-requests/:id", requireAuth, canViewFinance, async (req: any, res: any) => {
   try {
-    const [row] = await db.select().from(expenditureRequestsTable).where(eq(expenditureRequestsTable.id, req.params.id)).limit(1);
+    const t = assertTenant(req);
+    const [row] = await db.select().from(expenditureRequestsTable)
+      .where(and(eq(expenditureRequestsTable.id, req.params.id), tenantFilter(expenditureRequestsTable, t.id))).limit(1);
     if (!row) return res.status(404).json({ error: "Not found" });
     res.json(row);
   } catch (err: any) {
@@ -510,6 +543,7 @@ router.get("/expenditure-requests/:id", requireAuth, canViewFinance, async (req:
 // First approval
 router.post("/expenditure-requests/:id/first-approve", requireAuth, canApproveExpenditure, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const body = validate(FirstApproveSchema, req.body, res);
     if (!body) return;
 
@@ -520,7 +554,7 @@ router.post("/expenditure-requests/:id/first-approve", requireAuth, canApproveEx
       firstApproverId: actorId ?? undefined,
       firstApprovedAt: new Date(),
       approvedAmountKes: approvedAmount ? String(approvedAmount) : undefined,
-    }).where(and(eq(expenditureRequestsTable.id, req.params.id), eq(expenditureRequestsTable.status, "pending_first"))).returning();
+    }).where(and(eq(expenditureRequestsTable.id, req.params.id), eq(expenditureRequestsTable.status, "pending_first"), tenantFilter(expenditureRequestsTable, t.id))).returning();
     if (!row) return res.status(400).json({ error: "Cannot first-approve — wrong status or not found" });
     await logFinance("expenditure", row.id, "first_approved", actorId);
     res.json(row);
@@ -532,15 +566,18 @@ router.post("/expenditure-requests/:id/first-approve", requireAuth, canApproveEx
 // Final approval — generates payment voucher
 router.post("/expenditure-requests/:id/final-approve", requireAuth, canApproveExpenditure, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const body = validate(FinalApproveSchema, req.body, res);
     if (!body) return;
 
     const actorId = await resolveActorUUID(req.clerkId);
-    const [expReq] = await db.select().from(expenditureRequestsTable).where(eq(expenditureRequestsTable.id, req.params.id)).limit(1);
+    const [expReq] = await db.select().from(expenditureRequestsTable)
+      .where(and(eq(expenditureRequestsTable.id, req.params.id), tenantFilter(expenditureRequestsTable, t.id))).limit(1);
     if (!expReq || expReq.status !== "pending_final") return res.status(400).json({ error: "Cannot final-approve — wrong status" });
 
     const voucherNum = `PV-${generateRef("").split("-").slice(1).join("-")}`;
     const [voucher] = await db.insert(paymentVouchersTable).values({
+      tenantId: t.id,
       voucherNumber: voucherNum,
       expenditureRequestId: expReq.id,
       amountKes: expReq.approvedAmountKes ?? expReq.requestedAmountKes,
@@ -564,13 +601,14 @@ router.post("/expenditure-requests/:id/final-approve", requireAuth, canApproveEx
 // Reject
 router.post("/expenditure-requests/:id/reject", requireAuth, canApproveExpenditure, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const body = validate(RejectSchema, req.body, res);
     if (!body) return;
 
     const actorId = await resolveActorUUID(req.clerkId);
     const [row] = await db.update(expenditureRequestsTable).set({
       status: "rejected", rejectionReason: body.reason,
-    }).where(eq(expenditureRequestsTable.id, req.params.id)).returning();
+    }).where(and(eq(expenditureRequestsTable.id, req.params.id), tenantFilter(expenditureRequestsTable, t.id))).returning();
     if (!row) return res.status(404).json({ error: "Not found" });
     await logFinance("expenditure", row.id, "rejected", actorId, { reason: body.reason });
     res.json(row);
@@ -580,9 +618,12 @@ router.post("/expenditure-requests/:id/reject", requireAuth, canApproveExpenditu
 });
 
 // GET /api/finance/vouchers
-router.get("/vouchers", requireAuth, canViewFinance, async (_req: any, res: any) => {
+router.get("/vouchers", requireAuth, canViewFinance, async (req: any, res: any) => {
   try {
-    const rows = await db.select().from(paymentVouchersTable).orderBy(desc(paymentVouchersTable.createdAt)).limit(100);
+    const t = assertTenant(req);
+    const rows = await db.select().from(paymentVouchersTable)
+      .where(tenantFilter(paymentVouchersTable, t.id))
+      .orderBy(desc(paymentVouchersTable.createdAt)).limit(100);
     res.json(rows);
   } catch (err: any) {
     res.status(500).json({ error: err.message });

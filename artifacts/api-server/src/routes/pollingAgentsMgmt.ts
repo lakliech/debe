@@ -21,6 +21,7 @@ import {
 import { eq, desc, and, or, ilike, count, inArray } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
 import { validate } from "../lib/validate";
+import { tenantFilter, assertTenant } from '../lib/withTenant';
 
 // ─── VALIDATION SCHEMAS ───────────────────────────────────────────────────────
 
@@ -136,12 +137,13 @@ const canManageSupervisor = requireRoles([
 // GET /api/polling-agents/
 router.get("/", requireAuth, canViewAgents, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const { pollingStationId, countyId, status, search, page = "1", limit = "20" } = req.query;
     const pageNum = parseInt(page) || 1;
     const pageSize = Math.min(parseInt(limit) || 20, 100);
     const offset = (pageNum - 1) * pageSize;
 
-    const conditions: any[] = [];
+    const conditions: any[] = [tenantFilter(pollingAgentsTable, t.id)];
     if (pollingStationId) conditions.push(eq(pollingAgentsTable.pollingStationId, pollingStationId));
     if (status) conditions.push(eq(pollingAgentsTable.status, status));
     if (search) conditions.push(or(
@@ -149,7 +151,7 @@ router.get("/", requireAuth, canViewAgents, async (req: any, res: any) => {
       ilike(pollingAgentsTable.phoneNumber, `%${search}%`),
       ilike(pollingAgentsTable.nationalId, `%${search}%`),
     ));
-    const where = conditions.length ? and(...conditions) : undefined;
+    const where = and(...conditions);
 
     const [rows, [{ total }]] = await Promise.all([
       db.select().from(pollingAgentsTable).where(where).orderBy(desc(pollingAgentsTable.createdAt)).limit(pageSize).offset(offset),
@@ -164,6 +166,7 @@ router.get("/", requireAuth, canViewAgents, async (req: any, res: any) => {
 // POST /api/polling-agents/
 router.post("/", requireAuth, canManageAgents, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const parsed = validate(createAgentSchema, req.body, res);
     if (!parsed) return;
     const { pollingStationId, isBackup, ...body } = parsed;
@@ -173,6 +176,7 @@ router.post("/", requireAuth, canManageAgents, async (req: any, res: any) => {
       const [existing] = await db.select({ id: pollingAgentsTable.id })
         .from(pollingAgentsTable)
         .where(and(
+          tenantFilter(pollingAgentsTable, t.id),
           eq(pollingAgentsTable.pollingStationId, pollingStationId),
           eq(pollingAgentsTable.isBackup, false),
         )).limit(1);
@@ -181,6 +185,7 @@ router.post("/", requireAuth, canManageAgents, async (req: any, res: any) => {
 
     const [row] = await db.insert(pollingAgentsTable).values({
       ...body,
+      tenantId: t.id,
       pollingStationId,
       isBackup: isBackup ?? false,
     } as any).returning();
@@ -193,13 +198,14 @@ router.post("/", requireAuth, canManageAgents, async (req: any, res: any) => {
 // GET /api/polling-agents/me  (MUST be before /:id) — resolves the current user's agent record
 router.get("/me", requireAuth, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     // Look up user by clerkId, then find their agent record
     const [user] = await db.select({ id: usersTable.id })
       .from(usersTable).where(eq(usersTable.clerkId, req.clerkId)).limit(1);
     if (!user) return res.status(404).json({ error: "User not found" });
 
     const [agent] = await db.select().from(pollingAgentsTable)
-      .where(eq(pollingAgentsTable.userId, user.id)).limit(1);
+      .where(and(eq(pollingAgentsTable.userId, user.id), tenantFilter(pollingAgentsTable, t.id))).limit(1);
     if (!agent) return res.status(404).json({ error: "No agent record found for this user" });
 
     res.json(agent);
@@ -209,9 +215,11 @@ router.get("/me", requireAuth, async (req: any, res: any) => {
 });
 
 // GET /api/polling-agents/courses  (MUST be before /:id)
-router.get("/courses", requireAuth, async (_req: any, res: any) => {
+router.get("/courses", requireAuth, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const rows = await db.select().from(agentTrainingCoursesTable)
+      .where(tenantFilter(agentTrainingCoursesTable, t.id))
       .orderBy(agentTrainingCoursesTable.createdAt);
     res.json(rows);
   } catch (err: any) {
@@ -220,9 +228,27 @@ router.get("/courses", requireAuth, async (_req: any, res: any) => {
 });
 
 // GET /api/polling-agents/sync-status  (MUST be before /:id)
-router.get("/sync-status", requireAuth, canManageSupervisor, async (_req: any, res: any) => {
+router.get("/sync-status", requireAuth, canManageSupervisor, async (req: any, res: any) => {
   try {
-    const rows = await db.select().from(agentSyncStatusTable)
+    const t = assertTenant(req);
+    // agentSyncStatusTable has no tenantId — scope via inner join on pollingAgentsTable
+    const rows = await db.select({
+      id: agentSyncStatusTable.id,
+      agentId: agentSyncStatusTable.agentId,
+      deviceId: agentSyncStatusTable.deviceId,
+      lastSeenAt: agentSyncStatusTable.lastSeenAt,
+      syncStatus: agentSyncStatusTable.syncStatus,
+      pendingSubmissions: agentSyncStatusTable.pendingSubmissions,
+      appVersion: agentSyncStatusTable.appVersion,
+      batteryLevel: agentSyncStatusTable.batteryLevel,
+      networkType: agentSyncStatusTable.networkType,
+      updatedAt: agentSyncStatusTable.updatedAt,
+    })
+      .from(agentSyncStatusTable)
+      .innerJoin(pollingAgentsTable, and(
+        eq(agentSyncStatusTable.agentId, pollingAgentsTable.id),
+        tenantFilter(pollingAgentsTable, t.id),
+      ))
       .orderBy(desc(agentSyncStatusTable.updatedAt));
     res.json(rows);
   } catch (err: any) {
@@ -233,10 +259,12 @@ router.get("/sync-status", requireAuth, canManageSupervisor, async (_req: any, r
 // GET /api/polling-agents/replacements  (MUST be before /:id)
 router.get("/replacements", requireAuth, canViewAgents, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const { agentId } = req.query;
-    const where = agentId ? eq(agentReplacementsTable.replacementAgentId, agentId as string) : undefined;
+    const conditions: any[] = [tenantFilter(agentReplacementsTable, t.id)];
+    if (agentId) conditions.push(eq(agentReplacementsTable.replacementAgentId, agentId as string));
     const rows = await db.select().from(agentReplacementsTable)
-      .where(where)
+      .where(and(...conditions))
       .orderBy(desc(agentReplacementsTable.createdAt));
     res.json(rows);
   } catch (err: any) {
@@ -247,8 +275,9 @@ router.get("/replacements", requireAuth, canViewAgents, async (req: any, res: an
 // GET /api/polling-agents/:id
 router.get("/:id", requireAuth, canViewAgents, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const [agent] = await db.select().from(pollingAgentsTable)
-      .where(eq(pollingAgentsTable.id, req.params.id)).limit(1);
+      .where(and(eq(pollingAgentsTable.id, req.params.id), tenantFilter(pollingAgentsTable, t.id))).limit(1);
     if (!agent) return res.status(404).json({ error: "Agent not found" });
 
     const [enrollments, allowances, electionDay] = await Promise.all([
@@ -269,6 +298,7 @@ router.get("/:id", requireAuth, canViewAgents, async (req: any, res: any) => {
 // PATCH /api/polling-agents/:id
 router.patch("/:id", requireAuth, canManageAgents, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const parsed = validate(patchAgentSchema, req.body, res);
     if (!parsed) return;
     const { pollingStationId, isBackup, ...body } = parsed;
@@ -278,6 +308,7 @@ router.patch("/:id", requireAuth, canManageAgents, async (req: any, res: any) =>
       const [existing] = await db.select({ id: pollingAgentsTable.id })
         .from(pollingAgentsTable)
         .where(and(
+          tenantFilter(pollingAgentsTable, t.id),
           eq(pollingAgentsTable.pollingStationId, pollingStationId),
           eq(pollingAgentsTable.isBackup, false),
         )).limit(1);
@@ -291,7 +322,7 @@ router.patch("/:id", requireAuth, canManageAgents, async (req: any, res: any) =>
     if (isBackup !== undefined) updateData.isBackup = isBackup;
 
     const [row] = await db.update(pollingAgentsTable).set(updateData)
-      .where(eq(pollingAgentsTable.id, req.params.id)).returning();
+      .where(and(eq(pollingAgentsTable.id, req.params.id), tenantFilter(pollingAgentsTable, t.id))).returning();
     if (!row) return res.status(404).json({ error: "Agent not found" });
     res.json(row);
   } catch (err: any) {
@@ -302,10 +333,11 @@ router.patch("/:id", requireAuth, canManageAgents, async (req: any, res: any) =>
 // POST /api/polling-agents/:id/code-of-conduct
 router.post("/:id/code-of-conduct", requireAuth, canManageAgents, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const [row] = await db.update(pollingAgentsTable).set({
       codeOfConductAccepted: true,
       codeOfConductDate: new Date(),
-    }).where(eq(pollingAgentsTable.id, req.params.id)).returning();
+    }).where(and(eq(pollingAgentsTable.id, req.params.id), tenantFilter(pollingAgentsTable, t.id))).returning();
     if (!row) return res.status(404).json({ error: "Agent not found" });
     res.json(row);
   } catch (err: any) {
@@ -321,10 +353,11 @@ router.post("/:id/code-of-conduct", requireAuth, canManageAgents, async (req: an
 // POST /api/polling-agents/courses
 router.post("/courses", requireAuth, canManageAgents, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const parsed = validate(createCourseSchema, req.body, res);
     if (!parsed) return;
     const { questions, ...courseBody } = parsed;
-    const [course] = await db.insert(agentTrainingCoursesTable).values(courseBody).returning();
+    const [course] = await db.insert(agentTrainingCoursesTable).values({ ...courseBody, tenantId: t.id }).returning();
 
     if (questions && Array.isArray(questions) && questions.length > 0) {
       await db.insert(agentQuizQuestionsTable).values(
@@ -345,6 +378,12 @@ router.post("/courses", requireAuth, canManageAgents, async (req: any, res: any)
 // GET /api/polling-agents/:id/training
 router.get("/:id/training", requireAuth, canViewAgents, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    // Verify parent agent belongs to this tenant before exposing training records
+    const [parentAgent] = await db.select({ id: pollingAgentsTable.id })
+      .from(pollingAgentsTable)
+      .where(and(eq(pollingAgentsTable.id, req.params.id), tenantFilter(pollingAgentsTable, t.id))).limit(1);
+    if (!parentAgent) return res.status(404).json({ error: "Agent not found" });
     const rows = await db.select().from(agentTrainingEnrollmentsTable)
       .where(eq(agentTrainingEnrollmentsTable.agentId, req.params.id))
       .orderBy(desc(agentTrainingEnrollmentsTable.createdAt));
@@ -357,6 +396,17 @@ router.get("/:id/training", requireAuth, canViewAgents, async (req: any, res: an
 // POST /api/polling-agents/:id/training/:courseId/enroll
 router.post("/:id/training/:courseId/enroll", requireAuth, canManageAgents, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    // Verify both parent agent and course belong to this tenant (prevents cross-tenant IDOR)
+    const [[parentAgent], [parentCourse]] = await Promise.all([
+      db.select({ id: pollingAgentsTable.id }).from(pollingAgentsTable)
+        .where(and(eq(pollingAgentsTable.id, req.params.id), tenantFilter(pollingAgentsTable, t.id))).limit(1),
+      db.select({ id: agentTrainingCoursesTable.id }).from(agentTrainingCoursesTable)
+        .where(and(eq(agentTrainingCoursesTable.id, req.params.courseId), tenantFilter(agentTrainingCoursesTable, t.id))).limit(1),
+    ]);
+    if (!parentAgent) return res.status(404).json({ error: "Agent not found" });
+    if (!parentCourse) return res.status(404).json({ error: "Course not found" });
+
     const [existing] = await db.select({ id: agentTrainingEnrollmentsTable.id })
       .from(agentTrainingEnrollmentsTable)
       .where(and(
@@ -367,6 +417,7 @@ router.post("/:id/training/:courseId/enroll", requireAuth, canManageAgents, asyn
     if (existing) return res.status(409).json({ error: "Already enrolled in this course" });
 
     const [row] = await db.insert(agentTrainingEnrollmentsTable).values({
+      tenantId: t.id,
       agentId: req.params.id,
       courseId: req.params.courseId,
       status: "enrolled",
@@ -380,12 +431,19 @@ router.post("/:id/training/:courseId/enroll", requireAuth, canManageAgents, asyn
 // POST /api/polling-agents/:id/training/:courseId/quiz
 router.post("/:id/training/:courseId/quiz", requireAuth, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const parsed = validate(quizAnswersSchema, req.body, res);
     if (!parsed) return;
     const { answers } = parsed;
 
-    const [course] = await db.select().from(agentTrainingCoursesTable)
-      .where(eq(agentTrainingCoursesTable.id, req.params.courseId)).limit(1);
+    // Verify both parent agent and course belong to this tenant (prevents cross-tenant IDOR)
+    const [[parentAgent], [course]] = await Promise.all([
+      db.select({ id: pollingAgentsTable.id }).from(pollingAgentsTable)
+        .where(and(eq(pollingAgentsTable.id, req.params.id), tenantFilter(pollingAgentsTable, t.id))).limit(1),
+      db.select().from(agentTrainingCoursesTable)
+        .where(and(eq(agentTrainingCoursesTable.id, req.params.courseId), tenantFilter(agentTrainingCoursesTable, t.id))).limit(1),
+    ]);
+    if (!parentAgent) return res.status(404).json({ error: "Agent not found" });
     if (!course) return res.status(404).json({ error: "Course not found" });
 
     const questions = await db.select().from(agentQuizQuestionsTable)
@@ -436,6 +494,11 @@ router.post("/:id/training/:courseId/quiz", requireAuth, async (req: any, res: a
 // GET /api/polling-agents/:id/allowance
 router.get("/:id/allowance", requireAuth, canViewAgents, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    // Verify agent belongs to this tenant
+    const [parentAgent] = await db.select({ id: pollingAgentsTable.id }).from(pollingAgentsTable)
+      .where(and(eq(pollingAgentsTable.id, req.params.id), tenantFilter(pollingAgentsTable, t.id))).limit(1);
+    if (!parentAgent) return res.status(404).json({ error: "Agent not found" });
     const rows = await db.select().from(agentAllowancesTable)
       .where(eq(agentAllowancesTable.agentId, req.params.id))
       .orderBy(desc(agentAllowancesTable.createdAt));
@@ -448,6 +511,11 @@ router.get("/:id/allowance", requireAuth, canViewAgents, async (req: any, res: a
 // POST /api/polling-agents/:id/allowance
 router.post("/:id/allowance", requireAuth, canManageAgents, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    // Verify agent belongs to this tenant
+    const [parentAgent] = await db.select({ id: pollingAgentsTable.id }).from(pollingAgentsTable)
+      .where(and(eq(pollingAgentsTable.id, req.params.id), tenantFilter(pollingAgentsTable, t.id))).limit(1);
+    if (!parentAgent) return res.status(404).json({ error: "Agent not found" });
     const parsed = validate(allowanceSchema, req.body, res);
     if (!parsed) return;
     const { electionId, amountKes, paymentMethod, paymentRef, ...rest } = parsed;
@@ -479,13 +547,19 @@ router.post("/:id/allowance", requireAuth, canManageAgents, async (req: any, res
 // POST /api/polling-agents/:id/allowance/approve
 router.post("/:id/allowance/approve", requireAuth, canApprovePayments, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    // Verify agent belongs to this tenant
+    const [parentAgent] = await db.select({ id: pollingAgentsTable.id }).from(pollingAgentsTable)
+      .where(and(eq(pollingAgentsTable.id, req.params.id), tenantFilter(pollingAgentsTable, t.id))).limit(1);
+    if (!parentAgent) return res.status(404).json({ error: "Agent not found" });
     const actorId = await resolveActorUUID(req.clerkId);
     const parsed = validate(allowanceApproveSchema, req.body, res);
     if (!parsed) return;
     const { allowanceId } = parsed;
-    const where = allowanceId
-      ? eq(agentAllowancesTable.id, allowanceId)
-      : eq(agentAllowancesTable.agentId, req.params.id);
+    // Always constrain to the verified parent agent (prevents IDOR cross-tenant write)
+    const conditions: any[] = [eq(agentAllowancesTable.agentId, req.params.id)];
+    if (allowanceId) conditions.push(eq(agentAllowancesTable.id, allowanceId));
+    const where = and(...conditions);
 
     const [row] = await db.update(agentAllowancesTable).set({
       status: "approved",
@@ -504,11 +578,13 @@ router.post("/:id/allowance/approve", requireAuth, canApprovePayments, async (re
 // POST /api/polling-agents/replacements
 router.post("/replacements", requireAuth, canManageAgents, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const actorId = await resolveActorUUID(req.clerkId);
     const parsed = validate(replacementSchema, req.body, res);
     if (!parsed) return;
     const [row] = await db.insert(agentReplacementsTable).values({
       ...parsed,
+      tenantId: t.id,
       requestedBy: actorId ?? undefined,
       status: "pending",
     } as any).returning();
@@ -521,6 +597,7 @@ router.post("/replacements", requireAuth, canManageAgents, async (req: any, res:
 // PATCH /api/polling-agents/replacements/:rid/approve
 router.patch("/replacements/:rid/approve", requireAuth, canApprovePayments, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const actorId = await resolveActorUUID(req.clerkId);
     const parsed = validate(replacementApproveSchema, req.body, res);
     if (!parsed) return;
@@ -528,7 +605,7 @@ router.patch("/replacements/:rid/approve", requireAuth, canApprovePayments, asyn
       status: "approved",
       approvedBy: actorId ?? undefined,
       effectiveAt: parsed.effectiveAt ? new Date(parsed.effectiveAt) : new Date(),
-    }).where(eq(agentReplacementsTable.id, req.params.rid)).returning();
+    }).where(and(eq(agentReplacementsTable.id, req.params.rid), tenantFilter(agentReplacementsTable, t.id))).returning();
     if (!row) return res.status(404).json({ error: "Replacement request not found" });
     res.json(row);
   } catch (err: any) {
@@ -541,6 +618,12 @@ router.patch("/replacements/:rid/approve", requireAuth, canApprovePayments, asyn
 // POST /api/polling-agents/:id/sync-heartbeat
 router.post("/:id/sync-heartbeat", requireAuth, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    // Verify the target agent belongs to this tenant before writing sync status
+    const [parentAgent] = await db.select({ id: pollingAgentsTable.id })
+      .from(pollingAgentsTable)
+      .where(and(eq(pollingAgentsTable.id, req.params.id), tenantFilter(pollingAgentsTable, t.id))).limit(1);
+    if (!parentAgent) return res.status(404).json({ error: "Agent not found" });
     const parsed = validate(syncHeartbeatSchema, req.body, res);
     if (!parsed) return;
     const { deviceId, syncStatus, pendingSubmissions, appVersion, batteryLevel, networkType } = parsed;
@@ -576,6 +659,11 @@ router.post("/:id/sync-heartbeat", requireAuth, async (req: any, res: any) => {
 // GET /api/polling-agents/:id/election-day
 router.get("/:id/election-day", requireAuth, canViewAgents, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    // Verify agent belongs to this tenant
+    const [parentAgent] = await db.select({ id: pollingAgentsTable.id }).from(pollingAgentsTable)
+      .where(and(eq(pollingAgentsTable.id, req.params.id), tenantFilter(pollingAgentsTable, t.id))).limit(1);
+    if (!parentAgent) return res.status(404).json({ error: "Agent not found" });
     const rows = await db.select().from(agentElectionDayTable)
       .where(eq(agentElectionDayTable.agentId, req.params.id))
       .orderBy(desc(agentElectionDayTable.createdAt));
@@ -588,6 +676,11 @@ router.get("/:id/election-day", requireAuth, canViewAgents, async (req: any, res
 // PATCH /api/polling-agents/:id/election-day
 router.patch("/:id/election-day", requireAuth, canManageSupervisor, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    // Verify target agent belongs to this tenant before reading/writing election-day records
+    const [parentAgent] = await db.select({ id: pollingAgentsTable.id }).from(pollingAgentsTable)
+      .where(and(eq(pollingAgentsTable.id, req.params.id), tenantFilter(pollingAgentsTable, t.id))).limit(1);
+    if (!parentAgent) return res.status(404).json({ error: "Agent not found" });
     const actorId = await resolveActorUUID(req.clerkId);
     const parsed = validate(electionDaySchema, req.body, res);
     if (!parsed) return;

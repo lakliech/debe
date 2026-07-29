@@ -10,6 +10,7 @@ import { eq, desc, and, count } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
 import { publicSubmitLimiter } from "../middlewares/rateLimits";
 import { DATA_REQUEST_TYPES } from "@workspace/api-zod";
+import { tenantFilter, assertTenant } from '../lib/withTenant';
 
 const router = Router();
 
@@ -29,6 +30,7 @@ const canManageDSRs = requireRoles([
 // GET /api/data-requests
 router.get("/", requireAuth, canManageDSRs, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const { status, type, page = "1" } = req.query;
     const pageNum = parseInt(page as string) || 1;
     const limit = 20;
@@ -39,6 +41,7 @@ router.get("/", requireAuth, canManageDSRs, async (req: any, res: any) => {
       .from(dataSubjectRequestsTable)
       .where(
         and(
+          tenantFilter(dataSubjectRequestsTable, t.id),
           status ? eq(dataSubjectRequestsTable.status, status as string) : undefined,
           type ? eq(dataSubjectRequestsTable.requestType, type as string) : undefined
         )
@@ -50,7 +53,7 @@ router.get("/", requireAuth, canManageDSRs, async (req: any, res: any) => {
     const [totalRow] = await db
       .select({ total: count() })
       .from(dataSubjectRequestsTable)
-      .where(status ? eq(dataSubjectRequestsTable.status, status as string) : undefined);
+      .where(and(tenantFilter(dataSubjectRequestsTable, t.id), status ? eq(dataSubjectRequestsTable.status, status as string) : undefined));
 
     res.json({ data: rows, total: totalRow?.total ?? 0, page: pageNum });
   } catch (err: any) {
@@ -69,9 +72,16 @@ router.post("/", publicSubmitLimiter, async (req: any, res: any) => {
       return res.status(400).json({ error: `requestType must be ${DATA_REQUEST_TYPES.join(" | ")}` });
     }
 
+    // Require tenant context — public callers must supply X-Tenant-Slug / ?tenant=
+    const tenantId: string | undefined = (req as any).tenant?.id;
+    if (!tenantId) {
+      return res.status(400).json({ error: "Missing tenant context: please supply the X-Tenant-Slug header or ?tenant= query parameter" });
+    }
+
     const [request] = await db
       .insert(dataSubjectRequestsTable)
       .values({
+        tenantId,
         requestType,
         fullName,
         subjectEmail: email,
@@ -93,10 +103,11 @@ router.post("/", publicSubmitLimiter, async (req: any, res: any) => {
 // GET /api/data-requests/:id
 router.get("/:id", requireAuth, canManageDSRs, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const [request] = await db
       .select()
       .from(dataSubjectRequestsTable)
-      .where(eq(dataSubjectRequestsTable.id, req.params.id))
+      .where(and(eq(dataSubjectRequestsTable.id, req.params.id), tenantFilter(dataSubjectRequestsTable, t.id)))
       .limit(1);
     if (!request) return res.status(404).json({ error: "Request not found" });
     res.json(request);
@@ -108,6 +119,7 @@ router.get("/:id", requireAuth, canManageDSRs, async (req: any, res: any) => {
 // PATCH /api/data-requests/:id
 router.patch("/:id", requireAuth, canManageDSRs, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const { status, resolutionNotes, resolvedAt } = req.body;
     const [updated] = await db
       .update(dataSubjectRequestsTable)
@@ -116,7 +128,7 @@ router.patch("/:id", requireAuth, canManageDSRs, async (req: any, res: any) => {
         ...(resolutionNotes !== undefined && { resolutionNotes }),
         ...(resolvedAt !== undefined ? { resolvedAt: new Date(resolvedAt) } : status === "resolved" ? { resolvedAt: new Date() } : {}),
       })
-      .where(eq(dataSubjectRequestsTable.id, req.params.id))
+      .where(and(eq(dataSubjectRequestsTable.id, req.params.id), tenantFilter(dataSubjectRequestsTable, t.id)))
       .returning();
     if (!updated) return res.status(404).json({ error: "Request not found" });
     res.json(updated);
@@ -128,29 +140,32 @@ router.patch("/:id", requireAuth, canManageDSRs, async (req: any, res: any) => {
 // POST /api/data-requests/:id/resolve
 router.post("/:id/resolve", requireAuth, canManageDSRs, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const { resolutionNotes, action } = req.body;
     const [request] = await db
       .select()
       .from(dataSubjectRequestsTable)
-      .where(eq(dataSubjectRequestsTable.id, req.params.id))
+      .where(and(eq(dataSubjectRequestsTable.id, req.params.id), tenantFilter(dataSubjectRequestsTable, t.id)))
       .limit(1);
     if (!request) return res.status(404).json({ error: "Request not found" });
 
     // If deletion request and confirmed, delete the subject record
+    // Tenant-scoped: only delete records belonging to this tenant to prevent cross-tenant writes
     if (request.requestType === "deletion" && action === "confirm_delete" && request.subjectId) {
       if (request.subjectType === "supporter") {
-        await db.delete(supportersTable).where(eq(supportersTable.id, request.subjectId));
+        await db.delete(supportersTable)
+          .where(and(eq(supportersTable.id, request.subjectId), tenantFilter(supportersTable, t.id)));
       } else if (request.subjectType === "volunteer") {
         await db.update(volunteersTable)
           .set({ fullName: "[DELETED]", email: null, phoneNumber: "[DELETED]", status: "deactivated" })
-          .where(eq(volunteersTable.id, request.subjectId));
+          .where(and(eq(volunteersTable.id, request.subjectId), tenantFilter(volunteersTable, t.id)));
       }
     }
 
     const [updated] = await db
       .update(dataSubjectRequestsTable)
       .set({ status: "resolved", resolutionNotes, resolvedAt: new Date() })
-      .where(eq(dataSubjectRequestsTable.id, req.params.id))
+      .where(and(eq(dataSubjectRequestsTable.id, req.params.id), tenantFilter(dataSubjectRequestsTable, t.id)))
       .returning();
 
     res.json(updated);

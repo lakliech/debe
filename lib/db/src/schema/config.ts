@@ -6,33 +6,39 @@ import {
   integer,
   uuid,
   doublePrecision,
+  unique,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { tenantsTable } from "./core";
 
 // ── System Configuration ──────────────────────────────────────────────────────
 export const systemConfigTable = pgTable("system_config", {
   id: uuid("id").primaryKey().defaultRandom(),
-  key: text("key").notNull().unique(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
+  key: text("key").notNull(),
   value: text("value").notNull(),
   description: text("description"),
   updatedBy: uuid("updated_by"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
-});
+}, (t) => [
+  unique("system_config_tenant_key_unique").on(t.tenantId, t.key),
+]);
 
 export type SystemConfig = typeof systemConfigTable.$inferSelect;
 
 // ── Campaign Branding ─────────────────────────────────────────────────────────
 export const brandingTable = pgTable("branding", {
   id: uuid("id").primaryKey().defaultRandom(),
-  campaignName: text("campaign_name").notNull().default("Ushindi 2027"),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
+  campaignName: text("campaign_name").notNull().default("Campaign"),
   candidateName: text("candidate_name").notNull().default("Candidate Name"),
   primaryColor: text("primary_color").notNull().default("#006600"),
   secondaryColor: text("secondary_color").notNull().default("#bb0000"),
   accentColor: text("accent_color").default("#000000"),
   logoUrl: text("logo_url"),
   faviconUrl: text("favicon_url"),
-  tagline: text("tagline").notNull().default("Building a Better Kenya Together"),
+  tagline: text("tagline").notNull().default("Building a Better Future Together"),
   electionYear: integer("election_year").notNull().default(2027),
   websiteUrl: text("website_url"),
   socialTwitter: text("social_twitter"),
@@ -49,6 +55,7 @@ export type Branding = typeof brandingTable.$inferSelect;
 // ── Audit Logs ────────────────────────────────────────────────────────────────
 export const auditLogsTable = pgTable("audit_logs", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   userId: uuid("user_id").notNull(),
   userEmail: text("user_email").notNull(),
   userFullName: text("user_full_name"),
@@ -69,6 +76,7 @@ export type AuditLog = typeof auditLogsTable.$inferSelect;
 // ── Activity Feed ─────────────────────────────────────────────────────────────
 export const activityFeedTable = pgTable("activity_feed", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   type: text("type").notNull(),
   description: text("description").notNull(),
   userId: uuid("user_id").notNull(),
@@ -85,6 +93,7 @@ export type ActivityFeed = typeof activityFeedTable.$inferSelect;
 // ── Volunteers ────────────────────────────────────────────────────────────────
 export const volunteersTable = pgTable("volunteers", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   userId: uuid("user_id"),
   fullName: text("full_name").notNull(),
   phoneNumber: text("phone_number").notNull(),
@@ -111,6 +120,7 @@ export type Volunteer = typeof volunteersTable.$inferSelect;
 // ── Supporters ────────────────────────────────────────────────────────────────
 export const supportersTable = pgTable("supporters", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   fullName: text("full_name").notNull(),
   email: text("email"),
   phoneNumber: text("phone_number"),
@@ -133,6 +143,7 @@ export type Supporter = typeof supportersTable.$inferSelect;
 // ── Polling Agents ────────────────────────────────────────────────────────────
 export const pollingAgentsTable = pgTable("polling_agents", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   userId: uuid("user_id"),
   fullName: text("full_name").notNull(),
   phoneNumber: text("phone_number").notNull(),
@@ -156,19 +167,23 @@ export type PollingAgent = typeof pollingAgentsTable.$inferSelect;
 // ── Elections ─────────────────────────────────────────────────────────────────
 export const electionsTable = pgTable("elections", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   year: integer("year").notNull(),
   electionDate: text("election_date"),
   status: text("status").notNull().default("upcoming"),
   isActive: boolean("is_active").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  unique("elections_tenant_name_year_unique").on(t.tenantId, t.name, t.year),
+]);
 
 export type Election = typeof electionsTable.$inferSelect;
 
 // ── Candidates ────────────────────────────────────────────────────────────────
 export const candidatesTable = pgTable("candidates", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   electionId: uuid("election_id").references(() => electionsTable.id),
   fullName: text("full_name").notNull(),
   partyName: text("party_name"),
@@ -183,6 +198,7 @@ export type Candidate = typeof candidatesTable.$inferSelect;
 // ── Polling Station Submissions ───────────────────────────────────────────────
 export const resultSubmissionsTable = pgTable("result_submissions", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   pollingStationId: uuid("polling_station_id").notNull(),
   electionId: uuid("election_id").notNull(),
   agentId: uuid("agent_id").notNull(),
@@ -217,6 +233,7 @@ export type ResultSubmission = typeof resultSubmissionsTable.$inferSelect;
 // ── Incidents ─────────────────────────────────────────────────────────────────
 export const incidentsTable = pgTable("incidents", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   category: text("category").notNull(),
   severity: text("severity").notNull().default("medium"),
   description: text("description").notNull(),
@@ -240,6 +257,7 @@ export type Incident = typeof incidentsTable.$inferSelect;
 // ── Donations ─────────────────────────────────────────────────────────────────
 export const donationsTable = pgTable("donations", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   donorId: uuid("donor_id"),
   donorFullName: text("donor_full_name").notNull(),
   donorEmail: text("donor_email"),
@@ -265,6 +283,7 @@ export type Donation = typeof donationsTable.$inferSelect;
 // ── Events ────────────────────────────────────────────────────────────────────
 export const eventsTable = pgTable("events", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   description: text("description"),
   eventType: text("event_type").notNull().default("rally"),
@@ -289,16 +308,17 @@ export type Event = typeof eventsTable.$inferSelect;
 // ── Data Subject Requests ─────────────────────────────────────────────────────
 export const dataSubjectRequestsTable = pgTable("data_subject_requests", {
   id: uuid("id").primaryKey().defaultRandom(),
-  requestType: text("request_type").notNull(), // access | correction | deletion | objection
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
+  requestType: text("request_type").notNull(),
   subjectEmail: text("subject_email"),
   subjectName: text("subject_name"),
   fullName: text("full_name"),
   phoneNumber: text("phone_number"),
   description: text("description"),
   resolutionNotes: text("resolution_notes"),
-  subjectType: text("subject_type"), // supporter | volunteer | user
+  subjectType: text("subject_type"),
   subjectId: uuid("subject_id"),
-  status: text("status").notNull().default("pending"), // pending | in_progress | resolved | rejected
+  status: text("status").notNull().default("pending"),
   assignedTo: uuid("assigned_to"),
   dueDate: text("due_date"),
   resolvedAt: timestamp("resolved_at", { withTimezone: true }),
@@ -309,10 +329,10 @@ export const dataSubjectRequestsTable = pgTable("data_subject_requests", {
 
 export type DataSubjectRequest = typeof dataSubjectRequestsTable.$inferSelect;
 
-
 // ── Communications ────────────────────────────────────────────────────────────
 export const communicationsTable = pgTable("communications", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   channel: text("channel").notNull(),
   templateId: uuid("template_id"),
@@ -336,6 +356,7 @@ export type Communication = typeof communicationsTable.$inferSelect;
 // ── Policy Submissions ────────────────────────────────────────────────────────
 export const policySubmissionsTable = pgTable("policy_submissions", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   title: text("title"),
   sector: text("sector"),
   sectorId: uuid("sector_id"),
@@ -351,4 +372,3 @@ export const policySubmissionsTable = pgTable("policy_submissions", {
 });
 
 export type PolicySubmission = typeof policySubmissionsTable.$inferSelect;
-

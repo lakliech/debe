@@ -50,6 +50,62 @@
       "when": 1785221473078,
       "tag": "0006_contact_messages_reply_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1785296298144,
+      "tag": "0007_adorable_true_believers",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1785299421240,
+      "tag": "0008_lumpy_demogoblin",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1785302000000,
+      "tag": "0009_tenant_id_election_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1785302100000,
+      "tag": "0010_tenant_id_missing_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1785302200000,
+      "tag": "0011_tenant_id_scheduled_fact_check",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1785302300000,
+      "tag": "0012_tenant_id_not_null",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1785302400000,
+      "tag": "0013_tenant_id_misinformation_claims",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1785302500000,
+      "tag": "0014_campaign_station_profiles",
+      "breakpoints": true
     }
   ]
 }

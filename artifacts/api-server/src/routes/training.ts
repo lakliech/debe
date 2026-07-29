@@ -12,6 +12,7 @@ import {
 import { eq, desc, and, count } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
 import { randomUUID } from "crypto";
+import { tenantFilter, assertTenant } from '../lib/withTenant';
 
 const router = Router();
 
@@ -33,11 +34,12 @@ const canManageCourses = requireRoles([
 // GET /api/training/courses
 router.get("/courses", requireAuth, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const { status } = req.query;
     const courses = await db
       .select()
       .from(trainingCoursesTable)
-      .where(status ? eq(trainingCoursesTable.status, status) : undefined)
+      .where(status ? and(tenantFilter(trainingCoursesTable, t.id), eq(trainingCoursesTable.status, status)) : tenantFilter(trainingCoursesTable, t.id))
       .orderBy(trainingCoursesTable.title);
     res.json(courses);
   } catch (err: any) {
@@ -48,10 +50,11 @@ router.get("/courses", requireAuth, async (req: any, res: any) => {
 // POST /api/training/courses
 router.post("/courses", requireAuth, canManageCourses, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const { title, titleSw, description, targetRoles, estimatedHours, mandatory, passMark, status } = req.body;
     const [course] = await db
       .insert(trainingCoursesTable)
-      .values({ title, titleSw, description, targetRoles, estimatedHours, mandatory, passMark, status: status || "draft" })
+      .values({ tenantId: t.id, title, titleSw, description, targetRoles, estimatedHours, mandatory, passMark, status: status || "draft" })
       .returning();
     res.status(201).json(course);
   } catch (err: any) {
@@ -62,10 +65,11 @@ router.post("/courses", requireAuth, canManageCourses, async (req: any, res: any
 // GET /api/training/courses/:id
 router.get("/courses/:id", requireAuth, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const [course] = await db
       .select()
       .from(trainingCoursesTable)
-      .where(eq(trainingCoursesTable.id, req.params.id))
+      .where(and(eq(trainingCoursesTable.id, req.params.id), tenantFilter(trainingCoursesTable, t.id)))
       .limit(1);
 
     if (!course) return res.status(404).json({ error: "Course not found" });
@@ -87,9 +91,14 @@ router.get("/courses/:id", requireAuth, async (req: any, res: any) => {
       }
     }
 
+    // Scope enrollment count through course (trainingEnrollmentsTable has no tenantId)
     const [enrollmentCount] = await db
       .select({ total: count() })
       .from(trainingEnrollmentsTable)
+      .innerJoin(trainingCoursesTable, and(
+        eq(trainingEnrollmentsTable.courseId, trainingCoursesTable.id),
+        tenantFilter(trainingCoursesTable, t.id),
+      ))
       .where(eq(trainingEnrollmentsTable.courseId, req.params.id));
 
     res.json({ ...course, modules: modules.map((m) => ({ ...m, quiz: quizzes[m.id] || [] })), enrollmentCount: enrollmentCount?.total ?? 0 });
@@ -101,6 +110,7 @@ router.get("/courses/:id", requireAuth, async (req: any, res: any) => {
 // PATCH /api/training/courses/:id
 router.patch("/courses/:id", requireAuth, canManageCourses, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const { title, titleSw, description, targetRoles, estimatedHours, mandatory, passMark, status } = req.body;
     const [updated] = await db
       .update(trainingCoursesTable)
@@ -114,7 +124,7 @@ router.patch("/courses/:id", requireAuth, canManageCourses, async (req: any, res
         ...(passMark !== undefined && { passMark }),
         ...(status !== undefined && { status }),
       })
-      .where(eq(trainingCoursesTable.id, req.params.id))
+      .where(and(eq(trainingCoursesTable.id, req.params.id), tenantFilter(trainingCoursesTable, t.id)))
       .returning();
     if (!updated) return res.status(404).json({ error: "Course not found" });
     res.json(updated);
@@ -126,6 +136,11 @@ router.patch("/courses/:id", requireAuth, canManageCourses, async (req: any, res
 // POST /api/training/courses/:id/modules
 router.post("/courses/:id/modules", requireAuth, canManageCourses, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    // Verify course belongs to this tenant
+    const [parentCourse] = await db.select({ id: trainingCoursesTable.id }).from(trainingCoursesTable)
+      .where(and(eq(trainingCoursesTable.id, req.params.id), tenantFilter(trainingCoursesTable, t.id))).limit(1);
+    if (!parentCourse) return res.status(404).json({ error: "Course not found" });
     const { title, titleSw, contentType, contentEn, contentSw, videoUrl, documentUrl, displayOrder, durationMinutes } = req.body;
     const [module] = await db
       .insert(trainingModulesTable)
@@ -140,10 +155,27 @@ router.post("/courses/:id/modules", requireAuth, canManageCourses, async (req: a
 // POST /api/training/courses/:id/enroll
 router.post("/courses/:id/enroll", requireAuth, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    // Verify course belongs to this tenant
+    const [parentCourse] = await db.select({ id: trainingCoursesTable.id }).from(trainingCoursesTable)
+      .where(and(eq(trainingCoursesTable.id, req.params.id), tenantFilter(trainingCoursesTable, t.id))).limit(1);
+    if (!parentCourse) return res.status(404).json({ error: "Course not found" });
     const { volunteerId, userId } = req.body;
+
+    // Validate volunteerId belongs to this tenant's volunteers before enrolling
+    if (volunteerId) {
+      const [vol] = await db.select({ id: volunteersTable.id }).from(volunteersTable)
+        .where(and(eq(volunteersTable.id, volunteerId), tenantFilter(volunteersTable, t.id))).limit(1);
+      if (!vol) return res.status(400).json({ error: "volunteerId not found or not owned by this campaign" });
+    }
+
     const [existing] = await db
-      .select()
+      .select({ id: trainingEnrollmentsTable.id })
       .from(trainingEnrollmentsTable)
+      .innerJoin(trainingCoursesTable, and(
+        eq(trainingEnrollmentsTable.courseId, trainingCoursesTable.id),
+        tenantFilter(trainingCoursesTable, t.id),
+      ))
       .where(
         and(
           eq(trainingEnrollmentsTable.courseId, req.params.id),
@@ -167,9 +199,14 @@ router.post("/courses/:id/enroll", requireAuth, async (req: any, res: any) => {
 // GET /api/training/enrollments/:id
 router.get("/enrollments/:id", requireAuth, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const [enrollment] = await db
-      .select()
+      .select({ enrollment: trainingEnrollmentsTable })
       .from(trainingEnrollmentsTable)
+      .innerJoin(trainingCoursesTable, and(
+        eq(trainingEnrollmentsTable.courseId, trainingCoursesTable.id),
+        tenantFilter(trainingCoursesTable, t.id),
+      ))
       .where(eq(trainingEnrollmentsTable.id, req.params.id))
       .limit(1);
     if (!enrollment) return res.status(404).json({ error: "Enrollment not found" });
@@ -179,7 +216,7 @@ router.get("/enrollments/:id", requireAuth, async (req: any, res: any) => {
       .from(moduleProgressTable)
       .where(eq(moduleProgressTable.enrollmentId, req.params.id));
 
-    res.json({ ...enrollment, progress });
+    res.json({ ...enrollment.enrollment, progress });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -188,19 +225,21 @@ router.get("/enrollments/:id", requireAuth, async (req: any, res: any) => {
 // POST /api/training/enrollments/:id/complete-module
 router.post("/enrollments/:id/complete-module", requireAuth, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const { moduleId, quizScore, quizAnswers } = req.body;
-    const [enrollment] = await db
-      .select()
+    // Scope enrollment through parent course (trainingEnrollmentsTable has no tenantId)
+    const [enrollmentRow] = await db
+      .select({ enrollment: trainingEnrollmentsTable, course: trainingCoursesTable })
       .from(trainingEnrollmentsTable)
+      .innerJoin(trainingCoursesTable, and(
+        eq(trainingEnrollmentsTable.courseId, trainingCoursesTable.id),
+        tenantFilter(trainingCoursesTable, t.id),
+      ))
       .where(eq(trainingEnrollmentsTable.id, req.params.id))
       .limit(1);
-    if (!enrollment) return res.status(404).json({ error: "Enrollment not found" });
-
-    const [course] = await db
-      .select()
-      .from(trainingCoursesTable)
-      .where(eq(trainingCoursesTable.id, enrollment.courseId))
-      .limit(1);
+    if (!enrollmentRow) return res.status(404).json({ error: "Enrollment not found" });
+    const enrollment = enrollmentRow.enrollment;
+    const course = enrollmentRow.course;
 
     const quizPassed = quizScore !== undefined && course ? quizScore >= (course.passMark ?? 70) : null;
 
@@ -235,6 +274,7 @@ router.post("/enrollments/:id/complete-module", requireAuth, async (req: any, re
       await db
         .update(trainingEnrollmentsTable)
         .set({ status: "completed", completedAt: new Date(), certificateCode, certificateIssuedAt: new Date() })
+        // Tenant already verified via inner join at fetch time; update by id only
         .where(eq(trainingEnrollmentsTable.id, req.params.id));
     } else if (enrollment.status === "enrolled") {
       await db
@@ -252,20 +292,24 @@ router.post("/enrollments/:id/complete-module", requireAuth, async (req: any, re
 // GET /api/training/enrollments/:id/certificate
 router.get("/enrollments/:id/certificate", requireAuth, async (req: any, res: any) => {
   try {
-    const [enrollment] = await db
-      .select()
+    const t = assertTenant(req);
+    // Scope enrollment through parent course (trainingEnrollmentsTable has no tenantId)
+    const [certRow] = await db
+      .select({ enrollment: trainingEnrollmentsTable, course: trainingCoursesTable })
       .from(trainingEnrollmentsTable)
+      .innerJoin(trainingCoursesTable, and(
+        eq(trainingEnrollmentsTable.courseId, trainingCoursesTable.id),
+        tenantFilter(trainingCoursesTable, t.id),
+      ))
       .where(and(eq(trainingEnrollmentsTable.id, req.params.id), eq(trainingEnrollmentsTable.status, "completed")))
       .limit(1);
-    if (!enrollment) return res.status(404).json({ error: "Certificate not issued for this enrollment" });
-
-    const [course] = await db.select().from(trainingCoursesTable).where(eq(trainingCoursesTable.id, enrollment.courseId)).limit(1);
+    if (!certRow) return res.status(404).json({ error: "Certificate not issued for this enrollment" });
 
     res.json({
-      certificateCode: enrollment.certificateCode,
-      issuedAt: enrollment.certificateIssuedAt,
-      courseName: course?.title,
-      volunteerId: enrollment.volunteerId,
+      certificateCode: certRow.enrollment.certificateCode,
+      issuedAt: certRow.enrollment.certificateIssuedAt,
+      courseName: certRow.course?.title,
+      volunteerId: certRow.enrollment.volunteerId,
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

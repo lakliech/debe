@@ -7,6 +7,8 @@ import { getAuth } from "@clerk/express";
 import { db, aspirantsTable, usersTable } from "@workspace/db";
 import { eq, ilike, and, count, sql, desc } from "drizzle-orm";
 import { requireLevel } from "../middlewares/rbac";
+import { resolveTenant } from "../middlewares/resolveTenant";
+import { tenantFilter, assertTenant } from "../lib/withTenant";
 
 const router = Router();
 
@@ -31,11 +33,13 @@ async function resolveActorUUID(clerkId: string): Promise<string | null> {
 }
 
 // GET /api/aspirants/stats — any authenticated user
-router.get("/stats", requireAuth, async (_req: any, res: any) => {
+router.get("/stats", requireAuth, resolveTenant, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const rows = await db
       .select({ status: aspirantsTable.status, count: count() })
       .from(aspirantsTable)
+      .where(tenantFilter(aspirantsTable, t.id))
       .groupBy(aspirantsTable.status);
 
     const byStatus: Record<string, number> = {};
@@ -51,20 +55,21 @@ router.get("/stats", requireAuth, async (_req: any, res: any) => {
 });
 
 // GET /api/aspirants — any authenticated user
-router.get("/", requireAuth, async (req: any, res: any) => {
+router.get("/", requireAuth, resolveTenant, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const { search, status, position, countyId, page = "1", limit = "20" } = req.query;
     const pageNum = Math.max(1, parseInt(page) || 1);
     const pageSize = Math.min(100, parseInt(limit) || 20);
     const offset = (pageNum - 1) * pageSize;
 
-    const conditions: any[] = [];
+    const conditions: any[] = [tenantFilter(aspirantsTable, t.id)];
     if (search) conditions.push(ilike(aspirantsTable.fullName, `%${search}%`));
     if (status) conditions.push(eq(aspirantsTable.status, status));
     if (position) conditions.push(eq(aspirantsTable.position, position));
     if (countyId) conditions.push(eq(aspirantsTable.countyId, countyId));
 
-    const where = conditions.length ? and(...conditions) : undefined;
+    const where = and(...conditions);
 
     const [{ total }] = await db
       .select({ total: sql<number>`cast(count(*) as int)` })
@@ -86,12 +91,13 @@ router.get("/", requireAuth, async (req: any, res: any) => {
 });
 
 // GET /api/aspirants/:id — any authenticated user
-router.get("/:id", requireAuth, async (req: any, res: any) => {
+router.get("/:id", requireAuth, resolveTenant, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const [row] = await db
       .select()
       .from(aspirantsTable)
-      .where(eq(aspirantsTable.id, req.params.id))
+      .where(and(eq(aspirantsTable.id, req.params.id), tenantFilter(aspirantsTable, t.id)))
       .limit(1);
     if (!row) return res.status(404).json({ error: "Not found" });
     res.json(row);
@@ -101,8 +107,9 @@ router.get("/:id", requireAuth, async (req: any, res: any) => {
 });
 
 // PATCH /api/aspirants/:id — update status / review notes (coordinator+)
-router.patch("/:id", requireAuth, canReview, async (req: any, res: any) => {
+router.patch("/:id", requireAuth, resolveTenant, canReview, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const { status, reviewNotes } = req.body;
     if (status && !["pending", "approved", "rejected"].includes(status)) {
       return res.status(400).json({ error: "status must be pending | approved | rejected" });
@@ -112,7 +119,6 @@ router.patch("/:id", requireAuth, canReview, async (req: any, res: any) => {
     if (status) {
       updates.status = status;
       updates.reviewedAt = new Date();
-      // Persist reviewer identity for audit trail
       const actorUUID = await resolveActorUUID(req.clerkId);
       if (actorUUID) updates.reviewedBy = actorUUID;
     }
@@ -125,7 +131,7 @@ router.patch("/:id", requireAuth, canReview, async (req: any, res: any) => {
     const [updated] = await db
       .update(aspirantsTable)
       .set(updates)
-      .where(eq(aspirantsTable.id, req.params.id))
+      .where(and(eq(aspirantsTable.id, req.params.id), tenantFilter(aspirantsTable, t.id)))
       .returning();
 
     if (!updated) return res.status(404).json({ error: "Not found" });

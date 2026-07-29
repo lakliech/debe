@@ -14,6 +14,7 @@ import {
 } from "@workspace/db";
 import { eq, desc, and, count } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
+import { tenantFilter, assertTenant } from '../lib/withTenant';
 
 const router = Router();
 
@@ -40,17 +41,18 @@ const canManageElections = requireRoles([
 // GET /api/election-disputes/
 router.get("/", requireAuth, canManageDisputes, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const { electionId, status, priority, pollingStationId, page = "1", limit = "20" } = req.query;
     const pageNum = parseInt(page) || 1;
     const pageSize = Math.min(parseInt(limit) || 20, 100);
     const offset = (pageNum - 1) * pageSize;
 
-    const conditions: any[] = [];
+    const conditions: any[] = [tenantFilter(electionDisputesTable, t.id)];
     if (electionId) conditions.push(eq(electionDisputesTable.electionId, electionId));
     if (status) conditions.push(eq(electionDisputesTable.status, status));
     if (priority) conditions.push(eq(electionDisputesTable.priority, priority));
     if (pollingStationId) conditions.push(eq(electionDisputesTable.pollingStationId, pollingStationId));
-    const where = conditions.length ? and(...conditions) : undefined;
+    const where = and(...conditions);
 
     const [rows, [{ total }]] = await Promise.all([
       db.select().from(electionDisputesTable).where(where)
@@ -66,13 +68,22 @@ router.get("/", requireAuth, canManageDisputes, async (req: any, res: any) => {
 // POST /api/election-disputes/
 router.post("/", requireAuth, canManageDisputes, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const actorId = await resolveActorUUID(req.clerkId);
-    // Map only valid schema columns; frontend sends `deadline` as a date string, schema has `deadlineAt`
     const {
       electionId, pollingStationId, submissionId, disputeType, title, description,
       status, priority, assignedTo, resolutionNotes, deadline, deadlineAt,
     } = req.body;
+
+    // Validate submissionId belongs to this tenant to prevent cross-tenant dispute injection
+    if (submissionId) {
+      const [sub] = await db.select({ id: resultSubmissionsTable.id }).from(resultSubmissionsTable)
+        .where(and(eq(resultSubmissionsTable.id, submissionId), tenantFilter(resultSubmissionsTable, t.id))).limit(1);
+      if (!sub) return res.status(400).json({ error: "submissionId not found or not owned by this campaign" });
+    }
+
     const [row] = await db.insert(electionDisputesTable).values({
+      tenantId: t.id,
       electionId, pollingStationId, submissionId, disputeType, title, description,
       status: status ?? "open",
       priority: priority ?? "medium",
@@ -89,8 +100,9 @@ router.post("/", requireAuth, canManageDisputes, async (req: any, res: any) => {
 // GET /api/election-disputes/:id
 router.get("/:id", requireAuth, canManageDisputes, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const [dispute] = await db.select().from(electionDisputesTable)
-      .where(eq(electionDisputesTable.id, req.params.id)).limit(1);
+      .where(and(eq(electionDisputesTable.id, req.params.id), tenantFilter(electionDisputesTable, t.id))).limit(1);
     if (!dispute) return res.status(404).json({ error: "Dispute not found" });
 
     const [evidence, comms] = await Promise.all([
@@ -111,6 +123,7 @@ router.get("/:id", requireAuth, canManageDisputes, async (req: any, res: any) =>
 // PATCH /api/election-disputes/:id
 router.patch("/:id", requireAuth, canManageDisputes, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     // Map only valid schema columns; frontend sends `deadline` as a date string, schema has `deadlineAt`
     const {
       disputeType, title, description, status, priority, assignedTo,
@@ -131,7 +144,7 @@ router.patch("/:id", requireAuth, canManageDisputes, async (req: any, res: any) 
     else if (deadline !== undefined) updateData.deadlineAt = new Date(deadline);
 
     const [row] = await db.update(electionDisputesTable).set(updateData)
-      .where(eq(electionDisputesTable.id, req.params.id)).returning();
+      .where(and(eq(electionDisputesTable.id, req.params.id), tenantFilter(electionDisputesTable, t.id))).returning();
     if (!row) return res.status(404).json({ error: "Dispute not found" });
     res.json(row);
   } catch (err: any) {
@@ -142,6 +155,11 @@ router.patch("/:id", requireAuth, canManageDisputes, async (req: any, res: any) 
 // POST /api/election-disputes/:id/evidence
 router.post("/:id/evidence", requireAuth, canManageDisputes, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    // Verify parent dispute belongs to this tenant
+    const [parentDispute] = await db.select({ id: electionDisputesTable.id }).from(electionDisputesTable)
+      .where(and(eq(electionDisputesTable.id, req.params.id), tenantFilter(electionDisputesTable, t.id))).limit(1);
+    if (!parentDispute) return res.status(404).json({ error: "Dispute not found" });
     const actorId = await resolveActorUUID(req.clerkId);
     const [row] = await db.insert(disputeEvidenceTable).values({
       ...req.body,
@@ -157,6 +175,11 @@ router.post("/:id/evidence", requireAuth, canManageDisputes, async (req: any, re
 // POST /api/election-disputes/:id/communications
 router.post("/:id/communications", requireAuth, canManageDisputes, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    // Verify parent dispute belongs to this tenant
+    const [parentDispute] = await db.select({ id: electionDisputesTable.id }).from(electionDisputesTable)
+      .where(and(eq(electionDisputesTable.id, req.params.id), tenantFilter(electionDisputesTable, t.id))).limit(1);
+    if (!parentDispute) return res.status(404).json({ error: "Dispute not found" });
     const actorId = await resolveActorUUID(req.clerkId);
     const [row] = await db.insert(disputeCommunicationsTable).values({
       ...req.body,
@@ -172,8 +195,9 @@ router.post("/:id/communications", requireAuth, canManageDisputes, async (req: a
 // GET /api/election-disputes/:id/evidence-bundle
 router.get("/:id/evidence-bundle", requireAuth, canManageDisputes, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const [dispute] = await db.select().from(electionDisputesTable)
-      .where(eq(electionDisputesTable.id, req.params.id)).limit(1);
+      .where(and(eq(electionDisputesTable.id, req.params.id), tenantFilter(electionDisputesTable, t.id))).limit(1);
     if (!dispute) return res.status(404).json({ error: "Dispute not found" });
 
     const [evidence, comms] = await Promise.all([
@@ -185,8 +209,13 @@ router.get("/:id/evidence-bundle", requireAuth, canManageDisputes, async (req: a
 
     let submissionImages: any[] = [];
     if (dispute.submissionId) {
-      submissionImages = await db.select().from(submissionFormImagesTable)
-        .where(eq(submissionFormImagesTable.submissionId, dispute.submissionId!));
+      // Only load images if the referenced submission belongs to this tenant
+      const [ownedSub] = await db.select({ id: resultSubmissionsTable.id }).from(resultSubmissionsTable)
+        .where(and(eq(resultSubmissionsTable.id, dispute.submissionId), tenantFilter(resultSubmissionsTable, t.id))).limit(1);
+      if (ownedSub) {
+        submissionImages = await db.select().from(submissionFormImagesTable)
+          .where(eq(submissionFormImagesTable.submissionId, dispute.submissionId));
+      }
     }
 
     res.json({
@@ -204,6 +233,7 @@ router.get("/:id/evidence-bundle", requireAuth, canManageDisputes, async (req: a
 // POST /api/election-disputes/auto-detect
 router.post("/auto-detect", requireAuth, canManageElections, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const { electionId } = req.body;
     if (!electionId) return res.status(400).json({ error: "electionId required" });
 
@@ -212,7 +242,7 @@ router.post("/auto-detect", requireAuth, canManageElections, async (req: any, re
 
     // Scan submissions for arithmetic errors
     const submissions = await db.select().from(resultSubmissionsTable)
-      .where(eq(resultSubmissionsTable.electionId, electionId));
+      .where(and(tenantFilter(resultSubmissionsTable, t.id), eq(resultSubmissionsTable.electionId, electionId)));
 
     for (const sub of submissions) {
       const issues: string[] = [];
@@ -232,6 +262,7 @@ router.post("/auto-detect", requireAuth, canManageElections, async (req: any, re
 
       if (issues.length > 0) {
         const [dispute] = await db.insert(electionDisputesTable).values({
+          tenantId: t.id,
           electionId,
           pollingStationId: sub.pollingStationId,
           submissionId: sub.id,
@@ -253,7 +284,7 @@ router.post("/auto-detect", requireAuth, canManageElections, async (req: any, re
       imageHash: submissionFormImagesTable.imageHash,
     }).from(submissionFormImagesTable)
     .innerJoin(resultSubmissionsTable, eq(submissionFormImagesTable.submissionId, resultSubmissionsTable.id))
-    .where(eq(resultSubmissionsTable.electionId, electionId));
+.where(and(tenantFilter(resultSubmissionsTable, t.id), eq(resultSubmissionsTable.electionId, electionId)));
 
     const hashMap: Record<string, string[]> = {};
     for (const img of allImages) {
@@ -267,6 +298,7 @@ router.post("/auto-detect", requireAuth, canManageElections, async (req: any, re
     for (const [hash, subIds] of Object.entries(hashMap)) {
       if (subIds.length > 1) {
         const [dispute] = await db.insert(electionDisputesTable).values({
+          tenantId: t.id,
           electionId,
           submissionId: subIds[0],
           disputeType: "duplicate_image",

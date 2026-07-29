@@ -12,11 +12,12 @@ import {
   jsonb,
   numeric,
   index,
+  unique,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { countiesTable, constituenciesTable, wardsTable } from "./geography";
-import { usersTable } from "./core";
+import { usersTable, tenantsTable } from "./core";
 import { eventsTable } from "./config";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -25,6 +26,7 @@ import { eventsTable } from "./config";
 
 export const mpesaTransactionsTable = pgTable("mpesa_transactions", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   merchantRequestId: text("merchant_request_id"),
   checkoutRequestId: text("checkout_request_id").unique(),
   phoneNumber: text("phone_number").notNull(),
@@ -52,7 +54,8 @@ export type MpesaTransaction = typeof mpesaTransactionsTable.$inferSelect;
 
 export const contributionsTable = pgTable("contributions", {
   id: uuid("id").primaryKey().defaultRandom(),
-  referenceNumber: text("reference_number").notNull().unique(), // unique transaction ref e.g. LIND-20271025-0001
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
+  referenceNumber: text("reference_number").notNull(), // unique per tenant — see table-level constraint below
   donorFullName: text("donor_full_name").notNull(),
   donorEmail: text("donor_email"),
   donorPhone: text("donor_phone"),
@@ -103,6 +106,7 @@ export const contributionsTable = pgTable("contributions", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (t) => [
+  unique("contributions_tenant_ref_unique").on(t.tenantId, t.referenceNumber),
   index("contributions_donor_phone_idx").on(t.donorPhone),
   index("contributions_channel_idx").on(t.channel),
   index("contributions_compliance_flag_idx").on(t.complianceFlag),
@@ -139,6 +143,7 @@ export type InKindContribution = typeof inKindContributionsTable.$inferSelect;
 
 export const donorAlertsTable = pgTable("donor_alerts", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   alertType: text("alert_type").notNull(), // duplicate | suspicious | concentration | limit_exceeded | foreign
   severity: text("severity").notNull().default("medium"), // low | medium | high | critical
   contributionId: uuid("contribution_id").references(() => contributionsTable.id),
@@ -161,8 +166,9 @@ export type DonorAlert = typeof donorAlertsTable.$inferSelect;
 
 export const budgetCategoriesTable = pgTable("budget_categories", {
   id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull().unique(),
-  code: text("code").notNull().unique(), // e.g. STAFF, EVENTS, MEDIA
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  code: text("code").notNull(), // e.g. STAFF, EVENTS, MEDIA
   description: text("description"),
   ledger: text("ledger").notNull().default("candidate"), // candidate | party
   totalAllocatedKes: numeric("total_allocated_kes", { precision: 16, scale: 2 }).default("0"),
@@ -175,6 +181,7 @@ export type BudgetCategory = typeof budgetCategoriesTable.$inferSelect;
 
 export const budgetLinesTable = pgTable("budget_lines", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   categoryId: uuid("category_id").notNull().references(() => budgetCategoriesTable.id),
   title: text("title").notNull(),
   description: text("description"),
@@ -198,7 +205,8 @@ export type BudgetLine = typeof budgetLinesTable.$inferSelect;
 
 export const expenditureRequestsTable = pgTable("expenditure_requests", {
   id: uuid("id").primaryKey().defaultRandom(),
-  referenceNumber: text("reference_number").notNull().unique(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
+  referenceNumber: text("reference_number").notNull(),
   title: text("title").notNull(),
   description: text("description").notNull(),
   budgetLineId: uuid("budget_line_id").references(() => budgetLinesTable.id),
@@ -229,7 +237,9 @@ export const expenditureRequestsTable = pgTable("expenditure_requests", {
   notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
-});
+}, (t) => [
+  unique("expenditure_requests_tenant_ref_unique").on(t.tenantId, t.referenceNumber),
+]);
 
 export type ExpenditureRequest = typeof expenditureRequestsTable.$inferSelect;
 
@@ -239,7 +249,8 @@ export type ExpenditureRequest = typeof expenditureRequestsTable.$inferSelect;
 
 export const paymentVouchersTable = pgTable("payment_vouchers", {
   id: uuid("id").primaryKey().defaultRandom(),
-  voucherNumber: text("voucher_number").notNull().unique(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
+  voucherNumber: text("voucher_number").notNull(),
   expenditureRequestId: uuid("expenditure_request_id").notNull().references(() => expenditureRequestsTable.id),
   paymentDate: timestamp("payment_date", { withTimezone: true }),
   paymentMethod: text("payment_method").notNull(), // bank_transfer | cheque | mpesa | cash
@@ -250,7 +261,9 @@ export const paymentVouchersTable = pgTable("payment_vouchers", {
   voucherPath: text("voucher_path"), // generated PDF object storage path
   // Immutable audit — once created no fields updated; append-only
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  unique("payment_vouchers_tenant_voucher_unique").on(t.tenantId, t.voucherNumber),
+]);
 
 export type PaymentVoucher = typeof paymentVouchersTable.$inferSelect;
 
@@ -260,6 +273,7 @@ export type PaymentVoucher = typeof paymentVouchersTable.$inferSelect;
 
 export const financeAuditLogTable = pgTable("finance_audit_log", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   entityType: text("entity_type").notNull(), // contribution | expenditure | voucher | budget_line | alert
   entityId: uuid("entity_id").notNull(),
   action: text("action").notNull(), // created | updated | approved | rejected | paid | flagged | verified
@@ -278,7 +292,8 @@ export type FinanceAuditLog = typeof financeAuditLogTable.$inferSelect;
 
 export const messageTemplatesTable = pgTable("message_templates", {
   id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull().unique(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
   channel: text("channel").notNull(), // sms | email | whatsapp
   category: text("category").notNull(), // fundraising | mobilisation | event_invite | training | general | emergency
   subjectEn: text("subject_en"), // email subject
@@ -308,6 +323,7 @@ export type MessageTemplate = typeof messageTemplatesTable.$inferSelect;
 
 export const audienceSegmentsTable = pgTable("audience_segments", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   description: text("description"),
   // Filter criteria — stored as structured JSON so the query engine can rebuild the segment dynamically
@@ -335,6 +351,7 @@ export type AudienceSegment = typeof audienceSegmentsTable.$inferSelect;
 
 export const scheduledMessagesTable = pgTable("scheduled_messages", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   templateId: uuid("template_id").notNull().references(() => messageTemplatesTable.id),
   segmentId: uuid("segment_id").notNull().references(() => audienceSegmentsTable.id),
   languageCode: text("language_code").notNull().default("en"), // en | sw | local
@@ -385,6 +402,7 @@ export type MessageDelivery = typeof messageDeliveriesTable.$inferSelect;
 
 export const spokespersonDirectoryTable = pgTable("spokesperson_directory", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   userId: uuid("user_id").references(() => usersTable.id),
   fullName: text("full_name").notNull(),
   title: text("title").notNull(),
@@ -406,6 +424,7 @@ export type Spokesperson = typeof spokespersonDirectoryTable.$inferSelect;
 
 export const statementsTable = pgTable("statements", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   category: text("category").notNull(), // press_release | speech | op_ed | social_post | correction | retraction
   status: text("status").notNull().default("draft"), // draft | review | approved | published | retracted
@@ -443,6 +462,7 @@ export type StatementVersion = typeof statementVersionsTable.$inferSelect;
 
 export const contentAssetsTable = pgTable("content_assets", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   description: text("description"),
   category: text("category").notNull(), // logo | brand_guidelines | photo | poster | video | template | script | speech | manifesto_summary | translation | other
@@ -611,6 +631,7 @@ export type EventMediaAccreditation = typeof eventMediaAccreditationsTable.$infe
 
 export const misinformationClaimsTable = pgTable("misinformation_claims", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   claimText: text("claim_text").notNull(),
   sourceUrl: text("source_url"),
   screenshotPath: text("screenshot_path"), // object storage path

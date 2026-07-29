@@ -6,7 +6,6 @@ import {
   volunteersTable,
   countiesTable,
   constituenciesTable,
-  wardsTable,
   taskAssignmentsTable,
   volunteerTasksTable,
   volunteerAttendanceTable,
@@ -17,7 +16,8 @@ import {
 } from "@workspace/db";
 import { eq, desc, and, ilike, or, count, sql } from "drizzle-orm";
 import { requireRoles, requireLevel } from "../middlewares/rbac";
-import { validate } from "../lib/validate";
+import { resolveTenant } from "../middlewares/resolveTenant";
+import { tenantFilter, assertTenant } from "../lib/withTenant";
 
 const router = Router();
 
@@ -80,21 +80,30 @@ const BadgeAwardSchema = z.object({
 });
 
 // GET /api/volunteers
-router.get("/", requireAuth, async (req: any, res: any) => {
+router.get("/", requireAuth, resolveTenant, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const {
-      status,
-      countyId,
-      constituencyId,
-      wardId,
-      search,
-      page = "1",
-      limit = "20",
+      status, countyId, constituencyId, wardId, search,
+      page = "1", limit = "20",
     } = req.query;
 
     const pageNum = parseInt(page) || 1;
     const limitNum = Math.min(parseInt(limit) || 20, 100);
     const offset = (pageNum - 1) * limitNum;
+
+    const conditions: any[] = [tenantFilter(volunteersTable, t.id)];
+    if (status) conditions.push(eq(volunteersTable.status, status));
+    if (countyId) conditions.push(eq(volunteersTable.countyId, countyId));
+    if (constituencyId) conditions.push(eq(volunteersTable.constituencyId, constituencyId));
+    if (wardId) conditions.push(eq(volunteersTable.wardId, wardId));
+    if (search) conditions.push(or(
+      ilike(volunteersTable.fullName, `%${search}%`),
+      ilike(volunteersTable.email, `%${search}%`),
+      ilike(volunteersTable.phoneNumber, `%${search}%`),
+    ));
+
+    const where = and(...conditions);
 
     const rows = await db
       .select({
@@ -115,35 +124,15 @@ router.get("/", requireAuth, async (req: any, res: any) => {
       .from(volunteersTable)
       .leftJoin(countiesTable, eq(volunteersTable.countyId, countiesTable.id))
       .leftJoin(constituenciesTable, eq(volunteersTable.constituencyId, constituenciesTable.id))
-      .where(
-        and(
-          status ? eq(volunteersTable.status, status) : undefined,
-          countyId ? eq(volunteersTable.countyId, countyId) : undefined,
-          constituencyId ? eq(volunteersTable.constituencyId, constituencyId) : undefined,
-          wardId ? eq(volunteersTable.wardId, wardId) : undefined,
-          search
-            ? or(
-                ilike(volunteersTable.fullName, `%${search}%`),
-                ilike(volunteersTable.email, `%${search}%`),
-                ilike(volunteersTable.phoneNumber, `%${search}%`)
-              )
-            : undefined
-        )
-      )
+      .where(where)
       .orderBy(desc(volunteersTable.createdAt))
       .limit(limitNum)
       .offset(offset);
 
     const [totalRow] = await db
-      .select({ total: count() })
+      .select({ total: sql<number>`cast(count(*) as int)` })
       .from(volunteersTable)
-      .where(
-        and(
-          status ? eq(volunteersTable.status, status) : undefined,
-          countyId ? eq(volunteersTable.countyId, countyId) : undefined,
-          constituencyId ? eq(volunteersTable.constituencyId, constituencyId) : undefined
-        )
-      );
+      .where(where);
 
     res.json({ data: rows, total: totalRow?.total ?? 0, page: pageNum, limit: limitNum });
   } catch (err: any) {
@@ -151,33 +140,15 @@ router.get("/", requireAuth, async (req: any, res: any) => {
   }
 });
 
-// GET /api/volunteers/stats
-router.get("/stats", requireAuth, async (req: any, res: any) => {
-  try {
-    const statusCounts = await db
-      .select({ status: volunteersTable.status, count: count() })
-      .from(volunteersTable)
-      .groupBy(volunteersTable.status);
-
-    const total = statusCounts.reduce((s, r) => s + Number(r.count), 0);
-    const byStatus: Record<string, number> = {};
-    for (const row of statusCounts) byStatus[row.status] = Number(row.count);
-
-    res.json({ total, byStatus });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 // GET /api/volunteers/:id
-router.get("/:id", requireAuth, async (req: any, res: any) => {
+router.get("/:id", requireAuth, resolveTenant, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const [volunteer] = await db
       .select()
       .from(volunteersTable)
-      .where(eq(volunteersTable.id, req.params.id))
+      .where(and(eq(volunteersTable.id, req.params.id), tenantFilter(volunteersTable, t.id)))
       .limit(1);
-
     if (!volunteer) return res.status(404).json({ error: "Volunteer not found" });
     res.json(volunteer);
   } catch (err: any) {
@@ -186,41 +157,17 @@ router.get("/:id", requireAuth, async (req: any, res: any) => {
 });
 
 // PATCH /api/volunteers/:id
-router.patch("/:id", requireAuth, canManageVolunteers, async (req: any, res: any) => {
+router.patch("/:id", requireAuth, resolveTenant, canManageVolunteers, async (req: any, res: any) => {
   try {
-    const body = validate(VolunteerPatchSchema, req.body, res);
-    if (!body) return;
-
-    const { preferredRole, skills, languages, availability, countyId, constituencyId, wardId } = body;
+    const t = assertTenant(req);
+    const parsed = VolunteerPatchSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Validation failed", details: parsed.error.flatten() });
     const [updated] = await db
       .update(volunteersTable)
-      .set({
-        ...(preferredRole !== undefined && { preferredRole }),
-        ...(skills !== undefined && { skills }),
-        ...(languages !== undefined && { languages }),
-        ...(availability !== undefined && { availability }),
-        ...(countyId !== undefined && { countyId }),
-        ...(constituencyId !== undefined && { constituencyId }),
-        ...(wardId !== undefined && { wardId }),
-      })
-      .where(eq(volunteersTable.id, req.params.id))
+      .set(parsed.data)
+      .where(and(eq(volunteersTable.id, req.params.id), tenantFilter(volunteersTable, t.id)))
       .returning();
     if (!updated) return res.status(404).json({ error: "Volunteer not found" });
-    res.json(updated);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// POST /api/volunteers/:id/verify
-router.post("/:id/verify", requireAuth, canApproveVolunteers, async (req: any, res: any) => {
-  try {
-    const [updated] = await db
-      .update(volunteersTable)
-      .set({ status: "verified", verifiedAt: new Date() })
-      .where(and(eq(volunteersTable.id, req.params.id), eq(volunteersTable.status, "pending")))
-      .returning();
-    if (!updated) return res.status(404).json({ error: "Volunteer not found or not in pending status" });
     res.json(updated);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -228,34 +175,13 @@ router.post("/:id/verify", requireAuth, canApproveVolunteers, async (req: any, r
 });
 
 // POST /api/volunteers/:id/approve
-router.post("/:id/approve", requireAuth, canApproveVolunteers, async (req: any, res: any) => {
+router.post("/:id/approve", requireAuth, resolveTenant, canApproveVolunteers, async (req: any, res: any) => {
   try {
-    const body = validate(ApproveSchema, req.body, res);
-    if (!body) return;
-
-    const { assignedRole } = body;
+    const t = assertTenant(req);
     const [updated] = await db
       .update(volunteersTable)
-      .set({
-        status: "active",
-        ...(assignedRole && { preferredRole: assignedRole }),
-      })
-      .where(eq(volunteersTable.id, req.params.id))
-      .returning();
-    if (!updated) return res.status(404).json({ error: "Volunteer not found" });
-    res.json(updated);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// POST /api/volunteers/:id/reject
-router.post("/:id/reject", requireAuth, canApproveVolunteers, async (req: any, res: any) => {
-  try {
-    const [updated] = await db
-      .update(volunteersTable)
-      .set({ status: "rejected" })
-      .where(eq(volunteersTable.id, req.params.id))
+      .set({ status: "active", verifiedAt: new Date() })
+      .where(and(eq(volunteersTable.id, req.params.id), tenantFilter(volunteersTable, t.id)))
       .returning();
     if (!updated) return res.status(404).json({ error: "Volunteer not found" });
     res.json(updated);
@@ -265,31 +191,15 @@ router.post("/:id/reject", requireAuth, canApproveVolunteers, async (req: any, r
 });
 
 // POST /api/volunteers/:id/suspend
-router.post("/:id/suspend", requireAuth, canManageVolunteers, async (req: any, res: any) => {
+router.post("/:id/suspend", requireAuth, resolveTenant, canManageVolunteers, async (req: any, res: any) => {
   try {
-    const body = validate(SuspendSchema, req.body, res);
-    if (!body) return;
-
-    const { reason } = body;
+    const t = assertTenant(req);
+    const parsed = SuspendSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Validation failed", details: parsed.error.flatten() });
     const [updated] = await db
       .update(volunteersTable)
       .set({ status: "suspended" })
-      .where(eq(volunteersTable.id, req.params.id))
-      .returning();
-    if (!updated) return res.status(404).json({ error: "Volunteer not found" });
-    res.json({ ...updated, suspensionReason: reason });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// POST /api/volunteers/:id/reactivate
-router.post("/:id/reactivate", requireAuth, canManageVolunteers, async (req: any, res: any) => {
-  try {
-    const [updated] = await db
-      .update(volunteersTable)
-      .set({ status: "active" })
-      .where(eq(volunteersTable.id, req.params.id))
+      .where(and(eq(volunteersTable.id, req.params.id), tenantFilter(volunteersTable, t.id)))
       .returning();
     if (!updated) return res.status(404).json({ error: "Volunteer not found" });
     res.json(updated);
@@ -298,143 +208,238 @@ router.post("/:id/reactivate", requireAuth, canManageVolunteers, async (req: any
   }
 });
 
-// GET /api/volunteers/:id/tasks
-router.get("/:id/tasks", requireAuth, async (req: any, res: any) => {
-  try {
-    const assignments = await db
-      .select({
-        id: taskAssignmentsTable.id,
-        status: taskAssignmentsTable.status,
-        hoursLogged: taskAssignmentsTable.hoursLogged,
-        notes: taskAssignmentsTable.notes,
-        completedAt: taskAssignmentsTable.completedAt,
-        task: {
-          id: volunteerTasksTable.id,
-          title: volunteerTasksTable.title,
-          description: volunteerTasksTable.description,
-          taskType: volunteerTasksTable.taskType,
-          status: volunteerTasksTable.status,
-          priority: volunteerTasksTable.priority,
-          dueDate: volunteerTasksTable.dueDate,
-        },
-      })
-      .from(taskAssignmentsTable)
-      .innerJoin(volunteerTasksTable, eq(taskAssignmentsTable.taskId, volunteerTasksTable.id))
-      .where(eq(taskAssignmentsTable.volunteerId, req.params.id))
-      .orderBy(desc(taskAssignmentsTable.createdAt));
-    res.json(assignments);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 // GET /api/volunteers/:id/attendance
-router.get("/:id/attendance", requireAuth, async (req: any, res: any) => {
+router.get("/:id/attendance", requireAuth, resolveTenant, async (req: any, res: any) => {
   try {
-    const records = await db
+    const t = assertTenant(req);
+    // Verify volunteer belongs to tenant first
+    const [volunteer] = await db.select({ id: volunteersTable.id })
+      .from(volunteersTable)
+      .where(and(eq(volunteersTable.id, req.params.id), tenantFilter(volunteersTable, t.id)))
+      .limit(1);
+    if (!volunteer) return res.status(404).json({ error: "Volunteer not found" });
+
+    const rows = await db
       .select()
       .from(volunteerAttendanceTable)
       .where(eq(volunteerAttendanceTable.volunteerId, req.params.id))
       .orderBy(desc(volunteerAttendanceTable.checkInAt));
-    res.json(records);
+    res.json(rows);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // POST /api/volunteers/:id/attendance
-router.post("/:id/attendance", requireAuth, canManageVolunteers, async (req: any, res: any) => {
+router.post("/:id/attendance", requireAuth, resolveTenant, canManageVolunteers, async (req: any, res: any) => {
   try {
-    const body = validate(AttendanceSchema, req.body, res);
-    if (!body) return;
+    const t = assertTenant(req);
+    const parsed = AttendanceSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Validation failed", details: parsed.error.flatten() });
+    const [volunteer] = await db.select({ id: volunteersTable.id })
+      .from(volunteersTable)
+      .where(and(eq(volunteersTable.id, req.params.id), tenantFilter(volunteersTable, t.id)))
+      .limit(1);
+    if (!volunteer) return res.status(404).json({ error: "Volunteer not found" });
 
-    const { activityType, activityName, activityId, latitude, longitude, notes } = body;
-    const [record] = await db
+    const [row] = await db
       .insert(volunteerAttendanceTable)
-      .values({
-        volunteerId: req.params.id,
-        activityType,
-        activityName,
-        activityId,
-        latitude,
-        longitude,
-        notes,
-      })
+      .values({ volunteerId: req.params.id, ...parsed.data })
       .returning();
-    res.status(201).json(record);
+    res.status(201).json(row);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // GET /api/volunteers/:id/badges
-router.get("/:id/badges", requireAuth, async (req: any, res: any) => {
+router.get("/:id/badges", requireAuth, resolveTenant, async (req: any, res: any) => {
   try {
-    const badges = await db
-      .select({
-        id: badgeAwardsTable.id,
-        awardedAt: badgeAwardsTable.awardedAt,
-        reason: badgeAwardsTable.reason,
-        badge: {
-          id: badgeDefinitionsTable.id,
-          name: badgeDefinitionsTable.name,
-          nameSw: badgeDefinitionsTable.nameSw,
-          description: badgeDefinitionsTable.description,
-          iconUrl: badgeDefinitionsTable.iconUrl,
-          level: badgeDefinitionsTable.level,
-          category: badgeDefinitionsTable.category,
-        },
-      })
+    const t = assertTenant(req);
+    const [volunteer] = await db.select({ id: volunteersTable.id })
+      .from(volunteersTable)
+      .where(and(eq(volunteersTable.id, req.params.id), tenantFilter(volunteersTable, t.id)))
+      .limit(1);
+    if (!volunteer) return res.status(404).json({ error: "Volunteer not found" });
+
+    const rows = await db
+      .select({ award: badgeAwardsTable, badge: badgeDefinitionsTable })
       .from(badgeAwardsTable)
       .innerJoin(badgeDefinitionsTable, eq(badgeAwardsTable.badgeId, badgeDefinitionsTable.id))
       .where(eq(badgeAwardsTable.volunteerId, req.params.id))
       .orderBy(desc(badgeAwardsTable.awardedAt));
-    res.json(badges);
+    res.json(rows);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // POST /api/volunteers/:id/badges
-router.post("/:id/badges", requireAuth, canManageVolunteers, async (req: any, res: any) => {
+router.post("/:id/badges", requireAuth, resolveTenant, canManageVolunteers, async (req: any, res: any) => {
   try {
-    const body = validate(BadgeAwardSchema, req.body, res);
-    if (!body) return;
+    const t = assertTenant(req);
+    const parsed = BadgeAwardSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Validation failed", details: parsed.error.flatten() });
+    const [volunteer] = await db.select({ id: volunteersTable.id })
+      .from(volunteersTable)
+      .where(and(eq(volunteersTable.id, req.params.id), tenantFilter(volunteersTable, t.id)))
+      .limit(1);
+    if (!volunteer) return res.status(404).json({ error: "Volunteer not found" });
 
-    const { badgeId, reason } = body;
-    const [award] = await db
+    const [row] = await db
       .insert(badgeAwardsTable)
-      .values({ volunteerId: req.params.id, badgeId, reason })
+      .values({ volunteerId: req.params.id, badgeId: parsed.data.badgeId, reason: parsed.data.reason })
       .returning();
-    res.status(201).json(award);
+    res.status(201).json(row);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // GET /api/volunteers/:id/training
-router.get("/:id/training", requireAuth, async (req: any, res: any) => {
+router.get("/:id/training", requireAuth, resolveTenant, async (req: any, res: any) => {
   try {
-    const enrollments = await db
-      .select({
-        id: trainingEnrollmentsTable.id,
-        status: trainingEnrollmentsTable.status,
-        score: trainingEnrollmentsTable.score,
-        startedAt: trainingEnrollmentsTable.startedAt,
-        completedAt: trainingEnrollmentsTable.completedAt,
-        certificateCode: trainingEnrollmentsTable.certificateCode,
-        course: {
-          id: trainingCoursesTable.id,
-          title: trainingCoursesTable.title,
-          mandatory: trainingCoursesTable.mandatory,
-          passMark: trainingCoursesTable.passMark,
-        },
-      })
+    const t = assertTenant(req);
+    const [volunteer] = await db.select({ id: volunteersTable.id })
+      .from(volunteersTable)
+      .where(and(eq(volunteersTable.id, req.params.id), tenantFilter(volunteersTable, t.id)))
+      .limit(1);
+    if (!volunteer) return res.status(404).json({ error: "Volunteer not found" });
+
+    const rows = await db
+      .select({ enrollment: trainingEnrollmentsTable, course: trainingCoursesTable })
       .from(trainingEnrollmentsTable)
       .innerJoin(trainingCoursesTable, eq(trainingEnrollmentsTable.courseId, trainingCoursesTable.id))
       .where(eq(trainingEnrollmentsTable.volunteerId, req.params.id))
       .orderBy(desc(trainingEnrollmentsTable.createdAt));
-    res.json(enrollments);
+    res.json(rows);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/volunteers/stats — counts by status for the tenant
+router.get("/stats", requireAuth, resolveTenant, async (req: any, res: any) => {
+  try {
+    const t = assertTenant(req);
+    const rows = await db
+      .select({ status: volunteersTable.status, count: count() })
+      .from(volunteersTable)
+      .where(tenantFilter(volunteersTable, t.id))
+      .groupBy(volunteersTable.status);
+
+    const byStatus: Record<string, number> = {};
+    let total = 0;
+    for (const r of rows) {
+      byStatus[r.status] = Number(r.count);
+      total += Number(r.count);
+    }
+    res.json({ total, byStatus });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/volunteers/:id/verify — verify identity and activate (alias for approve)
+router.post("/:id/verify", requireAuth, resolveTenant, canApproveVolunteers, async (req: any, res: any) => {
+  try {
+    const t = assertTenant(req);
+    const [updated] = await db
+      .update(volunteersTable)
+      .set({ status: "active", verifiedAt: new Date() })
+      .where(and(eq(volunteersTable.id, req.params.id), tenantFilter(volunteersTable, t.id)))
+      .returning();
+    if (!updated) return res.status(404).json({ error: "Volunteer not found" });
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/volunteers/:id/reject — reject an application
+router.post("/:id/reject", requireAuth, resolveTenant, canApproveVolunteers, async (req: any, res: any) => {
+  try {
+    const t = assertTenant(req);
+    const [updated] = await db
+      .update(volunteersTable)
+      .set({ status: "rejected" })
+      .where(and(eq(volunteersTable.id, req.params.id), tenantFilter(volunteersTable, t.id)))
+      .returning();
+    if (!updated) return res.status(404).json({ error: "Volunteer not found" });
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/volunteers/:id/reactivate — reactivate a suspended volunteer
+router.post("/:id/reactivate", requireAuth, resolveTenant, canApproveVolunteers, async (req: any, res: any) => {
+  try {
+    const t = assertTenant(req);
+    const [updated] = await db
+      .update(volunteersTable)
+      .set({ status: "active" })
+      .where(and(eq(volunteersTable.id, req.params.id), tenantFilter(volunteersTable, t.id)))
+      .returning();
+    if (!updated) return res.status(404).json({ error: "Volunteer not found" });
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/volunteers/:id/tasks — task assignments for this volunteer
+router.get("/:id/tasks", requireAuth, resolveTenant, async (req: any, res: any) => {
+  try {
+    const t = assertTenant(req);
+    const [volunteer] = await db.select({ id: volunteersTable.id })
+      .from(volunteersTable)
+      .where(and(eq(volunteersTable.id, req.params.id), tenantFilter(volunteersTable, t.id)))
+      .limit(1);
+    if (!volunteer) return res.status(404).json({ error: "Volunteer not found" });
+
+    const rows = await db
+      .select({ assignment: taskAssignmentsTable, task: volunteerTasksTable })
+      .from(taskAssignmentsTable)
+      .innerJoin(volunteerTasksTable, eq(taskAssignmentsTable.taskId, volunteerTasksTable.id))
+      .where(and(
+        eq(taskAssignmentsTable.volunteerId, req.params.id),
+        tenantFilter(volunteerTasksTable, t.id),
+      ))
+      .orderBy(desc(taskAssignmentsTable.createdAt));
+    res.json(rows);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/volunteers/:id/tasks/:assignmentId — log hours / mark complete
+router.patch("/:id/tasks/:assignmentId", requireAuth, resolveTenant, canManageVolunteers, async (req: any, res: any) => {
+  try {
+    const t = assertTenant(req);
+    const [volunteer] = await db.select({ id: volunteersTable.id })
+      .from(volunteersTable)
+      .where(and(eq(volunteersTable.id, req.params.id), tenantFilter(volunteersTable, t.id)))
+      .limit(1);
+    if (!volunteer) return res.status(404).json({ error: "Volunteer not found" });
+
+    const { status, hoursLogged, notes } = req.body;
+    const updates: Record<string, any> = {};
+    if (status) updates.status = status;
+    if (hoursLogged !== undefined) updates.hoursLogged = hoursLogged;
+    if (notes !== undefined) updates.notes = notes;
+    if (status === "completed") updates.completedAt = new Date();
+
+    const [updated] = await db
+      .update(taskAssignmentsTable)
+      .set(updates)
+      .where(and(
+        eq(taskAssignmentsTable.id, req.params.assignmentId),
+        eq(taskAssignmentsTable.volunteerId, req.params.id),
+      ))
+      .returning();
+    if (!updated) return res.status(404).json({ error: "Assignment not found" });
+    res.json(updated);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

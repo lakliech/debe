@@ -19,11 +19,12 @@ import {
 
 import { electionsTable, candidatesTable, resultSubmissionsTable } from "./config";
 import { pollingStationsTable, pollingCentresTable, wardsTable, constituenciesTable, countiesTable } from "./geography";
-import { usersTable } from "./core";
+import { usersTable, tenantsTable } from "./core";
 
 // ── Agent Training Courses ────────────────────────────────────────────────────
 export const agentTrainingCoursesTable = pgTable("agent_training_courses", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   description: text("description"),
   durationMinutes: integer("duration_minutes").notNull().default(60),
@@ -37,6 +38,7 @@ export type AgentTrainingCourse = typeof agentTrainingCoursesTable.$inferSelect;
 // ── Agent Training Enrollments ────────────────────────────────────────────────
 export const agentTrainingEnrollmentsTable = pgTable("agent_training_enrollments", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   agentId: uuid("agent_id").notNull(), // references pollingAgentsTable
   courseId: uuid("course_id").notNull().references(() => agentTrainingCoursesTable.id),
   status: text("status").notNull().default("enrolled"), // enrolled|in_progress|passed|failed
@@ -108,6 +110,7 @@ export type AgentAllowance = typeof agentAllowancesTable.$inferSelect;
 // ── Agent Replacements ────────────────────────────────────────────────────────
 export const agentReplacementsTable = pgTable("agent_replacements", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   originalAgentId: uuid("original_agent_id").notNull(),
   replacementAgentId: uuid("replacement_agent_id"),
   pollingStationId: uuid("polling_station_id").notNull().references(() => pollingStationsTable.id),
@@ -217,6 +220,7 @@ export type SubmissionOcrSuggestion = typeof submissionOcrSuggestionsTable.$infe
 // One row per (election, level, entity, candidate) snapshot
 export const tallySnapshotsTable = pgTable("tally_snapshots", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   electionId: uuid("election_id").notNull().references(() => electionsTable.id),
   level: text("level").notNull(), // station|centre|ward|constituency|county|national
   entityId: uuid("entity_id"), // null for national
@@ -239,6 +243,7 @@ export type TallySnapshot = typeof tallySnapshotsTable.$inferSelect;
 // ── Election Disputes ──────────────────────────────────────────────────────────
 export const electionDisputesTable = pgTable("election_disputes", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   electionId: uuid("election_id").notNull().references(() => electionsTable.id),
   pollingStationId: uuid("polling_station_id").references(() => pollingStationsTable.id),
   submissionId: uuid("submission_id").references(() => resultSubmissionsTable.id),
@@ -285,6 +290,7 @@ export type DisputeCommunication = typeof disputeCommunicationsTable.$inferSelec
 // ── Transparency Publications ──────────────────────────────────────────────────
 export const transparencyPublicationsTable = pgTable("transparency_publications", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   electionId: uuid("election_id").notNull().references(() => electionsTable.id),
   pollingStationId: uuid("polling_station_id").references(() => pollingStationsTable.id),
   submissionId: uuid("submission_id").references(() => resultSubmissionsTable.id),
@@ -303,6 +309,7 @@ export type TransparencyPublication = typeof transparencyPublicationsTable.$infe
 // ── Command Centre Tasks ──────────────────────────────────────────────────────
 export const commandCentreTasksTable = pgTable("command_centre_tasks", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   electionId: uuid("election_id").references(() => electionsTable.id),
   title: text("title").notNull(),
   description: text("description"),
@@ -323,6 +330,7 @@ export type CommandCentreTask = typeof commandCentreTasksTable.$inferSelect;
 // Full extended incident table for election day (16 category types, officer workflow)
 export const electionIncidentReportsTable = pgTable("election_incident_reports", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   electionId: uuid("election_id").notNull().references(() => electionsTable.id),
   pollingStationId: uuid("polling_station_id").references(() => pollingStationsTable.id),
   countyId: uuid("county_id").references(() => countiesTable.id),

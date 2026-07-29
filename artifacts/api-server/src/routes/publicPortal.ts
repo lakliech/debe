@@ -21,17 +21,20 @@ import {
 } from "@workspace/db";
 import { eq, and, desc, asc, count } from "drizzle-orm";
 import { aspirantsTable, contactMessagesTable } from "@workspace/db";
+import { tenantFilter, assertTenant } from '../lib/withTenant';
 
 const router = Router();
 
 // GET /api/public/stats — public portal stats card
 router.get("/stats", async (req: any, res: any) => {
   try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.json({ volunteers: 0, supporters: 0, campaignName: "Linda Mwananchi", tagline: "It's Time. Be Part of the Change." });
     const [volunteerCount] = await db.select({ total: count() }).from(volunteersTable)
-      .where(eq(volunteersTable.status, "active"));
+      .where(and(eq(volunteersTable.status, "active"), tenantFilter(volunteersTable, tenantId)));
     const [supporterCount] = await db.select({ total: count() }).from(supportersTable)
-      .where(eq(supportersTable.optedOut, false));
-    const [branding] = await db.select().from(brandingTable).limit(1);
+      .where(and(eq(supportersTable.optedOut, false), tenantFilter(supportersTable, tenantId)));
+    const [branding] = await db.select().from(brandingTable).where(tenantFilter(brandingTable, tenantId)).limit(1);
 
     res.json({
       volunteers: Number(volunteerCount?.total ?? 0),
@@ -47,9 +50,12 @@ router.get("/stats", async (req: any, res: any) => {
 // GET /api/public/manifesto/sectors
 router.get("/manifesto/sectors", async (req: any, res: any) => {
   try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.json([]);
     const sectors = await db
       .select()
       .from(manifestoSectorsTable)
+      .where(tenantFilter(manifestoSectorsTable, tenantId))
       .orderBy(asc(manifestoSectorsTable.displayOrder));
     res.json(sectors);
   } catch (err: any) {
@@ -60,10 +66,12 @@ router.get("/manifesto/sectors", async (req: any, res: any) => {
 // GET /api/public/manifesto/sectors/:slug
 router.get("/manifesto/sectors/:slug", async (req: any, res: any) => {
   try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.status(404).json({ error: "Sector not found" });
     const [sector] = await db
       .select()
       .from(manifestoSectorsTable)
-      .where(eq(manifestoSectorsTable.slug, req.params.slug))
+      .where(and(eq(manifestoSectorsTable.slug, req.params.slug), tenantFilter(manifestoSectorsTable, tenantId)))
       .limit(1);
     if (!sector) return res.status(404).json({ error: "Sector not found" });
 
@@ -78,7 +86,8 @@ router.get("/manifesto/sectors/:slug", async (req: any, res: any) => {
       .from(policySubmissionsTable)
       .where(and(
         eq(policySubmissionsTable.sectorId, sector.id),
-        eq(policySubmissionsTable.status, "published")
+        eq(policySubmissionsTable.status, "published"),
+        tenantFilter(policySubmissionsTable, tenantId),
       ))
       .limit(10);
 
@@ -91,6 +100,8 @@ router.get("/manifesto/sectors/:slug", async (req: any, res: any) => {
 // GET /api/public/county-priorities/:countyCode
 router.get("/county-priorities/:countyCode", async (req: any, res: any) => {
   try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.json({ county: null, priorities: [] });
     const parsedCode = parseInt(req.params.countyCode, 10);
     if (isNaN(parsedCode) || parsedCode < 1 || parsedCode > 47) {
       return res.status(400).json({ error: "Invalid county code. Must be an integer between 1 and 47." });
@@ -116,7 +127,7 @@ router.get("/county-priorities/:countyCode", async (req: any, res: any) => {
       })
       .from(countyPrioritiesTable)
       .leftJoin(manifestoSectorsTable, eq(countyPrioritiesTable.sectorId, manifestoSectorsTable.id))
-      .where(eq(countyPrioritiesTable.countyId, county.id))
+      .where(and(eq(countyPrioritiesTable.countyId, county.id), tenantFilter(countyPrioritiesTable, tenantId)))
       .orderBy(asc(countyPrioritiesTable.priority));
 
     res.json({ county, priorities });
@@ -128,12 +139,15 @@ router.get("/county-priorities/:countyCode", async (req: any, res: any) => {
 // GET /api/public/events
 router.get("/events", async (req: any, res: any) => {
   try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.json([]);
     const { countyId, upcoming } = req.query;
     const events = await db
       .select()
       .from(eventsTable)
       .where(and(
         eq(eventsTable.status, "published"),
+        tenantFilter(eventsTable, tenantId),
         countyId ? eq(eventsTable.countyId, countyId) : undefined
       ))
       .orderBy(asc(eventsTable.eventDate))
@@ -147,6 +161,8 @@ router.get("/events", async (req: any, res: any) => {
 // GET /api/public/news
 router.get("/news", async (req: any, res: any) => {
   try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.json([]);
     const { category, page = "1" } = req.query;
     const pageNum = parseInt(page as string) || 1;
     const articles = await db
@@ -164,6 +180,7 @@ router.get("/news", async (req: any, res: any) => {
       .from(newsArticlesTable)
       .where(and(
         eq(newsArticlesTable.status, "published"),
+        tenantFilter(newsArticlesTable, tenantId),
         category ? eq(newsArticlesTable.category, category as string) : undefined
       ))
       .orderBy(desc(newsArticlesTable.publishedAt))
@@ -178,10 +195,12 @@ router.get("/news", async (req: any, res: any) => {
 // GET /api/public/news/:slug
 router.get("/news/:slug", async (req: any, res: any) => {
   try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.status(404).json({ error: "Article not found" });
     const [article] = await db
       .select()
       .from(newsArticlesTable)
-      .where(and(eq(newsArticlesTable.slug, req.params.slug), eq(newsArticlesTable.status, "published")))
+      .where(and(eq(newsArticlesTable.slug, req.params.slug), eq(newsArticlesTable.status, "published"), tenantFilter(newsArticlesTable, tenantId)))
       .limit(1);
     if (!article) return res.status(404).json({ error: "Article not found" });
     res.json(article);
@@ -193,12 +212,15 @@ router.get("/news/:slug", async (req: any, res: any) => {
 // GET /api/public/faq
 router.get("/faq", async (req: any, res: any) => {
   try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.json([]);
     const { category } = req.query;
     const items = await db
       .select()
       .from(faqItemsTable)
       .where(and(
         eq(faqItemsTable.published, true),
+        tenantFilter(faqItemsTable, tenantId),
         category ? eq(faqItemsTable.category, category as string) : undefined
       ))
       .orderBy(asc(faqItemsTable.displayOrder));
@@ -211,9 +233,12 @@ router.get("/faq", async (req: any, res: any) => {
 // GET /api/public/fact-check
 router.get("/fact-check", async (req: any, res: any) => {
   try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.json([]);
     const items = await db
       .select()
       .from(factCheckItemsTable)
+      .where(tenantFilter(factCheckItemsTable, tenantId))
       .orderBy(desc(factCheckItemsTable.publishedAt))
       .limit(20);
     res.json(items);
@@ -225,6 +250,8 @@ router.get("/fact-check", async (req: any, res: any) => {
 // POST /api/public/volunteer-register — self-registration (no auth)
 router.post("/volunteer-register", publicSubmitLimiter, async (req: any, res: any) => {
   try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.status(400).json({ error: "Missing tenant context: please supply the X-Tenant-Slug header or ?tenant= query parameter" });
     const {
       fullName, phoneNumber, email, countyId, constituencyId, wardId,
       preferredRole, skills, languages, availability, consentGiven,
@@ -240,6 +267,7 @@ router.post("/volunteer-register", publicSubmitLimiter, async (req: any, res: an
     const [volunteer] = await db
       .insert(volunteersTable)
       .values({
+        tenantId,
         fullName,
         phoneNumber,
         email,
@@ -265,6 +293,8 @@ router.post("/volunteer-register", publicSubmitLimiter, async (req: any, res: an
 // POST /api/public/supporter-register — self-registration (no auth)
 router.post("/supporter-register", publicSubmitLimiter, async (req: any, res: any) => {
   try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.status(400).json({ error: "Missing tenant context: please supply the X-Tenant-Slug header or ?tenant= query parameter" });
     const {
       fullName, phoneNumber, email, countyId, constituencyId,
       consentMarketing, consentSms, consentEmail, policyInterests,
@@ -277,6 +307,7 @@ router.post("/supporter-register", publicSubmitLimiter, async (req: any, res: an
     const [supporter] = await db
       .insert(supportersTable)
       .values({
+        tenantId,
         fullName,
         phoneNumber,
         email,
@@ -299,6 +330,8 @@ router.post("/supporter-register", publicSubmitLimiter, async (req: any, res: an
 // POST /api/public/aspirants — aspirant self-registration (no auth)
 router.post("/aspirants", publicSubmitLimiter, async (req: any, res: any) => {
   try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.status(400).json({ error: "Missing tenant context: please supply the X-Tenant-Slug header or ?tenant= query parameter" });
     const {
       fullName, phoneNumber, nationalId, position, countyCode, countyName,
       email, constituency, ward, partyAffiliation, isIndependent,
@@ -332,7 +365,11 @@ router.post("/aspirants", publicSubmitLimiter, async (req: any, res: any) => {
     const [existing] = await db
       .select({ id: aspirantsTable.id, status: aspirantsTable.status })
       .from(aspirantsTable)
-      .where(and(eq(aspirantsTable.nationalId, nationalId), eq(aspirantsTable.position, position)))
+      .where(and(
+        eq(aspirantsTable.nationalId, nationalId),
+        eq(aspirantsTable.position, position),
+        tenantFilter(aspirantsTable, tenantId),
+      ))
       .limit(1);
 
     if (existing) {
@@ -359,6 +396,7 @@ router.post("/aspirants", publicSubmitLimiter, async (req: any, res: any) => {
           partyAffiliation: isIndependent ? null : (partyAffiliation || null),
           isIndependent: !!isIndependent,
           statementOfIntent: statementOfIntent || null,
+          tenantId,
           status: "pending",
           consentGiven: true,
         })
@@ -385,12 +423,14 @@ router.post("/aspirants", publicSubmitLimiter, async (req: any, res: any) => {
 // GET /api/public/aspirants — approved aspirants directory (no auth, no PII)
 router.get("/aspirants", async (req: any, res: any) => {
   try {
+    const tenantId = req.tenant?.id;
     const { position, county, page = "1", limit = "24" } = req.query;
     const pageNum = Math.max(1, parseInt(page as string) || 1);
     const pageSize = Math.min(48, parseInt(limit as string) || 24);
     const offset = (pageNum - 1) * pageSize;
 
-    const conditions: any[] = [eq(aspirantsTable.status, "approved")];
+    if (!tenantId) return res.json({ data: [], total: 0, page: pageNum, pageSize });
+    const conditions: any[] = [eq(aspirantsTable.status, "approved"), tenantFilter(aspirantsTable, tenantId)];
     if (position) conditions.push(eq(aspirantsTable.position, position as string));
     if (county) conditions.push(eq(aspirantsTable.countyName, county as string));
 
@@ -430,6 +470,8 @@ router.get("/aspirants", async (req: any, res: any) => {
 // POST /api/public/contact — general contact form (no auth)
 router.post("/contact", publicSubmitLimiter, async (req: any, res: any) => {
   try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.status(400).json({ error: "Missing tenant context: please supply the X-Tenant-Slug header or ?tenant= query parameter" });
     const { name, email, subject, message } = req.body;
     if (!name || !email || !subject || !message) {
       return res.status(400).json({ error: "name, email, subject, and message are required" });
@@ -437,7 +479,7 @@ router.post("/contact", publicSubmitLimiter, async (req: any, res: any) => {
 
     const [contact] = await db
       .insert(contactMessagesTable)
-      .values({ fullName: name, email, subject, message, status: "open" })
+      .values({ tenantId, fullName: name, email, subject, message, status: "open" })
       .returning({ id: contactMessagesTable.id });
 
     res.status(201).json({ message: "Message received. Our team will get back to you within 2–3 business days.", contactId: contact.id });
@@ -449,12 +491,15 @@ router.post("/contact", publicSubmitLimiter, async (req: any, res: any) => {
 // POST /api/public/policy-submit — citizen policy submissions
 router.post("/policy-submit", publicSubmitLimiter, async (req: any, res: any) => {
   try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.status(400).json({ error: "Missing tenant context: please supply the X-Tenant-Slug header or ?tenant= query parameter" });
     const { title, content, sectorId, countyId, anonymous } = req.body;
     if (!title || !content) return res.status(400).json({ error: "title and content are required" });
 
     const [submission] = await db
       .insert(policySubmissionsTable)
       .values({
+        tenantId,
         title,
         content,
         sectorId,

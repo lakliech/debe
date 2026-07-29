@@ -16,10 +16,11 @@ import {
   exportAuditLogTable,
   usersTable,
 } from "@workspace/db";
-import { eq, desc, count, sum, sql } from "drizzle-orm";
+import { eq, and, desc, count, sum, sql } from "drizzle-orm";
 import { requireRoles, resolveActor } from "../middlewares/rbac";
 import ExcelJS from "exceljs";
 import { validate } from "../lib/validate";
+import { tenantFilter, assertTenant } from '../lib/withTenant';
 
 // ─── VALIDATION SCHEMAS ───────────────────────────────────────────────────────
 
@@ -66,10 +67,12 @@ async function logExport(
   filters: object,
   rowCount: number,
   req: any,
+  tenantId: string,
 ): Promise<void> {
   if (!actorId) throw new Error("Export aborted: actor identity could not be resolved for audit log.");
   // Intentionally NOT catching — a failed audit insert must block the download.
   await db.insert(exportAuditLogTable).values({
+    tenantId,
     exportedBy: actorId,
     reportType,
     format,
@@ -150,6 +153,7 @@ router.get("/list", requireAuth, (_req, res) => {
 // ── POST /api/reporting/export ─────────────────────────────────────────────
 router.post("/export", requireAuth, resolveActor, canExport, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const parsed = validate(exportSchema, req.body, res);
     if (!parsed) return;
     const { reportId, format, filters } = parsed;
@@ -171,7 +175,7 @@ router.post("/export", requireAuth, resolveActor, canExport, async (req: any, re
           status: volunteersTable.status,
           consentGiven: volunteersTable.consentGiven,
           createdAt: volunteersTable.createdAt,
-        }).from(volunteersTable).orderBy(desc(volunteersTable.createdAt)).limit(50000);
+        }).from(volunteersTable).where(tenantFilter(volunteersTable, t.id)).orderBy(desc(volunteersTable.createdAt)).limit(50000);
         break;
       }
       case "supporters": {
@@ -187,7 +191,7 @@ router.post("/export", requireAuth, resolveActor, canExport, async (req: any, re
           consentSms: supportersTable.consentSms,
           consentEmail: supportersTable.consentEmail,
           createdAt: supportersTable.createdAt,
-        }).from(supportersTable).orderBy(desc(supportersTable.createdAt)).limit(50000);
+        }).from(supportersTable).where(tenantFilter(supportersTable, t.id)).orderBy(desc(supportersTable.createdAt)).limit(50000);
         break;
       }
       case "donations":
@@ -204,7 +208,7 @@ router.post("/export", requireAuth, resolveActor, canExport, async (req: any, re
           verificationStatus: contributionsTable.verificationStatus,
           mpesaReceiptNumber: contributionsTable.mpesaReceiptNumber,
           createdAt: contributionsTable.createdAt,
-        }).from(contributionsTable).orderBy(desc(contributionsTable.createdAt)).limit(50000);
+        }).from(contributionsTable).where(tenantFilter(contributionsTable, t.id)).orderBy(desc(contributionsTable.createdAt)).limit(50000);
         break;
       }
       case "expenditure": {
@@ -215,7 +219,7 @@ router.post("/export", requireAuth, resolveActor, canExport, async (req: any, re
           approvedAmountKes: expenditureRequestsTable.approvedAmountKes,
           status: expenditureRequestsTable.status,
           createdAt: expenditureRequestsTable.createdAt,
-        }).from(expenditureRequestsTable).orderBy(desc(expenditureRequestsTable.createdAt)).limit(50000);
+        }).from(expenditureRequestsTable).where(tenantFilter(expenditureRequestsTable, t.id)).orderBy(desc(expenditureRequestsTable.createdAt)).limit(50000);
         break;
       }
       case "polling-agents":
@@ -233,11 +237,12 @@ router.post("/export", requireAuth, resolveActor, canExport, async (req: any, re
           codeOfConductAccepted: pollingAgentsTable.codeOfConductAccepted,
           allowancePaid: pollingAgentsTable.allowancePaid,
           createdAt: pollingAgentsTable.createdAt,
-        }).from(pollingAgentsTable).orderBy(desc(pollingAgentsTable.createdAt)).limit(50000);
+        }).from(pollingAgentsTable).where(tenantFilter(pollingAgentsTable, t.id)).orderBy(desc(pollingAgentsTable.createdAt)).limit(50000);
         break;
       }
       case "polling-stations":
       case "county-coverage": {
+        // Scope to stations where this campaign has deployed agents (pollingAgentsTable has tenantId)
         rows = await db.select({
           id: pollingStationsTable.id,
           name: pollingStationsTable.name,
@@ -249,7 +254,11 @@ router.post("/export", requireAuth, resolveActor, canExport, async (req: any, re
           accreditationStatus: pollingStationsTable.accreditationStatus,
           trainingStatus: pollingStationsTable.trainingStatus,
           reportingStatus: pollingStationsTable.reportingStatus,
-        }).from(pollingStationsTable).limit(50000);
+        }).from(pollingStationsTable)
+          .innerJoin(pollingAgentsTable, and(
+            eq(pollingAgentsTable.pollingStationId, pollingStationsTable.id),
+            tenantFilter(pollingAgentsTable, t.id),
+          )).limit(50000);
         break;
       }
       case "result-submissions": {
@@ -264,10 +273,11 @@ router.post("/export", requireAuth, resolveActor, canExport, async (req: any, re
           rejectedBallots: resultSubmissionsTable.rejectedBallots,
           submittedAt: resultSubmissionsTable.submittedAt,
           createdAt: resultSubmissionsTable.createdAt,
-        }).from(resultSubmissionsTable).orderBy(desc(resultSubmissionsTable.createdAt)).limit(50000);
+        }).from(resultSubmissionsTable).where(tenantFilter(resultSubmissionsTable, t.id)).orderBy(desc(resultSubmissionsTable.createdAt)).limit(50000);
         break;
       }
       case "tally-summary": {
+        // Scope to tenant via inner join on resultSubmissionsTable (which has tenantId)
         rows = await db
           .select({
             candidateId: submissionCandidateVotesTable.candidateId,
@@ -276,6 +286,10 @@ router.post("/export", requireAuth, resolveActor, canExport, async (req: any, re
             totalVotes: sum(submissionCandidateVotesTable.voteCount),
           })
           .from(submissionCandidateVotesTable)
+          .innerJoin(resultSubmissionsTable, and(
+            eq(submissionCandidateVotesTable.submissionId, resultSubmissionsTable.id),
+            tenantFilter(resultSubmissionsTable, t.id),
+          ))
           .groupBy(
             submissionCandidateVotesTable.candidateId,
             submissionCandidateVotesTable.candidateName,
@@ -295,7 +309,7 @@ router.post("/export", requireAuth, resolveActor, canExport, async (req: any, re
           occurredAt: electionIncidentReportsTable.occurredAt,
           createdAt: electionIncidentReportsTable.createdAt,
         }).from(electionIncidentReportsTable)
-          .orderBy(desc(electionIncidentReportsTable.createdAt)).limit(50000);
+          .where(tenantFilter(electionIncidentReportsTable, t.id)).orderBy(desc(electionIncidentReportsTable.createdAt)).limit(50000);
         break;
       }
       case "disputes": {
@@ -308,7 +322,7 @@ router.post("/export", requireAuth, resolveActor, canExport, async (req: any, re
           electionId: electionDisputesTable.electionId,
           createdAt: electionDisputesTable.createdAt,
         }).from(electionDisputesTable)
-          .orderBy(desc(electionDisputesTable.createdAt)).limit(50000);
+          .where(tenantFilter(electionDisputesTable, t.id)).orderBy(desc(electionDisputesTable.createdAt)).limit(50000);
         break;
       }
       case "training-completions": {
@@ -320,7 +334,7 @@ router.post("/export", requireAuth, resolveActor, canExport, async (req: any, re
           score: agentTrainingEnrollmentsTable.score,
           completedAt: agentTrainingEnrollmentsTable.completedAt,
         }).from(agentTrainingEnrollmentsTable)
-          .where(eq(agentTrainingEnrollmentsTable.status, "passed"))
+          .where(and(tenantFilter(agentTrainingEnrollmentsTable, t.id), eq(agentTrainingEnrollmentsTable.status, "passed")))
           .orderBy(desc(agentTrainingEnrollmentsTable.completedAt)).limit(50000);
         break;
       }
@@ -334,11 +348,12 @@ router.post("/export", requireAuth, resolveActor, canExport, async (req: any, re
           userEmail: auditLogsTable.userEmail,
           ipAddress: auditLogsTable.ipAddress,
           createdAt: auditLogsTable.createdAt,
-        }).from(auditLogsTable).orderBy(desc(auditLogsTable.createdAt)).limit(50000);
+        }).from(auditLogsTable).where(tenantFilter(auditLogsTable, t.id)).orderBy(desc(auditLogsTable.createdAt)).limit(50000);
         break;
       }
       case "export-log": {
         rows = await db.select().from(exportAuditLogTable)
+          .where(tenantFilter(exportAuditLogTable, t.id))
           .orderBy(desc(exportAuditLogTable.downloadedAt)).limit(50000);
         break;
       }
@@ -353,7 +368,7 @@ router.post("/export", requireAuth, resolveActor, canExport, async (req: any, re
         return res.status(400).json({ error: `Unknown reportId: ${reportId}` });
     }
 
-    await logExport(actorId, reportId, format, filters, rows.length, req);
+    await logExport(actorId, reportId, format, filters, rows.length, req, t.id);
 
     if (format === "excel") {
       await sendExcel(res, `${filename}.xlsx`, reportId, rows);
@@ -368,14 +383,17 @@ router.post("/export", requireAuth, resolveActor, canExport, async (req: any, re
 // ── GET /api/reporting/export-log ─────────────────────────────────────────
 router.get("/export-log", requireAuth, resolveActor, canExport, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const { page = "1", limit = "20" } = req.query;
     const pageNum = parseInt(page) || 1;
     const pageSize = Math.min(parseInt(limit) || 20, 100);
     const [rows, [{ total }]] = await Promise.all([
       db.select().from(exportAuditLogTable)
+        .where(tenantFilter(exportAuditLogTable, t.id))
         .orderBy(desc(exportAuditLogTable.downloadedAt))
         .limit(pageSize).offset((pageNum - 1) * pageSize),
-      db.select({ total: count() }).from(exportAuditLogTable),
+      db.select({ total: count() }).from(exportAuditLogTable)
+        .where(tenantFilter(exportAuditLogTable, t.id)),
     ]);
     res.json({ data: rows, total: Number(total), page: pageNum, pageSize });
   } catch (err: any) {

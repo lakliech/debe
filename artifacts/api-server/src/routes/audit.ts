@@ -4,6 +4,7 @@ import { db } from "@workspace/db";
 import { auditLogsTable } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
+import { tenantFilter, assertTenant } from '../lib/withTenant';
 
 const router = Router();
 
@@ -26,16 +27,17 @@ const canViewAudit = requireRoles([
 
 // GET /api/audit/logs
 router.get("/logs", requireAuth, canViewAudit, async (req: any, res: any) => {
+  const t = assertTenant(req);
   const { userId, action, resource, limit = "50", offset = "0" } = req.query as any;
   const lim = Math.min(Number(limit), 200);
   const off = Number(offset);
 
-  const conditions = [];
+  const conditions: any[] = [tenantFilter(auditLogsTable, t.id)];
   if (userId) conditions.push(eq(auditLogsTable.userId as any, userId));
   if (action) conditions.push(eq(auditLogsTable.action, action));
   if (resource) conditions.push(eq(auditLogsTable.resource, resource));
 
-  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+  const whereClause = and(...conditions);
 
   const logs = await db
     .select()

@@ -11,6 +11,7 @@ import {
 } from "@workspace/db";
 import { eq, desc, and, count } from "drizzle-orm";
 import { requireRoles, resolveActor } from "../middlewares/rbac";
+import { tenantFilter, assertTenant } from '../lib/withTenant';
 
 const router = Router();
 
@@ -49,6 +50,7 @@ function derivePublicationStatus(pub: Record<string, any>): string {
 // requireAuth + resolveActor ensure actorRoles is populated before the admin check
 router.get("/publications", requireAuth, resolveActor, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     // Only users with transparency-management roles see unpublished items
     const adminRoles = ["campaign-exec-director", "national-campaign-manager", "communications-officer", "legal-officer", "super-admin"];
     // actorRoles is now always populated by resolveActor above
@@ -60,11 +62,11 @@ router.get("/publications", requireAuth, resolveActor, async (req: any, res: any
     const pageSize = Math.min(parseInt(limit) || 20, 100);
     const offset = (pageNum - 1) * pageSize;
 
-    const conditions: any[] = [];
+    const conditions: any[] = [tenantFilter(transparencyPublicationsTable, t.id)];
     // Non-admins only see published
     if (!isAdmin) conditions.push(eq(transparencyPublicationsTable.isPublic, true));
     if (electionId) conditions.push(eq(transparencyPublicationsTable.electionId, electionId));
-    const where = conditions.length ? and(...conditions) : undefined;
+    const where = and(...conditions);
 
     const [rows, [{ total }]] = await Promise.all([
       db.select().from(transparencyPublicationsTable).where(where)
@@ -84,14 +86,15 @@ router.get("/publications", requireAuth, resolveActor, async (req: any, res: any
   }
 });
 
-// GET /api/transparency/publications/:id — public
+// GET /api/transparency/publications/:id — public (no auth required)
 router.get("/publications/:id", async (req: any, res: any) => {
   try {
+    const tenantId = req.tenant?.id;
+    // Require tenant context — public callers must supply X-Tenant-Slug / ?tenant=
+    if (!tenantId) return res.status(404).json({ error: "Publication not found" });
     const [row] = await db.select().from(transparencyPublicationsTable)
-      .where(and(
-        eq(transparencyPublicationsTable.id, req.params.id),
-        eq(transparencyPublicationsTable.isPublic, true),
-      )).limit(1);
+      .where(and(eq(transparencyPublicationsTable.id, req.params.id), eq(transparencyPublicationsTable.isPublic, true), tenantFilter(transparencyPublicationsTable, tenantId)))
+      .limit(1);
     if (!row) return res.status(404).json({ error: "Publication not found" });
     res.json(row);
   } catch (err: any) {
@@ -102,10 +105,12 @@ router.get("/publications/:id", async (req: any, res: any) => {
 // POST /api/transparency/publications — create draft
 router.post("/publications", requireAuth, canPublishTransparency, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     // Only pick columns that exist in transparencyPublicationsTable schema
     // Frontend may send title/description/stationId — map stationId→pollingStationId, discard others
     const { electionId, stationId, pollingStationId, submissionId, redactionNotes } = req.body;
     const [row] = await db.insert(transparencyPublicationsTable).values({
+      tenantId: t.id,
       electionId,
       pollingStationId: pollingStationId ?? stationId ?? undefined,
       submissionId: submissionId ?? undefined,
@@ -121,11 +126,12 @@ router.post("/publications", requireAuth, canPublishTransparency, async (req: an
 // POST /api/transparency/publications/:id/legal-approve
 router.post("/publications/:id/legal-approve", requireAuth, canLegalApprove, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const actorId = await resolveActorUUID(req.clerkId);
     const [row] = await db.update(transparencyPublicationsTable).set({
       legalApprovedBy: actorId ?? undefined,
       legalApprovedAt: new Date(),
-    }).where(eq(transparencyPublicationsTable.id, req.params.id)).returning();
+    }).where(and(eq(transparencyPublicationsTable.id, req.params.id), tenantFilter(transparencyPublicationsTable, t.id))).returning();
     if (!row) return res.status(404).json({ error: "Publication not found" });
     res.json(row);
   } catch (err: any) {
@@ -136,11 +142,12 @@ router.post("/publications/:id/legal-approve", requireAuth, canLegalApprove, asy
 // POST /api/transparency/publications/:id/comms-approve
 router.post("/publications/:id/comms-approve", requireAuth, canCommsApprove, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const actorId = await resolveActorUUID(req.clerkId);
     const [row] = await db.update(transparencyPublicationsTable).set({
       commsApprovedBy: actorId ?? undefined,
       commsApprovedAt: new Date(),
-    }).where(eq(transparencyPublicationsTable.id, req.params.id)).returning();
+    }).where(and(eq(transparencyPublicationsTable.id, req.params.id), tenantFilter(transparencyPublicationsTable, t.id))).returning();
     if (!row) return res.status(404).json({ error: "Publication not found" });
     res.json(row);
   } catch (err: any) {
@@ -151,11 +158,12 @@ router.post("/publications/:id/comms-approve", requireAuth, canCommsApprove, asy
 // POST /api/transparency/publications/:id/publish
 router.post("/publications/:id/publish", requireAuth, canPublishTransparency, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const actorId = await resolveActorUUID(req.clerkId);
 
     // Verify both approvals
     const [pub] = await db.select().from(transparencyPublicationsTable)
-      .where(eq(transparencyPublicationsTable.id, req.params.id)).limit(1);
+      .where(and(eq(transparencyPublicationsTable.id, req.params.id), tenantFilter(transparencyPublicationsTable, t.id))).limit(1);
     if (!pub) return res.status(404).json({ error: "Publication not found" });
     if (!pub.legalApprovedAt) return res.status(400).json({ error: "Legal approval required before publishing" });
     if (!pub.commsApprovedAt) return res.status(400).json({ error: "Comms approval required before publishing" });
@@ -165,7 +173,7 @@ router.post("/publications/:id/publish", requireAuth, canPublishTransparency, as
       publishedBy: actorId ?? undefined,
       publishedAt: new Date(),
       redactionNotes: req.body.redactionNotes,
-    }).where(eq(transparencyPublicationsTable.id, req.params.id)).returning();
+    }).where(and(eq(transparencyPublicationsTable.id, req.params.id), tenantFilter(transparencyPublicationsTable, t.id))).returning();
     res.json(row);
   } catch (err: any) {
     res.status(500).json({ error: err.message });

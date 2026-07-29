@@ -10,9 +10,10 @@ import {
   candidatesTable,
   usersTable,
 } from "@workspace/db";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
 import { validate } from "../lib/validate";
+import { tenantFilter, assertTenant } from "../lib/withTenant";
 
 const router = Router();
 
@@ -70,9 +71,12 @@ const CandidatePatchSchema = z.object({
 });
 
 // GET /api/election-admin/elections
-router.get("/elections", requireAuth, canManageElections, async (_req: any, res: any) => {
+router.get("/elections", requireAuth, canManageElections, async (req: any, res: any) => {
   try {
-    const rows = await db.select().from(electionsTable).orderBy(desc(electionsTable.createdAt));
+    const t = assertTenant(req);
+    const rows = await db.select().from(electionsTable)
+      .where(tenantFilter(electionsTable, t.id))
+      .orderBy(desc(electionsTable.createdAt));
     res.json(rows);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -82,11 +86,13 @@ router.get("/elections", requireAuth, canManageElections, async (_req: any, res:
 // POST /api/election-admin/elections
 router.post("/elections", requireAuth, canManageElections, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const body = validate(ElectionCreateSchema, req.body, res);
     if (!body) return;
 
     const { name, year, electionDate, status, isActive } = body;
     const [row] = await db.insert(electionsTable).values({
+      tenantId: t.id,
       name, year: Number(year) || year, electionDate, status, isActive,
     }).returning();
     res.status(201).json(row);
@@ -97,10 +103,12 @@ router.post("/elections", requireAuth, canManageElections, async (req: any, res:
 
 // GET /api/election-admin/elections/active — accessible to any authenticated user (agents, observers)
 // MUST be before /:id to avoid wildcard shadowing
-router.get("/elections/active", requireAuth, async (_req: any, res: any) => {
+router.get("/elections/active", requireAuth, async (req: any, res: any) => {
   try {
-    const rows = await db.select().from(electionsTable).orderBy(desc(electionsTable.createdAt));
-    // Return all elections for this endpoint; agents need the list to find the active one
+    const t = assertTenant(req);
+    const rows = await db.select().from(electionsTable)
+      .where(tenantFilter(electionsTable, t.id))
+      .orderBy(desc(electionsTable.createdAt));
     res.json(rows);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -110,6 +118,7 @@ router.get("/elections/active", requireAuth, async (_req: any, res: any) => {
 // PATCH /api/election-admin/elections/:id
 router.patch("/elections/:id", requireAuth, canManageElections, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const body = validate(ElectionPatchSchema, req.body, res);
     if (!body) return;
 
@@ -121,7 +130,7 @@ router.patch("/elections/:id", requireAuth, canManageElections, async (req: any,
     if (body.isActive !== undefined) updateData.isActive = body.isActive;
 
     const [row] = await db.update(electionsTable).set(updateData)
-      .where(eq(electionsTable.id, req.params.id)).returning();
+      .where(and(eq(electionsTable.id, req.params.id), tenantFilter(electionsTable, t.id))).returning();
     if (!row) return res.status(404).json({ error: "Election not found" });
     res.json(row);
   } catch (err: any) {
@@ -132,8 +141,14 @@ router.patch("/elections/:id", requireAuth, canManageElections, async (req: any,
 // GET /api/election-admin/elections/:id/candidates
 router.get("/elections/:id/candidates", requireAuth, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
+    // First verify the election belongs to this tenant
+    const [election] = await db.select({ id: electionsTable.id }).from(electionsTable)
+      .where(and(eq(electionsTable.id, req.params.id), tenantFilter(electionsTable, t.id))).limit(1);
+    if (!election) return res.status(404).json({ error: "Election not found" });
+
     const rows = await db.select().from(candidatesTable)
-      .where(eq(candidatesTable.electionId, req.params.id))
+      .where(and(eq(candidatesTable.electionId, req.params.id), tenantFilter(candidatesTable, t.id)))
       .orderBy(candidatesTable.displayOrder);
     res.json(rows);
   } catch (err: any) {
@@ -144,11 +159,18 @@ router.get("/elections/:id/candidates", requireAuth, async (req: any, res: any) 
 // POST /api/election-admin/elections/:id/candidates
 router.post("/elections/:id/candidates", requireAuth, canManageElections, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const body = validate(CandidateCreateSchema, req.body, res);
     if (!body) return;
 
+    // Verify election belongs to this tenant
+    const [election] = await db.select({ id: electionsTable.id }).from(electionsTable)
+      .where(and(eq(electionsTable.id, req.params.id), tenantFilter(electionsTable, t.id))).limit(1);
+    if (!election) return res.status(404).json({ error: "Election not found" });
+
     const [row] = await db.insert(candidatesTable).values({
       ...body,
+      tenantId: t.id,
       electionId: req.params.id,
     }).returning();
     res.status(201).json(row);
@@ -160,11 +182,16 @@ router.post("/elections/:id/candidates", requireAuth, canManageElections, async 
 // PATCH /api/election-admin/elections/:id/candidates/:cid
 router.patch("/elections/:id/candidates/:cid", requireAuth, canManageElections, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const body = validate(CandidatePatchSchema, req.body, res);
     if (!body) return;
 
     const [row] = await db.update(candidatesTable).set(body)
-      .where(eq(candidatesTable.id, req.params.cid)).returning();
+      .where(and(
+        eq(candidatesTable.id, req.params.cid),
+        eq(candidatesTable.electionId, req.params.id),
+        tenantFilter(candidatesTable, t.id),
+      )).returning();
     if (!row) return res.status(404).json({ error: "Candidate not found" });
     res.json(row);
   } catch (err: any) {
@@ -175,8 +202,13 @@ router.patch("/elections/:id/candidates/:cid", requireAuth, canManageElections, 
 // DELETE /api/election-admin/elections/:id/candidates/:cid
 router.delete("/elections/:id/candidates/:cid", requireAuth, canManageElections, async (req: any, res: any) => {
   try {
+    const t = assertTenant(req);
     const [row] = await db.delete(candidatesTable)
-      .where(eq(candidatesTable.id, req.params.cid)).returning();
+      .where(and(
+        eq(candidatesTable.id, req.params.cid),
+        eq(candidatesTable.electionId, req.params.id),
+        tenantFilter(candidatesTable, t.id),
+      )).returning();
     if (!row) return res.status(404).json({ error: "Candidate not found" });
     res.json({ success: true });
   } catch (err: any) {

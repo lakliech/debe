@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { resolveTenant, resolveTenantPublic, resolveTenantMixed } from "../middlewares/resolveTenant";
 import healthRouter from "./health";
 import usersRouter from "./users";
 import rolesRouter from "./roles";
@@ -36,37 +37,60 @@ import contactMessagesRouter from "./contactMessages";
 const router: IRouter = Router();
 
 router.use(healthRouter);
-router.use(storageRouter);
-router.use("/users", usersRouter);
-router.use("/roles", rolesRouter);
-router.use("/geography", geographyRouter);
-router.use("/dashboard", dashboardRouter);
-router.use("/config", configRouter);
-router.use("/audit", auditRouter);
-router.use("/volunteers", volunteersRouter);
-router.use("/supporters", supportersRouter);
-router.use("/training", trainingRouter);
-router.use("/public", publicPortalRouter);
-router.use("/data-requests", dataRequestsRouter);
-router.use("/coordinator", coordinatorRouter);
-router.use("/finance", financeRouter);
-router.use("/communications", communicationsRouter);
-router.use("/content", contentLibraryRouter);
-router.use("/events-mgmt", eventsMgmtRouter);
-router.use("/rapid-response", rapidResponseRouter);
-router.use("/election-admin", electionAdminRouter);
-router.use("/polling-stations-mgmt", pollingStationsMgmtRouter);
-router.use("/polling-agents", pollingAgentsMgmtRouter);
-router.use("/election-results", electionResultsRouter);
-router.use("/tally", tallyRouter);
-router.use("/election-incidents", electionIncidentsRouter);
-router.use("/election-disputes", electionDisputesRouter);
-router.use("/transparency", transparencyPortalRouter);
-router.use("/command-centre", commandCentreRouter);
-router.use("/reporting", reportingRouter);
-router.use("/compliance", complianceRouter);
-router.use("/privileged-access", privilegedAccessRouter);
-router.use("/aspirants", aspirantsRouter);
-router.use("/contact-messages", contactMessagesRouter);
+router.use(withTenantMixed(storageRouter));
+
+// Resolve tenant for all public-portal routes (unauthenticated; reads X-Tenant-Slug or ?tenant=)
+router.use("/public", resolveTenantPublic);
+
+// Helper: mount a sub-router with resolveTenant applied first (authenticated routes).
+// This avoids needing to call resolveTenant inside every individual route handler.
+function withTenant(subrouter: IRouter) {
+  const r = Router();
+  r.use(resolveTenant, subrouter);
+  return r;
+}
+
+// Helper: mount a sub-router with resolveTenantMixed — for routers that contain
+// BOTH public (unauthenticated) and authenticated endpoints.
+// Authenticated requests resolve tenant from the Clerk JWT org (authoritative).
+// Unauthenticated requests resolve tenant from X-Tenant-Slug / ?tenant= header.
+// Authenticated routes inside still call assertTenant(req) / requireAuth.
+function withTenantMixed(subrouter: IRouter) {
+  const r = Router();
+  r.use(resolveTenantMixed, subrouter);
+  return r;
+}
+
+router.use("/users", withTenant(usersRouter));
+router.use("/roles", withTenant(rolesRouter));
+router.use("/geography", geographyRouter); // geography is global/shared — no tenant filter needed
+router.use("/dashboard", withTenant(dashboardRouter));
+router.use("/config", configRouter); // GET /branding is public; mutations use requireAuth+resolveTenant internally
+router.use("/audit", withTenant(auditRouter));
+router.use("/volunteers", withTenant(volunteersRouter));
+router.use("/supporters", withTenant(supportersRouter));
+router.use("/training", withTenant(trainingRouter));
+router.use("/public", publicPortalRouter); // already has resolveTenantPublic above
+router.use("/data-requests", withTenantMixed(dataRequestsRouter)); // POST / is unauthenticated public submission
+router.use("/coordinator", withTenant(coordinatorRouter));
+router.use("/finance", withTenantMixed(financeRouter)); // M-Pesa callbacks are unauthenticated
+router.use("/communications", withTenant(communicationsRouter));
+router.use("/content", withTenant(contentLibraryRouter));
+router.use("/events-mgmt", withTenantMixed(eventsMgmtRouter)); // public registration & media-accreditation endpoints
+router.use("/rapid-response", withTenant(rapidResponseRouter));
+router.use("/election-admin", withTenant(electionAdminRouter));
+router.use("/polling-stations-mgmt", withTenant(pollingStationsMgmtRouter));
+router.use("/polling-agents", withTenant(pollingAgentsMgmtRouter));
+router.use("/election-results", withTenant(electionResultsRouter));
+router.use("/tally", withTenant(tallyRouter));
+router.use("/election-incidents", withTenant(electionIncidentsRouter));
+router.use("/election-disputes", withTenant(electionDisputesRouter));
+router.use("/transparency", withTenantMixed(transparencyPortalRouter)); // GET /publications/:id is public
+router.use("/command-centre", withTenant(commandCentreRouter));
+router.use("/reporting", withTenant(reportingRouter));
+router.use("/compliance", withTenant(complianceRouter));
+router.use("/privileged-access", withTenant(privilegedAccessRouter));
+router.use("/aspirants", withTenant(aspirantsRouter));
+router.use("/contact-messages", withTenant(contactMessagesRouter));
 
 export default router;

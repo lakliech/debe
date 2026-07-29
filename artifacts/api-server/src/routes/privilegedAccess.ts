@@ -10,6 +10,7 @@ import { db } from "@workspace/db";
 import { usersTable, userRolesTable, rolesTable } from "@workspace/db";
 import { eq, and, inArray } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
+import { tenantFilter, assertTenant } from '../lib/withTenant';
 
 const router = Router();
 
@@ -40,6 +41,7 @@ router.get(
   requireRoles(["campaign-exec-director", "super-admin", "data-officer"]),
   async (req: any, res: any) => {
     try {
+      const t = assertTenant(req);
       // Load all user→role assignments
       const assignments = await db
         .select({
@@ -52,7 +54,8 @@ router.get(
         })
         .from(userRolesTable)
         .innerJoin(usersTable, eq(userRolesTable.userId, usersTable.id))
-        .innerJoin(rolesTable, eq(userRolesTable.roleId, rolesTable.id));
+        .innerJoin(rolesTable, eq(userRolesTable.roleId, rolesTable.id))
+        .where(tenantFilter(userRolesTable, t.id));
 
       // Group by user
       const byUser = new Map<string, {

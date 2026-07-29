@@ -11,7 +11,27 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { countiesTable } from "./geography";
 
+// ── Tenants ───────────────────────────────────────────────────────────────────
+// One row per campaign deployment. clerk_org_id ties it to a Clerk Organisation.
+export const tenantsTable = pgTable("tenants", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  clerkOrgId: text("clerk_org_id").notNull().unique(),
+  name: text("name").notNull(),
+  /** URL-safe identifier used in subdomains / public links */
+  slug: text("slug").notNull().unique(),
+  /** Billing tier stub — free | pro */
+  plan: text("plan").notNull().default("free"),
+  isSuspended: boolean("is_suspended").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+
+export const insertTenantSchema = createInsertSchema(tenantsTable).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertTenant = z.infer<typeof insertTenantSchema>;
+export type Tenant = typeof tenantsTable.$inferSelect;
+
 // ── Roles ────────────────────────────────────────────────────────────────────
+// Role definitions are global (shared across tenants).
 export const rolesTable = pgTable("roles", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull().unique(),
@@ -47,6 +67,8 @@ export const rolePermissionsTable = pgTable("role_permissions", {
 });
 
 // ── Users ─────────────────────────────────────────────────────────────────────
+// Users are global — one row per Clerk account. A user can belong to multiple
+// tenants via user_roles (which IS tenant-scoped).
 export const usersTable = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   clerkId: text("clerk_id").notNull().unique(),
@@ -68,8 +90,11 @@ export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof usersTable.$inferSelect;
 
 // ── User Roles (junction) ─────────────────────────────────────────────────────
+// Role assignments are tenant-scoped: a user can be a county-coordinator in
+// tenant A and a volunteer-coordinator in tenant B.
 export const userRolesTable = pgTable("user_roles", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   userId: uuid("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
   roleId: uuid("role_id").notNull().references(() => rolesTable.id, { onDelete: "cascade" }),
   countyId: uuid("county_id"),
@@ -84,6 +109,7 @@ export type UserRole = typeof userRolesTable.$inferSelect;
 // ── Aspirants ────────────────────────────────────────────────────────────────
 export const aspirantsTable = pgTable("aspirants", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   fullName: text("full_name").notNull(),
   email: text("email"),
   phoneNumber: text("phone_number").notNull(),
@@ -106,8 +132,8 @@ export const aspirantsTable = pgTable("aspirants", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (table) => [
-  // One declaration per national ID per seat — prevents duplicate submissions.
-  unique("aspirants_national_id_position_unique").on(table.nationalId, table.position),
+  // One declaration per national ID per seat per tenant.
+  unique("aspirants_national_id_position_unique").on(table.tenantId, table.nationalId, table.position),
 ]);
 
 export const insertAspirantSchema = createInsertSchema(aspirantsTable).omit({ id: true, createdAt: true, updatedAt: true });
@@ -117,6 +143,7 @@ export type Aspirant = typeof aspirantsTable.$inferSelect;
 // ── Contact Messages ─────────────────────────────────────────────────────────
 export const contactMessagesTable = pgTable("contact_messages", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   fullName: text("full_name").notNull(),
   email: text("email").notNull(),
   subject: text("subject").notNull(),
@@ -133,6 +160,7 @@ export type ContactMessage = typeof contactMessagesTable.$inferSelect;
 // ── User Suspensions ─────────────────────────────────────────────────────────
 export const userSuspensionsTable = pgTable("user_suspensions", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
   userId: uuid("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
   reason: text("reason").notNull(),
   suspendedBy: uuid("suspended_by").notNull(),

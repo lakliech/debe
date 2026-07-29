@@ -5,6 +5,7 @@ import {
   integer,
   uuid,
   doublePrecision,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -95,3 +96,26 @@ export const pollingStationsTable = pgTable("polling_stations", {
 export const insertPollingStationSchema = createInsertSchema(pollingStationsTable).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertPollingStation = z.infer<typeof insertPollingStationSchema>;
 export type PollingStation = typeof pollingStationsTable.$inferSelect;
+
+// ── Campaign Station Profiles ─────────────────────────────────────────────────
+// Per-tenant, per-station campaign state. Multiple campaigns deploying agents to
+// the same physical station each get their own row — never overwriting each other.
+export const campaignStationProfilesTable = pgTable(
+  "campaign_station_profiles",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull(),
+    stationId: uuid("station_id").notNull().references(() => pollingStationsTable.id, { onDelete: "cascade" }),
+    accreditationStatus: text("accreditation_status").default("pending"),
+    trainingStatus: text("training_status").default("pending"),
+    contactStatus: text("contact_status").default("pending"),
+    reportingStatus: text("reporting_status").default("not_reported"),
+    primaryAgentId: uuid("primary_agent_id"),
+    backupAgentId: uuid("backup_agent_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (t) => ({ uniq: uniqueIndex("csp_tenant_station_uniq").on(t.tenantId, t.stationId) })
+);
+
+export type CampaignStationProfile = typeof campaignStationProfilesTable.$inferSelect;
