@@ -2,6 +2,7 @@
  * Public portal routes — no authentication required.
  * Serves content for the campaign's public-facing website.
  */
+import { Readable } from "node:stream";
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { publicSubmitLimiter } from "../middlewares/rateLimits";
@@ -18,10 +19,19 @@ import {
   policySubmissionsTable,
   countiesTable,
   brandingTable,
+  resultSubmissionsTable,
+  submissionFormImagesTable,
+  submissionCandidateVotesTable,
+  electionsTable,
+  candidatesTable,
 } from "@workspace/db";
-import { eq, and, desc, asc, count } from "drizzle-orm";
+import { pollingStationsTable } from "@workspace/db";
+import { eq, and, desc, asc, count, sql } from "drizzle-orm";
 import { aspirantsTable, contactMessagesTable } from "@workspace/db";
 import { tenantFilter, assertTenant } from '../lib/withTenant';
+import { ObjectStorageService } from "../lib/objectStorage";
+
+const objectStorageService = new ObjectStorageService();
 
 const router = Router();
 
@@ -513,6 +523,227 @@ router.post("/policy-submit", publicSubmitLimiter, async (req: any, res: any) =>
     res.status(201).json({ message: "Thank you for your policy submission!", submissionId: submission.id });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Public Transparency: Form 34A Photos ──────────────────────────────────────
+// All three endpoints are fully unauthenticated — tenant is resolved from the
+// request host/subdomain or ?tenant= param by the resolveTenantPublic middleware
+// that wraps all /api/public/* routes.
+// Only submissions with status = 'verified' are exposed; any other status
+// returns 404, preventing premature disclosure of unaudited scans.
+
+/**
+ * GET /api/public/transparency/submissions
+ * Lists all verified result submissions for the tenant, with station name and a
+ * flag indicating whether at least one Form 34A image is available.
+ */
+router.get("/transparency/submissions", async (req: any, res: any) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.json({ data: [] });
+
+    const page = Math.max(1, parseInt(String(req.query.page ?? "1")) || 1);
+    const limit = Math.min(parseInt(String(req.query.limit ?? "50")) || 50, 100);
+    const offset = (page - 1) * limit;
+    const electionIdFilter = req.query.electionId as string | undefined;
+
+    const conditions: any[] = [
+      tenantFilter(resultSubmissionsTable, tenantId),
+      eq(resultSubmissionsTable.status, "verified"),
+    ];
+    if (electionIdFilter) conditions.push(eq(resultSubmissionsTable.electionId, electionIdFilter));
+
+    const rows = await db
+      .select({
+        id: resultSubmissionsTable.id,
+        pollingStationId: resultSubmissionsTable.pollingStationId,
+        electionId: resultSubmissionsTable.electionId,
+        totalValidVotes: resultSubmissionsTable.totalValidVotes,
+        totalVotesCast: resultSubmissionsTable.totalVotesCast,
+        registeredVoters: resultSubmissionsTable.registeredVoters,
+        rejectedBallots: resultSubmissionsTable.rejectedBallots,
+        spoiltBallots: resultSubmissionsTable.spoiltBallots,
+        submittedAt: resultSubmissionsTable.submittedAt,
+        stationName: pollingStationsTable.name,
+        stationCode: pollingStationsTable.code,
+        // Subquery: does at least one uploaded image exist for this submission?
+        hasImages: sql<boolean>`EXISTS (
+          SELECT 1 FROM submission_form_images sfi
+          WHERE sfi.submission_id = ${resultSubmissionsTable.id}
+            AND sfi.object_path IS NOT NULL
+        )`,
+      })
+      .from(resultSubmissionsTable)
+      .leftJoin(
+        pollingStationsTable,
+        eq(resultSubmissionsTable.pollingStationId, pollingStationsTable.id),
+      )
+      .where(and(...conditions))
+      .orderBy(asc(pollingStationsTable.name), desc(resultSubmissionsTable.submittedAt))
+      .limit(limit)
+      .offset(offset);
+
+    res.json({ data: rows, page, limit });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/public/transparency/submissions/:id/votes
+ * Returns candidate vote breakdown for a verified submission.
+ */
+router.get("/transparency/submissions/:id/votes", async (req: any, res: any) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.status(404).json({ error: "Not found" });
+
+    const [submission] = await db
+      .select({ id: resultSubmissionsTable.id })
+      .from(resultSubmissionsTable)
+      .where(
+        and(
+          eq(resultSubmissionsTable.id, req.params.id),
+          eq(resultSubmissionsTable.status, "verified"),
+          tenantFilter(resultSubmissionsTable, tenantId),
+        ),
+      )
+      .limit(1);
+
+    if (!submission) return res.status(404).json({ error: "Submission not found or not yet verified" });
+
+    const votes = await db
+      .select({
+        id: submissionCandidateVotesTable.id,
+        candidateName: submissionCandidateVotesTable.candidateName,
+        partyAbbreviation: submissionCandidateVotesTable.partyAbbreviation,
+        voteCount: submissionCandidateVotesTable.voteCount,
+      })
+      .from(submissionCandidateVotesTable)
+      .where(eq(submissionCandidateVotesTable.submissionId, req.params.id))
+      .orderBy(desc(submissionCandidateVotesTable.voteCount));
+
+    res.json(votes);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/public/transparency/submissions/:id/images
+ * Returns image metadata for a verified submission (no object paths exposed).
+ */
+router.get("/transparency/submissions/:id/images", async (req: any, res: any) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.status(404).json({ error: "Not found" });
+
+    const [submission] = await db
+      .select({ id: resultSubmissionsTable.id })
+      .from(resultSubmissionsTable)
+      .where(
+        and(
+          eq(resultSubmissionsTable.id, req.params.id),
+          eq(resultSubmissionsTable.status, "verified"),
+          tenantFilter(resultSubmissionsTable, tenantId),
+        ),
+      )
+      .limit(1);
+
+    if (!submission) return res.status(404).json({ error: "Submission not found or not yet verified" });
+
+    const images = await db
+      .select({
+        id: submissionFormImagesTable.id,
+        imageType: submissionFormImagesTable.imageType,
+        mimeType: submissionFormImagesTable.mimeType,
+        pageNumber: submissionFormImagesTable.pageNumber,
+        sizeBytes: submissionFormImagesTable.sizeBytes,
+        uploadedAt: submissionFormImagesTable.uploadedAt,
+      })
+      .from(submissionFormImagesTable)
+      .where(
+        and(
+          eq(submissionFormImagesTable.submissionId, req.params.id),
+          sql`${submissionFormImagesTable.objectPath} IS NOT NULL`,
+        ),
+      )
+      .orderBy(
+        asc(submissionFormImagesTable.pageNumber),
+        asc(submissionFormImagesTable.uploadedAt),
+      );
+
+    res.json(images);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/public/transparency/submissions/:id/images/:imageId
+ * Serves the raw image bytes for a verified submission.
+ * No auth required — gate is submission status = 'verified' + tenant ownership.
+ */
+router.get("/transparency/submissions/:id/images/:imageId", async (req: any, res: any) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.status(404).json({ error: "Not found" });
+
+    // Gate: submission must be verified and owned by this tenant
+    const [submission] = await db
+      .select({ id: resultSubmissionsTable.id })
+      .from(resultSubmissionsTable)
+      .where(
+        and(
+          eq(resultSubmissionsTable.id, req.params.id),
+          eq(resultSubmissionsTable.status, "verified"),
+          tenantFilter(resultSubmissionsTable, tenantId),
+        ),
+      )
+      .limit(1);
+
+    if (!submission) return res.status(404).json({ error: "Submission not found or not yet verified" });
+
+    const [image] = await db
+      .select({
+        objectPath: submissionFormImagesTable.objectPath,
+        mimeType: submissionFormImagesTable.mimeType,
+      })
+      .from(submissionFormImagesTable)
+      .where(
+        and(
+          eq(submissionFormImagesTable.id, req.params.imageId),
+          eq(submissionFormImagesTable.submissionId, req.params.id),
+          sql`${submissionFormImagesTable.objectPath} IS NOT NULL`,
+        ),
+      )
+      .limit(1);
+
+    if (!image?.objectPath) return res.status(404).json({ error: "Image not found" });
+
+    const objectFile = await objectStorageService.getObjectEntityFile(image.objectPath);
+    const response = await objectStorageService.downloadObject(objectFile);
+
+    // Verified form images are immutable — cache aggressively
+    res.setHeader("Cache-Control", "public, max-age=86400, immutable");
+    if (image.mimeType) res.setHeader("Content-Type", image.mimeType);
+    res.status(response.status);
+    response.headers.forEach((value: string, key: string) => {
+      if (!["content-type", "cache-control"].includes(key.toLowerCase())) {
+        res.setHeader(key, value);
+      }
+    });
+
+    if (response.body) {
+      const nodeStream = Readable.fromWeb(response.body as ReadableStream<Uint8Array>);
+      nodeStream.pipe(res);
+    } else {
+      res.end();
+    }
+  } catch (err: any) {
+    req.log?.error({ err }, "Error serving transparency image");
+    res.status(500).json({ error: "Failed to serve image" });
   }
 });
 
