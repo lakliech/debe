@@ -19,7 +19,7 @@
 import { getAuth } from "@clerk/express";
 import { db } from "@workspace/db";
 import { usersTable, userRolesTable, rolesTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, or, isNull } from "drizzle-orm";
 import type { Request, Response, NextFunction } from "express";
 import type { TenantedRequest } from "./resolveTenant";
 
@@ -135,9 +135,16 @@ export async function resolveActor(req: Request, res: Response, next: NextFuncti
 
   r.isGlobalAdmin = false;
 
-  // Build the where clause — always scope by user; add tenant filter when available.
+  // Build the where clause — always scope by user.
+  // When a tenant is active, include both that tenant's roles AND any platform-
+  // level roles stored with tenant_id = NULL (e.g. platform_admin, super-admin).
+  // Without the OR-NULL clause, a user assigned platform_admin with no tenant
+  // would have their role ignored on every tenant-scoped request.
   const roleWhere = tenantId
-    ? and(eq(userRolesTable.userId, row.id), eq(userRolesTable.tenantId, tenantId))
+    ? and(
+        eq(userRolesTable.userId, row.id),
+        or(eq(userRolesTable.tenantId, tenantId), isNull(userRolesTable.tenantId)),
+      )
     : eq(userRolesTable.userId, row.id);
 
   const roles = await db
