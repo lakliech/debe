@@ -41,6 +41,25 @@ A production-ready Kenyan presidential campaign management platform. Manages vol
 - **Seed data**: `scripts/seed.ts`
 - **Documentation**: `docs/`
 
+## Mobile — per-campaign APK builds
+
+The mobile app supports white-labelled per-campaign builds.  Set
+`EXPO_PUBLIC_TENANT_SLUG` at build time so the sign-in screen shows the
+correct candidate name, primary colour, and election year before the agent
+logs in.
+
+- **Full guide**: `docs/mobile-campaign-build.md`
+- **Env template**: `artifacts/agent-mobile/.env.example`
+- **Campaign sample**: `artifacts/agent-mobile/.env.campaign` (copy and fill in per campaign)
+
+Quick build:
+```bash
+cp artifacts/agent-mobile/.env.campaign artifacts/agent-mobile/.env.amina2027
+# edit .env.amina2027 with the real slug + Clerk key
+cd artifacts/agent-mobile && set -a && source .env.amina2027 && set +a
+eas build --platform android --profile production
+```
+
 ## Architecture decisions
 
 - Pages MUST NOT wrap in `<AppLayout>` — `ProtectedRoute` in App.tsx already wraps them

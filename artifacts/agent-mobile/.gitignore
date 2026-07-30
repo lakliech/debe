@@ -33,6 +33,10 @@ yarn-error.*
 
 # local env files
 .env*.local
+# per-campaign env files (contain build-time slugs; committed as .env.campaign sample only)
+.env.*
+!.env.example
+!.env.campaign
 
 # typescript
 *.tsbuildinfo
