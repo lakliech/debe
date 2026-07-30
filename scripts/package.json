@@ -8,6 +8,7 @@
     "seed": "tsx ./src/seed.ts",
     "seed:content": "tsx ./src/seed-content.ts",
     "seed:demo": "tsx ./src/seed-demo-tenant.ts",
+    "reset:demo": "tsx ./src/reset-demo-tenant.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

@@ -219,4 +219,17 @@ app.use(async (req: Request, _res: Response, next: NextFunction) => {
 
 app.use("/api", router);
 
+// ── Demo nightly reset job ─────────────────────────────────────────────────
+// Only active when DEMO_RESET_ENABLED=true so the cron never fires in
+// tenant (production) environments.
+if (process.env.DEMO_RESET_ENABLED === "true") {
+  // Lazy import to avoid loading node-cron in normal builds.
+  import("./jobs/demoReset.js").then(({ registerDemoResetJob }) => {
+    registerDemoResetJob();
+  }).catch((err) => {
+    // Non-fatal — log and continue; the server should still start.
+    console.error("[demoReset] Failed to register demo reset job:", err);
+  });
+}
+
 export default app;

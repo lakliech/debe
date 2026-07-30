@@ -22,6 +22,7 @@
  * After running, follow the printed Clerk checklist to create demo accounts.
  */
 
+import { fileURLToPath } from "node:url";
 import { db, pool } from "@workspace/db";
 import {
   tenantsTable,
@@ -47,14 +48,14 @@ import { eq, asc, and } from "drizzle-orm";
  * MUST be replaced with a real Clerk Organisation ID before demo users can log
  * in. See the post-run checklist printed at the end of this script.
  */
-const DEMO_CLERK_ORG_ID = "org_demo_debe_platform";
+export const DEMO_CLERK_ORG_ID = "org_demo_debe_platform";
 
-const DEMO_SLUG = "demo";
+export const DEMO_SLUG = "demo";
 const DEMO_DOMAIN = "demo.debe.co.ke";
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 
-async function getOrCreateTenant(): Promise<string> {
+export async function getOrCreateTenant(): Promise<string> {
   console.log("  Checking for existing demo tenant…");
   const existing = await db
     .select({ id: tenantsTable.id })
@@ -84,7 +85,7 @@ async function getOrCreateTenant(): Promise<string> {
 
 // ── Branding ──────────────────────────────────────────────────────────────────
 
-async function seedBranding(tenantId: string): Promise<void> {
+export async function seedBranding(tenantId: string): Promise<void> {
   console.log("  Seeding branding…");
   const existing = await db
     .select({ id: brandingTable.id })
@@ -118,7 +119,7 @@ async function seedBranding(tenantId: string): Promise<void> {
 
 // ── Polling Agents ────────────────────────────────────────────────────────────
 
-async function seedPollingAgents(tenantId: string): Promise<{ id: string; stationId: string }[]> {
+export async function seedPollingAgents(tenantId: string): Promise<{ id: string; stationId: string }[]> {
   console.log("  Seeding polling agents…");
 
   const existingAgents = await db
@@ -216,7 +217,7 @@ async function seedPollingAgents(tenantId: string): Promise<{ id: string; statio
 
 // ── Election ──────────────────────────────────────────────────────────────────
 
-async function seedElection(tenantId: string): Promise<string> {
+export async function seedElection(tenantId: string): Promise<string> {
   console.log("  Seeding election…");
 
   const existing = await db
@@ -248,7 +249,7 @@ async function seedElection(tenantId: string): Promise<string> {
 
 // ── Candidates ────────────────────────────────────────────────────────────────
 
-async function seedCandidates(tenantId: string, electionId: string): Promise<{ id: string; name: string; abbreviation: string }[]> {
+export async function seedCandidates(tenantId: string, electionId: string): Promise<{ id: string; name: string; abbreviation: string }[]> {
   console.log("  Seeding candidates…");
 
   const existing = await db
@@ -279,7 +280,7 @@ async function seedCandidates(tenantId: string, electionId: string): Promise<{ i
 
 // ── Result Submissions ────────────────────────────────────────────────────────
 
-async function seedResultSubmissions(
+export async function seedResultSubmissions(
   tenantId: string,
   electionId: string,
   agents: { id: string; stationId: string }[],
@@ -364,7 +365,7 @@ async function seedResultSubmissions(
 
 // ── Volunteers ────────────────────────────────────────────────────────────────
 
-async function seedVolunteers(tenantId: string): Promise<void> {
+export async function seedVolunteers(tenantId: string): Promise<void> {
   console.log("  Seeding volunteers…");
 
   const existing = await db
@@ -406,7 +407,7 @@ async function seedVolunteers(tenantId: string): Promise<void> {
 
 // ── Supporters ────────────────────────────────────────────────────────────────
 
-async function seedSupporters(tenantId: string): Promise<void> {
+export async function seedSupporters(tenantId: string): Promise<void> {
   console.log("  Seeding supporters…");
 
   const existing = await db
@@ -447,7 +448,7 @@ async function seedSupporters(tenantId: string): Promise<void> {
 
 // ── Donations ─────────────────────────────────────────────────────────────────
 
-async function seedDonations(tenantId: string): Promise<void> {
+export async function seedDonations(tenantId: string): Promise<void> {
   console.log("  Seeding donations…");
 
   const existing = await db
@@ -484,7 +485,7 @@ async function seedDonations(tenantId: string): Promise<void> {
 
 // ── Election Incidents ────────────────────────────────────────────────────────
 
-async function seedIncidents(tenantId: string, electionId: string): Promise<void> {
+export async function seedIncidents(tenantId: string, electionId: string): Promise<void> {
   console.log("  Seeding election incidents…");
 
   const existing = await db
@@ -531,7 +532,7 @@ async function seedIncidents(tenantId: string, electionId: string): Promise<void
 
 // ── Election Disputes ─────────────────────────────────────────────────────────
 
-async function seedDisputes(tenantId: string, electionId: string): Promise<void> {
+export async function seedDisputes(tenantId: string, electionId: string): Promise<void> {
   console.log("  Seeding election disputes…");
 
   const existing = await db
@@ -636,4 +637,7 @@ async function main(): Promise<void> {
   }
 }
 
-main();
+// Only run main() when this file is executed directly, not when imported.
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main();
+}
