@@ -1,11 +1,34 @@
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
+import { promises as dnsPromises } from "dns";
 import { db } from "@workspace/db";
 import { brandingTable, systemConfigTable, tenantsTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
 import { resolveTenant, resolveTenantPublic, resolveTenantMixed } from "../middlewares/resolveTenant";
 import { tenantFilter, assertTenant } from "../lib/withTenant";
+
+// ── DNS CNAME verification ────────────────────────────────────────────────────
+// The expected CNAME target is the platform's public hostname (PORTAL_DOMAIN).
+// Admins must point their custom domain at this value before it will be accepted.
+const PORTAL_DOMAIN = (process.env.PORTAL_DOMAIN ?? "ushindi.app").toLowerCase();
+
+/**
+ * Returns true if `hostname` has a CNAME record pointing at PORTAL_DOMAIN
+ * (or any subdomain of it, e.g. custom.ushindi.app).
+ * Returns false on any DNS error or missing record.
+ */
+async function verifyCname(hostname: string): Promise<boolean> {
+  try {
+    const cnames = await dnsPromises.resolveCname(hostname);
+    return cnames.some((c) => {
+      const normalised = c.toLowerCase().replace(/\.$/, ""); // strip trailing dot
+      return normalised === PORTAL_DOMAIN || normalised.endsWith(`.${PORTAL_DOMAIN}`);
+    });
+  } catch {
+    return false;
+  }
+}
 
 const router = Router();
 
@@ -129,7 +152,7 @@ router.patch("/branding", requireAuth, resolveTenant, canUpdateBranding, async (
 });
 
 // ── GET /api/config/domain ─────────────────────────────────────────────────
-// Returns the tenant's current custom domain (if any) plus the default subdomain URL.
+// Returns the tenant's current custom domain plus a live DNS verification result.
 router.get("/domain", requireAuth, resolveTenant, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
@@ -138,9 +161,15 @@ router.get("/domain", requireAuth, resolveTenant, async (req: any, res: any) => 
       .from(tenantsTable)
       .where(eq(tenantsTable.id, t.id))
       .limit(1);
+
+    const customDomain = tenant?.customDomain ?? null;
+    // Run DNS check inline (single UDP lookup — fast); null when no domain is set
+    const dnsVerified = customDomain ? await verifyCname(customDomain) : null;
+
     res.json({
       slug: tenant?.slug ?? null,
-      customDomain: tenant?.customDomain ?? null,
+      customDomain,
+      dnsVerified,
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -149,7 +178,8 @@ router.get("/domain", requireAuth, resolveTenant, async (req: any, res: any) => 
 
 // ── PATCH /api/config/domain ───────────────────────────────────────────────
 // Lets campaign admins set or clear their custom domain.
-// Requires campaign-exec-director or national-campaign-manager.
+// When setting a domain, the API verifies the CNAME record first so only
+// correctly-pointed domains can be activated.
 const canUpdateDomain = requireRoles([
   "campaign-exec-director",
   "national-campaign-manager",
@@ -170,18 +200,54 @@ router.patch("/domain", requireAuth, resolveTenant, canUpdateDomain, async (req:
       return res.status(400).json({ error: "Invalid domain format. Use e.g. vote.example.ke" });
     }
 
+    // DNS verification — required before a domain can be saved.
+    // Clearing the domain (null) always succeeds without a DNS check.
+    if (normalised) {
+      const cnameOk = await verifyCname(normalised);
+      if (!cnameOk) {
+        return res.status(422).json({
+          error: "CNAME not yet detected — please add the DNS record and retry",
+          hint: `Add a CNAME record: ${normalised} → ${PORTAL_DOMAIN}`,
+          dnsVerified: false,
+        });
+      }
+    }
+
     const [updated] = await db
       .update(tenantsTable)
       .set({ customDomain: normalised })
       .where(eq(tenantsTable.id, t.id))
       .returning({ slug: tenantsTable.slug, customDomain: tenantsTable.customDomain });
 
-    res.json({ slug: updated.slug, customDomain: updated.customDomain });
+    res.json({ slug: updated.slug, customDomain: updated.customDomain, dnsVerified: !!normalised });
   } catch (err: any) {
     // Unique-constraint violation → domain already in use
     if ((err as any).code === "23505") {
       return res.status(409).json({ error: "That domain is already registered to another campaign." });
     }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/config/domain/check ─────────────────────────────────────────
+// Re-checks DNS for the tenant's current custom domain without changing it.
+// Powers the "Re-check DNS" button in the Branding UI.
+router.post("/domain/check", requireAuth, resolveTenant, canUpdateDomain, async (req: any, res: any) => {
+  try {
+    const t = assertTenant(req);
+    const [tenant] = await db
+      .select({ customDomain: tenantsTable.customDomain })
+      .from(tenantsTable)
+      .where(eq(tenantsTable.id, t.id))
+      .limit(1);
+
+    if (!tenant?.customDomain) {
+      return res.status(400).json({ error: "No custom domain is set for this campaign." });
+    }
+
+    const dnsVerified = await verifyCname(tenant.customDomain);
+    res.json({ customDomain: tenant.customDomain, dnsVerified });
+  } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });

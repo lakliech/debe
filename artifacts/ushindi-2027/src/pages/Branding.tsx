@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Save, Eye, Palette, Globe, Copy, Check, Info, Link } from "lucide-react";
+import { Save, Eye, Palette, Globe, Copy, Check, Info, Link, RefreshCw, ShieldCheck, Clock, AlertCircle } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { ELECTION_LEVELS, POSITION_TITLE_BY_ELECTION, type ElectionLevel } from "@/lib/electionLevel";
@@ -84,8 +84,12 @@ export default function Branding() {
   const tenantSlug = deriveSlug();
   const portalUrl = tenantSlug ? `https://${tenantSlug}.${PORTAL_DOMAIN}` : null;
 
-  // Fetch current custom domain
-  const { data: domainData } = useQuery<{ slug: string | null; customDomain: string | null }>({
+  // Fetch current custom domain (includes live DNS verification result)
+  const { data: domainData } = useQuery<{
+    slug: string | null;
+    customDomain: string | null;
+    dnsVerified: boolean | null;
+  }>({
     queryKey: ["config-domain"],
     queryFn: () =>
       fetch(`${BASE}/api/config/domain`, { credentials: "include" }).then((r) => r.json()),
@@ -112,10 +116,36 @@ export default function Branding() {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["config-domain"] });
-      toast({ title: "Custom domain saved." });
+      toast({ title: "Custom domain saved — DNS verified." });
     },
     onError: (err: any) =>
-      toast({ title: "Save failed", description: err.message, variant: "destructive" }),
+      toast({ title: "DNS check failed", description: err.message, variant: "destructive" }),
+  });
+
+  const recheckDns = useMutation({
+    mutationFn: () =>
+      fetch(`${BASE}/api/config/domain/check`, {
+        method: "POST",
+        credentials: "include",
+      }).then(async (r) => {
+        const body = await r.json();
+        if (!r.ok) throw new Error(body.error ?? `HTTP ${r.status}`);
+        return body as { dnsVerified: boolean };
+      }),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["config-domain"] });
+      if (data.dnsVerified) {
+        toast({ title: "DNS verified — CNAME record detected." });
+      } else {
+        toast({
+          title: "CNAME not yet detected",
+          description: `Add a CNAME pointing ${domainData?.customDomain} → ${PORTAL_DOMAIN} and retry.`,
+          variant: "destructive",
+        });
+      }
+    },
+    onError: (err: any) =>
+      toast({ title: "Re-check failed", description: err.message, variant: "destructive" }),
   });
 
   const copyPortalUrl = () => {
@@ -466,8 +496,9 @@ export default function Branding() {
             <p className="text-xs text-muted-foreground">
               Point your own domain (e.g.{" "}
               <span className="font-mono">vote.amina.ke</span>) to this portal.
-              After saving, add a <strong>CNAME</strong> record in your DNS provider
-              pointing to <span className="font-mono">{PORTAL_DOMAIN}</span>.
+              First add a <strong>CNAME</strong> record in your DNS provider pointing to{" "}
+              <span className="font-mono font-semibold">{PORTAL_DOMAIN}</span>, then enter
+              the domain below and save — the platform verifies the CNAME before activating it.
             </p>
             <div className="flex gap-2">
               <Input
@@ -484,12 +515,41 @@ export default function Branding() {
                 className="shrink-0 gap-1.5"
               >
                 <Save className="h-3.5 w-3.5" />
-                {saveDomain.isPending ? "Saving…" : "Save"}
+                {saveDomain.isPending ? "Checking DNS…" : "Save"}
               </Button>
             </div>
+
+            {/* DNS status badge */}
             {domainData?.customDomain && (
-              <p className="text-xs text-green-600 flex items-center gap-1">
-                <Check className="h-3 w-3" />
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                {domainData.dnsVerified === true && (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-full px-2.5 py-1">
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    DNS verified
+                  </span>
+                )}
+                {domainData.dnsVerified === false && (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1">
+                    <Clock className="h-3.5 w-3.5" />
+                    DNS pending
+                  </span>
+                )}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-foreground ml-auto"
+                  disabled={recheckDns.isPending}
+                  onClick={() => recheckDns.mutate()}
+                >
+                  <RefreshCw className={`h-3 w-3 ${recheckDns.isPending ? "animate-spin" : ""}`} />
+                  {recheckDns.isPending ? "Checking…" : "Re-check DNS"}
+                </Button>
+              </div>
+            )}
+
+            {domainData?.customDomain && (
+              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                <Check className="h-3 w-3 text-green-600" />
                 Active:{" "}
                 <a
                   href={`https://${domainData.customDomain}`}
