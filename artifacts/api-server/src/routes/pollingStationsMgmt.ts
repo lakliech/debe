@@ -369,4 +369,96 @@ router.post("/stations/bulk-status", requireAuth, resolveTenant, canManageStatio
   }
 });
 
+// GET /api/polling-stations-mgmt/coverage-gaps
+// Returns station-agent coverage aggregated by ward (county + constituency names
+// denormalised), plus a campaign-level summary.  Left-joins the tenant-scoped
+// campaignStationProfiles so only agent assignments for this campaign are counted.
+//
+// SQL COUNT(column) ignores NULLs, so count(primaryAgentId) naturally gives the
+// number of stations where this campaign has assigned a primary agent.
+router.get("/coverage-gaps", requireAuth, resolveTenant, canViewStations, async (req: any, res: any) => {
+  try {
+    const t = assertTenant(req);
+    const { countyId, constituencyId } = req.query;
+
+    const conditions: any[] = [];
+    if (countyId) conditions.push(eq(pollingStationsTable.countyId, countyId as string));
+    if (constituencyId) conditions.push(eq(pollingStationsTable.constituencyId, constituencyId as string));
+    const where = conditions.length ? and(...conditions) : undefined;
+
+    const [rows, [{ grandTotal }], [{ grandAssigned }], counties] = await Promise.all([
+      // Ward-level breakdown: total stations vs assigned by this campaign
+      db
+        .select({
+          countyId:          countiesTable.id,
+          countyName:        countiesTable.name,
+          constituencyId:    constituenciesTable.id,
+          constituencyName:  constituenciesTable.name,
+          wardId:            wardsTable.id,
+          wardName:          wardsTable.name,
+          total:             count(pollingStationsTable.id),
+          // count() ignores NULLs — stations with no profile row return NULL from
+          // the left-join and are therefore not counted as assigned.
+          assigned: sql<number>`count(${campaignStationProfilesTable.primaryAgentId})::int`,
+        })
+        .from(pollingStationsTable)
+        .innerJoin(wardsTable,         eq(pollingStationsTable.wardId,         wardsTable.id))
+        .innerJoin(constituenciesTable, eq(pollingStationsTable.constituencyId, constituenciesTable.id))
+        .innerJoin(countiesTable,       eq(pollingStationsTable.countyId,       countiesTable.id))
+        .leftJoin(
+          campaignStationProfilesTable,
+          and(
+            eq(campaignStationProfilesTable.stationId, pollingStationsTable.id),
+            eq(campaignStationProfilesTable.tenantId,  t.id),
+          ),
+        )
+        .where(where)
+        .groupBy(
+          countiesTable.id,         countiesTable.name,
+          constituenciesTable.id,   constituenciesTable.name,
+          wardsTable.id,            wardsTable.name,
+        )
+        .orderBy(countiesTable.name, constituenciesTable.name, wardsTable.name),
+
+      // Grand total — ALL stations (no tenant filter; stations are global geography)
+      db.select({ grandTotal: count() }).from(pollingStationsTable),
+
+      // Grand assigned count for this tenant specifically
+      db
+        .select({ grandAssigned: sql<number>`count(${campaignStationProfilesTable.primaryAgentId})::int` })
+        .from(campaignStationProfilesTable)
+        .where(and(
+          tenantFilter(campaignStationProfilesTable, t.id),
+          isNotNull(campaignStationProfilesTable.primaryAgentId),
+        )),
+
+      // County list for the filter dropdown
+      db.select({ id: countiesTable.id, name: countiesTable.name })
+        .from(countiesTable)
+        .orderBy(countiesTable.name),
+    ]);
+
+    const total    = Number(grandTotal);
+    const assigned = Number(grandAssigned);
+
+    res.json({
+      summary: {
+        total,
+        assigned,
+        unassigned:  total - assigned,
+        coveragePct: total > 0 ? Math.round((assigned / total) * 100) : 0,
+      },
+      rows: rows.map(r => ({
+        ...r,
+        total:      Number(r.total),
+        assigned:   Number(r.assigned),
+        unassigned: Number(r.total) - Number(r.assigned),
+      })),
+      counties,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

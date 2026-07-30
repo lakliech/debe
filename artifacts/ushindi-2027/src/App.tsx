@@ -62,6 +62,7 @@ import PollingStationsPage from "./pages/admin/PollingStations";
 import PollingStationDetailPage from "./pages/admin/PollingStationDetail";
 import PollingAgentsPage from "./pages/admin/PollingAgents";
 import PollingAgentDetailPage from "./pages/admin/PollingAgentDetail";
+import PollingCoverageGapsPage from "./pages/admin/PollingCoverageGaps";
 import ResultSubmissionsPage from "./pages/admin/ResultSubmissions";
 import SubmissionDetailPage from "./pages/admin/SubmissionDetail";
 import TallyDashboardPage from "./pages/admin/TallyDashboard";
@@ -425,6 +426,9 @@ function BrandingAwareClerkProvider() {
           </Route>
           <Route path="/polling-stations/:id">
             <ProtectedRoute component={PollingStationDetailPage} />
+          </Route>
+          <Route path="/coverage-gaps">
+            <ProtectedRoute component={PollingCoverageGapsPage} />
           </Route>
           <Route path="/polling-agents">
             <ProtectedRoute component={PollingAgentsPage} />

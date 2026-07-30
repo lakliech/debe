@@ -44,6 +44,7 @@ const eventsNav = [
 const electionNav = [
   { name: "Election Admin", href: "/election-admin", icon: Settings2 },
   { name: "Polling Stations", href: "/polling-stations", icon: MapPin },
+  { name: "Coverage Gaps", href: "/coverage-gaps", icon: AlertTriangle },
   { name: "Polling Agents", href: "/polling-agents", icon: Users },
   { name: "Results", href: "/election-results", icon: ClipboardList },
   { name: "Tally Dashboard", href: "/tally", icon: BarChart3 },
