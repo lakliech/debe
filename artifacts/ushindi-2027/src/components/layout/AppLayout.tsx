@@ -14,12 +14,18 @@ interface AppLayoutProps {
   children: React.ReactNode;
 }
 
+// Campaign operations — day-to-day campaign management.
+// Events, Aspirants, and Contact Messages are merged here
+// (removing the separate "Events" and "Political" sections).
 const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: Activity },
   { name: "Volunteers", href: "/volunteers", icon: Users },
   { name: "Supporters / CRM", href: "/supporters", icon: Flag },
   { name: "Training", href: "/training", icon: Shield },
   { name: "Coordinator", href: "/coordinator", icon: MapPin },
+  { name: "Events", href: "/events-management", icon: Calendar },
+  { name: "Aspirants", href: "/aspirants", icon: Vote },
+  { name: "Contact Messages", href: "/contact-messages", icon: Mail },
 ];
 
 const financeNav = [
@@ -29,15 +35,13 @@ const financeNav = [
   { name: "Expenditure", href: "/finance/expenditure", icon: DollarSign },
 ];
 
+// Rapid Response moves here from the old "Events & Response" section —
+// managing misinformation claims is communications work, not event logistics.
 const commsNav = [
   { name: "Comms Overview", href: "/communications", icon: Megaphone },
   { name: "Templates", href: "/communications/templates", icon: Megaphone },
   { name: "Statements", href: "/communications/statements", icon: Megaphone },
   { name: "Content Library", href: "/content-library", icon: Library },
-];
-
-const eventsNav = [
-  { name: "Events", href: "/events-management", icon: Calendar },
   { name: "Rapid Response", href: "/rapid-response", icon: AlertTriangle },
 ];
 
@@ -54,13 +58,12 @@ const electionNav = [
   { name: "Transparency", href: "/transparency-portal", icon: Globe },
 ];
 
-const politicalNav = [
-  { name: "Aspirants", href: "/aspirants", icon: Vote },
-  { name: "Contact Messages", href: "/contact-messages", icon: Mail },
-];
-
-const adminNav = [
-  { name: "Geography", href: "/geography", icon: MapPin },
+// Campaign Admin merges the old "Administration" and "Settings" sections.
+// Branding and System Config appear first so campaign identity settings
+// are easy to find. Geography moves to Platform (it is shared reference data).
+const campaignAdminNav = [
+  { name: "Branding", href: "/settings/branding", icon: Flag },
+  { name: "System Config", href: "/settings/system", icon: Settings },
   { name: "User Management", href: "/users", icon: Users },
   { name: "Roles & Permissions", href: "/roles", icon: Shield },
   { name: "Audit Log", href: "/audit", icon: Search },
@@ -70,14 +73,12 @@ const adminNav = [
   { name: "Privileged Access", href: "/privileged-access", icon: Shield },
 ];
 
-// Separate section — only meaningful for platform_admin holders
+// Platform section — only meaningful for platform_admin holders.
+// Geography lives here because it is global reference data shared across all
+// tenants (counties, constituencies, wards), not per-campaign configuration.
 const platformNav = [
   { name: "Platform Admin", href: "/platform-admin", icon: Building2 },
-];
-
-const settingsNav = [
-  { name: "Branding", href: "/settings/branding", icon: Flag },
-  { name: "System Config", href: "/settings/system", icon: Settings },
+  { name: "Geography", href: "/geography", icon: MapPin },
 ];
 
 /** Sidebar header — renders candidate name + "COMMAND CENTRE" from live branding */
@@ -209,14 +210,11 @@ export default function AppLayout({ children }: AppLayoutProps) {
         
         <div className="flex-1 overflow-y-auto py-4 px-4 space-y-6">
           {[
-            { label: "Command Centre", items: navigation },
+            { label: "Campaign", items: navigation },
             { label: "Finance", items: financeNav },
             { label: "Communications", items: commsNav },
-            { label: "Events & Response", items: eventsNav },
             { label: "Election Operations", items: electionNav },
-            { label: "Political", items: politicalNav },
-            { label: "Administration", items: adminNav },
-            { label: "Settings", items: settingsNav },
+            { label: "Campaign Admin", items: campaignAdminNav },
             { label: "Platform", items: platformNav },
           ].map((section) => (
             <div key={section.label}>
