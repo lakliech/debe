@@ -67,13 +67,13 @@ pnpm run dev                  # start API + frontend
 
 ## Live Demo
 
-Try the platform without signing up at **[demo.debe.co.ke](https://demo.debe.co.ke)** — a pre-seeded campaign environment running on the `pro` plan.
+Try the platform without signing up at **[demo.debe.ke](https://demo.debe.ke)** — a pre-seeded campaign environment running on the `pro` plan.
 
 | Role | Email | Password |
 |---|---|---|
-| Campaign Admin | admin@demo.debe.co.ke | `Demo@2027!` |
-| County Coordinator | coord@demo.debe.co.ke | `Demo@2027!` |
-| Field Agent | agent@demo.debe.co.ke | `Demo@2027!` |
+| Campaign Admin | admin@demo.debe.ke | `Demo@2027!` |
+| County Coordinator | coord@demo.debe.ke | `Demo@2027!` |
+| Field Agent | agent@demo.debe.ke | `Demo@2027!` |
 
 > The demo tenant is **read-only** — all POST / PUT / PATCH / DELETE requests are blocked with a 403. Sign up for a real campaign to make changes.
 >

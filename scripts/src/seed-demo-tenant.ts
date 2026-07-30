@@ -8,7 +8,7 @@
  * Idempotent: safe to run multiple times — skips already-seeded sections.
  *
  * What it creates (all scoped to the demo tenant):
- *   - Tenant row  (slug=demo, plan=pro, custom_domain=demo.debe.co.ke)
+ *   - Tenant row  (slug=demo, plan=pro, custom_domain=demo.debe.ke)
  *   - Campaign branding
  *   - 6 polling agents assigned to real polling stations
  *   - 1 election + 4 candidates
@@ -51,7 +51,7 @@ import { eq, asc, and } from "drizzle-orm";
 export const DEMO_CLERK_ORG_ID = "org_demo_debe_platform";
 
 export const DEMO_SLUG = "demo";
-const DEMO_DOMAIN = "demo.debe.co.ke";
+const DEMO_DOMAIN = "demo.debe.ke";
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 
@@ -380,16 +380,16 @@ export async function seedVolunteers(tenantId: string): Promise<void> {
   }
 
   const volunteers = [
-    { fullName: "Josephine Auma Otieno",   phoneNumber: "+254722101001", email: "j.auma@demo.debe.co.ke",    preferredRole: "agent_coordinator",   availability: "full_time",  status: "active"   },
-    { fullName: "Brian Kipkemoi Langat",   phoneNumber: "+254722101002", email: "b.langat@demo.debe.co.ke",  preferredRole: "data_entry",          availability: "part_time",  status: "active"   },
-    { fullName: "Naomi Wangechi Githinji", phoneNumber: "+254722101003", email: "n.wangechi@demo.debe.co.ke",preferredRole: "voter_education",      availability: "weekends",   status: "active"   },
-    { fullName: "Hassan Abdullahi Bare",   phoneNumber: "+254722101004", email: "h.bare@demo.debe.co.ke",    preferredRole: "security_liaison",    availability: "full_time",  status: "pending"  },
-    { fullName: "Cynthia Moraa Bosire",    phoneNumber: "+254722101005", email: "c.moraa@demo.debe.co.ke",   preferredRole: "social_media",        availability: "part_time",  status: "active"   },
-    { fullName: "Elijah Omondi Ouma",      phoneNumber: "+254722101006", email: "e.omondi@demo.debe.co.ke",  preferredRole: "driver",              availability: "full_time",  status: "active"   },
-    { fullName: "Purity Njeri Kamau",      phoneNumber: "+254722101007", email: "p.njeri@demo.debe.co.ke",   preferredRole: "logistics",           availability: "weekends",   status: "active"   },
+    { fullName: "Josephine Auma Otieno",   phoneNumber: "+254722101001", email: "j.auma@demo.debe.ke",    preferredRole: "agent_coordinator",   availability: "full_time",  status: "active"   },
+    { fullName: "Brian Kipkemoi Langat",   phoneNumber: "+254722101002", email: "b.langat@demo.debe.ke",  preferredRole: "data_entry",          availability: "part_time",  status: "active"   },
+    { fullName: "Naomi Wangechi Githinji", phoneNumber: "+254722101003", email: "n.wangechi@demo.debe.ke",preferredRole: "voter_education",      availability: "weekends",   status: "active"   },
+    { fullName: "Hassan Abdullahi Bare",   phoneNumber: "+254722101004", email: "h.bare@demo.debe.ke",    preferredRole: "security_liaison",    availability: "full_time",  status: "pending"  },
+    { fullName: "Cynthia Moraa Bosire",    phoneNumber: "+254722101005", email: "c.moraa@demo.debe.ke",   preferredRole: "social_media",        availability: "part_time",  status: "active"   },
+    { fullName: "Elijah Omondi Ouma",      phoneNumber: "+254722101006", email: "e.omondi@demo.debe.ke",  preferredRole: "driver",              availability: "full_time",  status: "active"   },
+    { fullName: "Purity Njeri Kamau",      phoneNumber: "+254722101007", email: "p.njeri@demo.debe.ke",   preferredRole: "logistics",           availability: "weekends",   status: "active"   },
     { fullName: "Victor Ochieng Adhiambo", phoneNumber: "+254722101008",                                     preferredRole: "photographer",        availability: "part_time",  status: "pending"  },
-    { fullName: "Beatrice Chebet Rono",    phoneNumber: "+254722101009", email: "b.chebet@demo.debe.co.ke",  preferredRole: "interpreter_kalenjin",availability: "full_time",  status: "active"   },
-    { fullName: "Samuel Gitonga Mwangi",   phoneNumber: "+254722101010", email: "s.gitonga@demo.debe.co.ke", preferredRole: "voter_registration",  availability: "full_time",  status: "active"   },
+    { fullName: "Beatrice Chebet Rono",    phoneNumber: "+254722101009", email: "b.chebet@demo.debe.ke",  preferredRole: "interpreter_kalenjin",availability: "full_time",  status: "active"   },
+    { fullName: "Samuel Gitonga Mwangi",   phoneNumber: "+254722101010", email: "s.gitonga@demo.debe.ke", preferredRole: "voter_registration",  availability: "full_time",  status: "active"   },
   ];
 
   await db.insert(volunteersTable).values(
@@ -587,18 +587,18 @@ function printClerkChecklist(tenantId: string): void {
 ║     ┌─────────────────────────────────────────────────────────────┐         ║
 ║     │  Role             │ Email                    │ Password     │         ║
 ║     │─────────────────────────────────────────────────────────────│         ║
-║     │  Campaign Admin   │ admin@demo.debe.co.ke    │ Demo@2027!   │         ║
-║     │  County Coord.    │ coord@demo.debe.co.ke    │ Demo@2027!   │         ║
-║     │  Field Agent      │ agent@demo.debe.co.ke    │ Demo@2027!   │         ║
+║     │  Campaign Admin   │ admin@demo.debe.ke    │ Demo@2027!   │         ║
+║     │  County Coord.    │ coord@demo.debe.ke    │ Demo@2027!   │         ║
+║     │  Field Agent      │ agent@demo.debe.ke    │ Demo@2027!   │         ║
 ║     └─────────────────────────────────────────────────────────────┘         ║
 ║                                                                              ║
 ║  4. In the Debe admin UI (/roles), assign:                                   ║
-║       admin@demo.debe.co.ke  → role: campaign_admin                         ║
-║       coord@demo.debe.co.ke  → role: county_coordinator                     ║
-║       agent@demo.debe.co.ke  → role: polling_agent                          ║
+║       admin@demo.debe.ke  → role: campaign_admin                         ║
+║       coord@demo.debe.ke  → role: county_coordinator                     ║
+║       agent@demo.debe.ke  → role: polling_agent                          ║
 ║                                                                              ║
 ║  5. (Optional) Set custom_domain DNS:                                        ║
-║       demo.debe.co.ke → CNAME or A record pointing at the platform.         ║
+║       demo.debe.ke → CNAME or A record pointing at the platform.         ║
 ║                                                                              ║
 ║  ⚠️  Nightly reset is handled by a separate cron job (Task #101).            ║
 ║                                                                              ║

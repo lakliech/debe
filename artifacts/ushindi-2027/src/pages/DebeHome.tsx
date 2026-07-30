@@ -13,12 +13,12 @@ const PLATFORM_NAV = [
   { href: "/request-access", label: "Contact" },
 ];
 
-const DEMO_URL = "https://demo.debe.co.ke";
+const DEMO_URL = "https://demo.debe.ke";
 
 const DEMO_CREDENTIALS = [
-  { role: "Campaign Admin",     email: "admin@demo.debe.co.ke",  password: "Demo@2027!" },
-  { role: "County Coordinator", email: "coord@demo.debe.co.ke",  password: "Demo@2027!" },
-  { role: "Field Agent",        email: "agent@demo.debe.co.ke",  password: "Demo@2027!" },
+  { role: "Campaign Admin",     email: "admin@demo.debe.ke",  password: "Demo@2027!" },
+  { role: "County Coordinator", email: "coord@demo.debe.ke",  password: "Demo@2027!" },
+  { role: "Field Agent",        email: "agent@demo.debe.ke",  password: "Demo@2027!" },
 ];
 
 /** Simple ballot-box SVG illustration for the hero. */
