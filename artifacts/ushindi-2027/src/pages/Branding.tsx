@@ -709,39 +709,107 @@ export default function Branding() {
             )}
           </div>
 
-          {/* Hero copy preview */}
-          <Card className="overflow-hidden border shadow-sm">
-            <div className="text-[10px] font-black tracking-widest text-muted-foreground px-4 pt-3 pb-1 uppercase">
+          {/* Hero copy preview — mini WYSIWYG replica of TenantHome hero */}
+          <div className="border border-border shadow-sm overflow-hidden">
+            <div className="text-[10px] font-black tracking-widest text-muted-foreground px-4 pt-3 pb-2 uppercase flex items-center gap-2 border-b border-border">
+              <Eye className="h-3 w-3" />
               Homepage Hero Preview
+              <span className="ml-auto text-[9px] normal-case font-medium opacity-60">Updates as you type</span>
             </div>
-            <CardContent className="p-4 space-y-3">
-              <div
-                className="text-xl font-black tracking-tighter uppercase leading-tight"
-                style={{ color: "black" }}
-              >
-                {form.tagline || "Your Campaign Tagline"}
+
+            {/* Announcement bar */}
+            <div className="bg-black text-white text-[9px] text-center py-1 px-3 font-medium tracking-wide">
+              Uko Kadi?{" "}
+              <span className="underline">Verify if you are a registered voter</span>
+            </div>
+
+            {/* Mini header */}
+            <div className="bg-white border-b border-gray-100 px-3 h-8 flex items-center justify-between">
+              {form.logoUrl ? (
+                <img src={form.logoUrl} alt={form.campaignName} className="h-5 object-contain" />
+              ) : (
+                <div className="flex flex-col leading-none">
+                  <div
+                    className="text-white font-black text-[8px] px-1.5 py-px tracking-wider"
+                    style={{ backgroundColor: `hsl(${form.primaryColor})` }}
+                  >
+                    {logoLine1}
+                  </div>
+                  {logoLine2 && (
+                    <div className="text-black font-black text-[7px] tracking-[0.2em] mt-px">
+                      {logoLine2}
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <span className="text-[8px] font-bold tracking-wider text-gray-400 uppercase hidden sm:block">
+                  Sign In
+                </span>
+                <span
+                  className="text-white text-[8px] font-bold px-2 py-0.5 tracking-wider"
+                  style={{ backgroundColor: `hsl(${form.primaryColor})` }}
+                >
+                  Support
+                </span>
               </div>
-              <p className="text-sm text-gray-500 leading-snug">
-                {form.heroSubtagline || (
-                  <span className="italic text-muted-foreground/60">
-                    Get informed, get involved, and make your voice count.
-                    <span className="not-italic text-[10px] block mt-0.5">(default — leave blank to keep)</span>
+            </div>
+
+            {/* Hero body */}
+            <div className="bg-white px-4 py-5 space-y-2.5">
+              {/* Tagline */}
+              <div
+                className="font-black tracking-tighter uppercase leading-[1.05]"
+                style={{ fontSize: "clamp(14px, 3vw, 20px)", color: "black" }}
+              >
+                {form.tagline || <span className="text-gray-300">Your Campaign Tagline</span>}
+              </div>
+
+              {/* Sub-tagline */}
+              <p className="text-[11px] text-gray-500 leading-snug max-w-xs">
+                {form.heroSubtagline ? (
+                  form.heroSubtagline
+                ) : (
+                  <span className="italic text-gray-300">
+                    Get informed, get involved, and make your voice count.{" "}
+                    <span className="not-italic text-[9px] text-gray-300">(default)</span>
                   </span>
                 )}
               </p>
-              <div className="flex gap-2 flex-wrap">
+
+              {/* CTA buttons */}
+              <div className="flex gap-1.5 flex-wrap pt-0.5">
                 <span
-                  className="text-white text-xs font-black px-3 py-1.5 uppercase tracking-wider"
+                  className="text-white text-[9px] font-black px-2.5 py-1.5 uppercase tracking-wider flex items-center gap-1"
                   style={{ backgroundColor: `hsl(${form.primaryColor})` }}
                 >
                   {form.primaryCtaLabel || "Read the Manifesto"}
+                  <span className="opacity-70">›</span>
                 </span>
-                <span className="bg-black text-white text-xs font-black px-3 py-1.5 uppercase tracking-wider">
+                <span className="bg-black text-white text-[9px] font-black px-2.5 py-1.5 uppercase tracking-wider">
                   {form.secondaryCtaLabel || "Volunteer"}
                 </span>
               </div>
-            </CardContent>
-          </Card>
+
+              {/* Quick-links strip (static) */}
+              <div className="flex flex-wrap gap-1 pt-0.5">
+                {["Latest News", "Events", "About"].map((l) => (
+                  <span
+                    key={l}
+                    className="text-[8px] font-bold tracking-wider uppercase border px-1.5 py-0.5"
+                    style={{ color: `hsl(${form.primaryColor})`, borderColor: `hsl(${form.primaryColor} / 0.3)` }}
+                  >
+                    {l}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-muted/30 border-t border-border px-4 py-1.5 text-[9px] text-muted-foreground flex items-center gap-1">
+              <Palette className="h-2.5 w-2.5" />
+              Primary colour · hero tagline · sub-tagline · CTA labels all update live
+            </div>
+          </div>
 
           {/* Public portal header preview */}
           <Card className="overflow-hidden border shadow-sm">
