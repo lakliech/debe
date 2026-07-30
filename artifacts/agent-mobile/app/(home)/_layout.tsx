@@ -13,6 +13,7 @@ import {
 import { useAuth } from '@clerk/expo';
 import { useOrganization, useOrganizationList } from '@clerk/expo';
 import { Redirect, Stack, useRouter } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { setAuthTokenGetter } from '@workspace/api-client-react';
@@ -39,6 +40,11 @@ export default function HomeLayout() {
   const { organization: activeOrg, isLoaded: orgLoaded } = useOrganization();
   const { userMemberships, setActive: setActiveOrg, isLoaded: orgsLoaded } =
     useOrganizationList({ userMemberships: { infinite: false } });
+
+  // Access the shared QueryClient so we can flush all cached queries whenever
+  // the active org changes.  Without this, stale data from the previous
+  // campaign can surface on screen before the new org's data loads.
+  const queryClient = useQueryClient();
 
   /**
    * false → org selection not yet resolved (show spinner or picker)
@@ -70,7 +76,12 @@ export default function HomeLayout() {
       // Exactly one org — silently activate it.
       if (setActiveOrg) {
         setActiveOrg({ organization: orgs[0].organization.id })
-          .then(() => setOrgReady(true))
+          .then(() => {
+            // Flush React Query cache so no stale data from a prior session
+            // leaks into this org's screens.
+            queryClient.clear();
+            setOrgReady(true);
+          })
           .catch(() => setOrgReady(true)); // still proceed on error
       } else {
         setOrgReady(true);
@@ -193,6 +204,9 @@ export default function HomeLayout() {
                   setActivatingOrgId(m.organization.id);
                   try {
                     await setActiveOrg({ organization: m.organization.id });
+                    // Flush all cached queries so the newly selected campaign's
+                    // data loads fresh — no stale data from the previous org.
+                    queryClient.clear();
                     setShowCampaignPicker(false);
                     setOrgReady(true);
                   } catch {

@@ -149,10 +149,6 @@ export default function SignInScreen() {
   if (bioMode) {
     return (
       <View style={[s.container, { paddingTop: insets.top + 80, paddingBottom: insets.bottom + 24, alignItems: 'center' }]}>
-        <View style={s.brandPill}>
-          <Text style={s.brandLabel}>{candidateName.toUpperCase()}</Text>
-          <Text style={s.brandYear}>{electionYear}</Text>
-        </View>
         <Text style={[s.appTagline, { marginBottom: 60 }]}>Field Agent Portal</Text>
 
         <Pressable
@@ -190,10 +186,6 @@ export default function SignInScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={s.brand}>
-          <View style={s.brandPill}>
-            <Text style={s.brandLabel}>{candidateName.toUpperCase()}</Text>
-            <Text style={s.brandYear}>{electionYear}</Text>
-          </View>
           <Text style={s.appTagline}>Field Agent Portal</Text>
         </View>
 
