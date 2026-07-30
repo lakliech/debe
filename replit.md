@@ -20,33 +20,41 @@ A production-ready Kenyan presidential campaign management platform. Manages vol
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
-- Frontend: React + Vite + Tailwind + TanStack Query + Wouter + Clerk Auth
-- API: Express 5 + Helmet + express-rate-limit + CORS
-- DB: PostgreSQL + Drizzle ORM + Drizzle-Zod
-- Auth: Clerk (`@clerk/express`, `@clerk/react`)
-- Excel exports: ExcelJS
-- Tests: Vitest (backend unit tests in `artifacts/api-server/tests/`)
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild
+- **Frontend**: React + Vite + Tailwind + TanStack Query + Wouter + Clerk Auth + Radix UI + React Hook Form + Recharts
+- **API**: Express 5 + Helmet + express-rate-limit + CORS + Pino + node-cron + ExcelJS + Google Cloud Storage
+- **DB**: PostgreSQL + Drizzle ORM + Drizzle-Zod
+- **Auth**: Clerk (`@clerk/express`, `@clerk/react`)
+- **Mobile**: Expo 54 / Expo Router + React Native 0.81 + Clerk Expo + TanStack Query + biometrics + offline support
+- **Tests**: Vitest (backend unit tests in `artifacts/api-server/src/tests/`)
+- **Validation**: Zod (`zod/v4`), `drizzle-zod`
+- **API codegen**: Orval (from OpenAPI spec in `lib/api-spec/`)
+- **Build**: esbuild
 
 ## Where things live
 
 - **API routes**: `artifacts/api-server/src/routes/`
 - **Frontend pages**: `artifacts/ushindi-2027/src/pages/`
-- **DB schema**: `lib/db/src/schema/` (6 files: core, config, geography, portal, finance, elections, compliance)
+- **DB schema**: `lib/db/src/schema/` (7 files: core, config, geography, portal, finance, elections, compliance, platform)
+- **DB migrations**: `lib/db/drizzle/` (applied migrations; latest is `0023_user_roles_tenant_nullable.sql`)
 - **RBAC middleware**: `artifacts/api-server/src/middlewares/rbac.ts`
+- **Tenant middleware**: `artifacts/api-server/src/middlewares/resolveTenant.ts`
 - **AppLayout/nav**: `artifacts/ushindi-2027/src/components/layout/AppLayout.tsx`
-- **Tests**: `artifacts/api-server/tests/tally.test.ts`
+- **Tests**: `artifacts/api-server/src/tests/`
 - **Seed data**: `scripts/seed.ts`
-- **Documentation**: `docs/`
+- **Documentation**: `docs/` (14 guides)
+
+## Artifacts
+
+| Artifact | Kind | Preview path | Entry |
+|---|---|---|---|
+| `artifacts/ushindi-2027` | web | `/` | React/Vite SPA — Command Centre + public portal |
+| `artifacts/api-server` | api | `/api` | Express 5 API, port from `$PORT` |
+| `artifacts/agent-mobile` | mobile | `/agent-mobile/` | Expo app — Linda Mwananchi Agent |
+| `artifacts/mockup-sandbox` | design | `/__mockup` | Component preview server |
 
 ## Mobile — per-campaign APK builds
 
-The mobile app supports white-labelled per-campaign builds.  Set
-`EXPO_PUBLIC_TENANT_SLUG` at build time so the sign-in screen shows the
-correct candidate name, primary colour, and election year before the agent
-logs in.
+The mobile app supports white-labelled per-campaign builds. Set `EXPO_PUBLIC_TENANT_SLUG` at build time so the sign-in screen shows the correct candidate name, primary colour, and election year before the agent logs in.
 
 - **Full guide**: `docs/mobile-campaign-build.md`
 - **Env template**: `artifacts/agent-mobile/.env.example`
@@ -62,22 +70,51 @@ eas build --platform android --profile production
 
 ## Architecture decisions
 
-- Pages MUST NOT wrap in `<AppLayout>` — `ProtectedRoute` in App.tsx already wraps them
-- All API calls use `const BASE = import.meta.env.BASE_URL.replace(/\/$/, "")` — never hardcode localhost
-- RBAC: `resolveActor()` must be called (or run as middleware) before checking `req.actorRoles`
-- Transparency portal GET uses `requireAuth + resolveActor` so `actorRoles` is populated for admin detection
-- DB schema changes require `cd lib/db && pnpm exec tsc --build` to rebuild type declarations
-- Compliance tables (DPIA, vendor, breach, etc.) were created via direct SQL — not via drizzle push (TTY limitation)
-- Four-eyes principle: enforced at app level; `/privileged-access` screen checks no user holds conflicting roles
+- **Pages MUST NOT wrap in `<AppLayout>`** — `ProtectedRoute` in `App.tsx` already wraps them
+- **All API calls** use `const BASE = import.meta.env.BASE_URL.replace(/\/$/, "")` — never hardcode localhost
+- **RBAC**: `resolveActor()` must run before any route that reads `req.actorRoles`. Platform routes (`/api/platform/*`) skip `resolveTenant` intentionally — they're gated by `requireLevel(0)` alone
+- **NULL-tenant platform roles**: roles with `tenant_id = NULL` are platform-wide (e.g. `platform_admin`, `super-admin`). Both `resolveActor` (rbac.ts) and `getUserWithRoles` (users.ts) use `OR tenant_id IS NULL` so they are always visible regardless of which tenant is active
+- **Global admins**: `is_global_admin = true` in `users` table short-circuits all RBAC checks — `resolveActor` grants `["platform_admin", "super-admin"]` at level 0 without touching `user_roles`
+- **Actor cache**: `resolveActor` caches per `clerkId:tenantId` for 30s (default). Call `bustActorCache(clerkId)` after any role mutation
+- **Transparency portal GET** uses `requireAuth + resolveActor` so `actorRoles` is populated for admin detection
+- **DB schema changes** require `cd lib/db && pnpm exec tsc --build` to rebuild type declarations
+- **Compliance tables** (DPIA, vendor, breach, etc.) were created via direct SQL — not via drizzle push (TTY limitation)
+- **Four-eyes principle**: enforced at app level; `/privileged-access` screen checks no user holds conflicting roles
 
 ## Product
 
 - **Public portal**: landing, manifesto, county priorities, events, news, volunteer/supporter registration, crowdfunding, data requests
 - **Command Centre** (admin): volunteer management, supporter CRM, finance (contributions, budget, expenditure), communications, content library, events management, rapid response / fact-checking
 - **Election Operations**: polling station management, agent deployment, offline-first Form 34A submission, multi-tier verification workflow, tally dashboard, incidents, disputes, transparency portal
+- **Platform admin** (`/platform/*`): tenant management, Election-Day Operations Monitor, User Search & Role Inspector with cascading geography dropdowns; routes skip `resolveTenant` and require `requireLevel(0)`
+- **Geography** (`/geography`): four-column drill-down — Counties → Constituencies → Wards → Polling Stations — all fetched live from the DB (47 counties, 290 constituencies, 1,450 wards, 24,594 stations)
 - **Compliance**: data subject requests, DPIA register, vendor register, breach register, consent audit, retention policies
 - **Reporting**: 19 downloadable report types (CSV + Excel), all exports logged to immutable audit trail
 - **Security**: Helmet headers, rate limiting (global 500/15min, export 20/min), RBAC on all sensitive routes, four-eyes privilege review
+
+## Environment variables
+
+| Variable | Purpose |
+|---|---|
+| `DATABASE_URL` | PostgreSQL connection string |
+| `CLERK_SECRET_KEY` | Clerk server-side secret |
+| `CLERK_PUBLISHABLE_KEY` | Clerk publishable key (server) |
+| `VITE_CLERK_PUBLISHABLE_KEY` | Clerk publishable key (Vite frontend) |
+| `SEED_CLERK_ORG_ID` | Fallback org for legacy single-tenant dev |
+| `SEED_BYPASS_ORG_ID` | Dev-only org bypass — must not be set in production |
+| `CORS_ORIGINS` | Comma-separated allowed origins |
+| `ACTOR_CACHE_TTL_MS` | RBAC actor cache TTL (default 30000) |
+| `MPESA_ENV` / `MPESA_SHORTCODE` / `MPESA_PASSKEY` / `MPESA_CONSUMER_KEY` / `MPESA_CONSUMER_SECRET` / `MPESA_CALLBACK_URL` | M-Pesa Daraja API |
+| `PUBLIC_OBJECT_SEARCH_PATHS` | Object storage public paths |
+| `PRIVATE_OBJECT_DIR` | Object storage private directory |
+| `DEFAULT_OBJECT_STORAGE_BUCKET_ID` | Object storage bucket |
+| `SESSION_SECRET` | Session signing secret |
+| `ADMIN_CLEANUP_SECRET` | Auth token for admin cleanup endpoint |
+| `DEMO_RESET_ENABLED` | Set `true` to enable nightly demo data reset cron |
+| `PORTAL_DOMAIN` | Public portal domain for tenant resolution |
+| `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` | Mobile Clerk key |
+| `EXPO_PUBLIC_TENANT_SLUG` | Mobile build-time campaign slug |
+| `EXPO_PUBLIC_DOMAIN` | Mobile API base URL |
 
 ## User preferences
 
@@ -88,11 +125,14 @@ eas build --platform android --profile production
 
 - `drizzle push` requires a TTY — use `--force` flag or run via direct SQL in CI
 - After adding new schema tables, always run `cd lib/db && pnpm exec tsc --build`
-- `resolveActor` must be in middleware chain before any route that reads `req.actorRoles`
+- `resolveActor` must be in the middleware chain before any route reads `req.actorRoles`
+- Platform routes (`/api/platform/*`) skip `resolveTenant` — do not add `resolveTenant` to them
+- `user_roles.tenant_id` is **nullable** (migration 0023). Platform-level roles store `tenant_id = NULL`. Always query with `OR tenant_id IS NULL` when you need platform roles to show up in a tenanted context
 - `pollingAgentsTable` uses `phoneNumber` not `phone`; `volunteersTable` uses `preferredRole` not `volunteerRole`
 - `resultSubmissionsTable` uses `totalVotesCast`/`totalValidVotes`, not `totalVotes`
 - `electionIncidentReportsTable` is the correct table (not `electionIncidentsTable`)
 - `auditLogsTable` uses `resource`/`resourceId`/`userId` (not `entityType`/`entityId`/`actorId`)
+- Frontend `useUserAccess` caches `/me` for 5 minutes with `retry: 2` — after a role change, either wait 5 min or invalidate the `["user-me-nav-access"]` query key
 
 ## Pointers
 
