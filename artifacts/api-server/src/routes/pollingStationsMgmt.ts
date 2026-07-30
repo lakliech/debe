@@ -23,6 +23,7 @@ import {
 } from "@workspace/db";
 import { eq, desc, and, or, ilike, count, inArray, isNotNull, notInArray, sql } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
+import { resolveTenant } from "../middlewares/resolveTenant";
 import { tenantFilter, assertTenant } from '../lib/withTenant';
 
 const router = Router();
@@ -54,7 +55,7 @@ const canManageStations = requireRoles([
 // Returns ALL polling stations. Per-tenant campaign profile (agent assignment,
 // accreditation, etc.) is joined per-page. A campaign can view any station
 // regardless of whether it has deployed agents there.
-router.get("/stations", requireAuth, canViewStations, async (req: any, res: any) => {
+router.get("/stations", requireAuth, resolveTenant, canViewStations, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
     const { countyId, constituencyId, wardId, search, unassigned, page = "1", limit = "20" } = req.query;
@@ -174,7 +175,7 @@ router.get("/stations", requireAuth, canViewStations, async (req: any, res: any)
 // GET /api/polling-stations-mgmt/stations/:id
 // Returns a single station with its geography and this campaign's profile.
 // Any authenticated campaign user can view any station in the geography.
-router.get("/stations/:id", requireAuth, canViewStations, async (req: any, res: any) => {
+router.get("/stations/:id", requireAuth, resolveTenant, canViewStations, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
 
@@ -250,7 +251,7 @@ router.get("/stations/:id", requireAuth, canViewStations, async (req: any, res: 
 // PATCH /api/polling-stations-mgmt/stations/:id
 // Upserts this campaign's profile for a station. Never touches the shared station row.
 // Any station in the geography can be profiled, even without deployed agents.
-router.patch("/stations/:id", requireAuth, canManageStations, async (req: any, res: any) => {
+router.patch("/stations/:id", requireAuth, resolveTenant, canManageStations, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
 
@@ -290,7 +291,7 @@ router.patch("/stations/:id", requireAuth, canManageStations, async (req: any, r
 // POST /api/polling-stations-mgmt/stations/import
 // Bulk-upserts shared station master data (admin-only path, rarely used now that
 // the seed covers all 24,594 real stations).
-router.post("/stations/import", requireAuth, canManageStations, async (req: any, res: any) => {
+router.post("/stations/import", requireAuth, resolveTenant, canManageStations, async (req: any, res: any) => {
   try {
     assertTenant(req);
     const stations: any[] = req.body;
@@ -333,7 +334,7 @@ router.post("/stations/import", requireAuth, canManageStations, async (req: any,
 
 // POST /api/polling-stations-mgmt/stations/bulk-status
 // Bulk-upserts campaign_station_profiles for a set of station IDs.
-router.post("/stations/bulk-status", requireAuth, canManageStations, async (req: any, res: any) => {
+router.post("/stations/bulk-status", requireAuth, resolveTenant, canManageStations, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
     const { stationIds, accreditationStatus, trainingStatus, contactStatus, reportingStatus } = req.body;
