@@ -26,3 +26,6 @@ channel = "stable-25_05"
 
 [userenv.shared]
 CLERK_ORGS_DISABLED = "true"
+
+[userenv.production]
+CORS_ORIGINS = "https://debe.ke"
