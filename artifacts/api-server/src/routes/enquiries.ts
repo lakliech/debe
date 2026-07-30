@@ -8,6 +8,7 @@
  */
 import { Router } from "express";
 import { db, platformEnquiriesTable } from "@workspace/db";
+import { publicSubmitLimiter } from "../middlewares/rateLimits";
 
 const router = Router();
 
@@ -22,7 +23,9 @@ const VALID_LEVELS = [
 ];
 
 // POST /api/enquiries — public, unauthenticated
-router.post("/", async (req: any, res: any) => {
+// publicSubmitLimiter: 5 submissions per IP per 15-minute window (same as
+// volunteer/supporter registration) — prevents bot flooding.
+router.post("/", publicSubmitLimiter, async (req: any, res: any) => {
   try {
     const {
       fullName,

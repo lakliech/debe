@@ -17,7 +17,7 @@ const ELECTION_LEVELS = [
   "Not sure yet",
 ];
 
-type Status = "idle" | "submitting" | "success" | "error";
+type Status = "idle" | "submitting" | "success" | "error" | "rate_limited";
 
 export default function RequestAccess() {
   const [status, setStatus]     = useState<Status>("idle");
@@ -47,6 +47,10 @@ export default function RequestAccess() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
+      if (res.status === 429) {
+        setStatus("rate_limited");
+        return;
+      }
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data?.error ?? `Server error ${res.status}`);
@@ -130,6 +134,16 @@ export default function RequestAccess() {
                 onSubmit={handleSubmit}
                 className="bg-white border border-gray-200 p-8 sm:p-10 flex flex-col gap-6"
               >
+                {/* Rate-limit banner — shown on HTTP 429 */}
+                {status === "rate_limited" && (
+                  <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 text-sm">
+                    <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-500" />
+                    <span>
+                      Too many submissions from this device — please wait 15 minutes before trying again.
+                    </span>
+                  </div>
+                )}
+
                 {/* Error banner */}
                 {status === "error" && (
                   <div className="flex items-start gap-3 bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm">
