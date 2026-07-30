@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { useBranding } from "@/contexts/BrandingContext";
+import { ROLES } from "@/lib/constants";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -80,6 +81,106 @@ const platformNav = [
   { name: "Platform Admin", href: "/platform-admin", icon: Building2 },
   { name: "Geography", href: "/geography", icon: MapPin },
 ];
+
+// ── Role-based nav visibility ─────────────────────────────────────────────────
+//
+// Each role slug is classified into a "family" so that sections can be shown
+// to functional groups (e.g. comms officers) independently of their numeric
+// level.  This lets us distinguish roles at the same level that have very
+// different remits (e.g. finance-officer vs county-coordinator, both level 7).
+//
+// The API /api/users/me returns roles scoped to the active tenant.  We cache
+// the result for 5 minutes — it only needs to refresh on role changes.
+//
+const ROLE_FAMILY: Record<string, string> = {
+  // Finance back-office
+  "finance-officer": "finance",   "treasurer": "finance",
+  // Communications / content
+  "communications-officer": "comms",  "content-approver": "comms",
+  // Compliance / legal back-office
+  "legal-officer": "compliance",       "data-protection-officer": "compliance",
+  "auditor": "compliance",             "security-administrator": "compliance",
+  "verification-officer": "compliance",
+  // Field agents
+  "polling-station-agent": "agent",    "backup-polling-agent": "agent",
+  "call-centre-agent": "agent",        "polling-centre-coordinator": "agent",
+  // Field coordinators
+  "ward-coordinator": "coordinator",   "constituency-coordinator": "coordinator",
+  "county-coordinator": "coordinator", "national-organising-director": "coordinator",
+  // Senior campaign leadership
+  "national-campaign-manager": "leadership",
+  "campaign-executive-director": "leadership",
+  "presidential-candidate": "leadership",
+  "super-administrator": "leadership", "super-admin": "leadership",
+  // General supporters
+  "volunteer": "supporter",  "donor": "supporter",  "public-supporter": "supporter",
+};
+
+interface UserAccess {
+  maxLevel: number;
+  families: Set<string>;
+  isGlobalAdmin: boolean;
+  isLoaded: boolean;
+}
+
+// While the /api/users/me fetch is in-flight, show all sections so the
+// sidebar doesn't flash an empty state.
+const LOADING_ACCESS: UserAccess = {
+  maxLevel: 999,
+  families: new Set(Object.values(ROLE_FAMILY)),
+  isGlobalAdmin: true,
+  isLoaded: false,
+};
+
+// Least-privilege sentinel returned on fetch error or missing data — only
+// the Campaign section is visible until a successful response arrives.
+const ERROR_ACCESS: UserAccess = {
+  maxLevel: 0,
+  families: new Set<string>(),
+  isGlobalAdmin: false,
+  isLoaded: true,
+};
+
+function useUserAccess(): UserAccess {
+  const { data, isLoading, isError } = useQuery<any>({
+    queryKey: ["user-me-nav-access"],
+    queryFn: () =>
+      fetch(`${BASE}/api/users/me`, { credentials: "include" }).then((r) => {
+        if (!r.ok) throw new Error(`/api/users/me ${r.status}`);
+        return r.json();
+      }),
+    staleTime: 5 * 60 * 1000,  // 5 minutes — only refresh on role changes
+    retry: false,
+  });
+
+  // Still fetching — show everything temporarily to avoid a jarring empty sidebar.
+  if (isLoading) return LOADING_ACCESS;
+
+  // Network error or non-OK response — fall back to least privilege so we
+  // never accidentally show sections the user shouldn't see.
+  if (isError || !data) return ERROR_ACCESS;
+
+  // Global admins bypass every role check — they see everything.
+  if (data.isGlobalAdmin) {
+    return {
+      maxLevel: 999,
+      families: new Set(Object.values(ROLE_FAMILY)),
+      isGlobalAdmin: true,
+      isLoaded: true,
+    };
+  }
+
+  const slugs: string[] = (data.roles ?? []).map((r: any) => r.roleSlug as string);
+  const families = new Set(slugs.map((s) => ROLE_FAMILY[s]).filter(Boolean));
+
+  // Derive max level from the ROLES catalogue; unknown slugs contribute 0.
+  const slugToLevel = Object.fromEntries(ROLES.map((r) => [r.slug, r.level]));
+  const maxLevel = slugs.length
+    ? Math.max(...slugs.map((s) => slugToLevel[s] ?? 0))
+    : 0;
+
+  return { maxLevel, families, isGlobalAdmin: false, isLoaded: true };
+}
 
 /** Sidebar header — renders candidate name + "COMMAND CENTRE" from live branding */
 function SidebarHeader() {
@@ -171,6 +272,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const { signOut } = useClerk();
   const { user } = useUser();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const access = useUserAccess();
 
   // Fetch open message count for the sidebar badge; refresh every 60 s.
   const { data: msgCounts } = useQuery<Record<string, number>>({
@@ -210,13 +312,46 @@ export default function AppLayout({ children }: AppLayoutProps) {
         
         <div className="flex-1 overflow-y-auto py-4 px-4 space-y-6">
           {[
-            { label: "Campaign", items: navigation },
-            { label: "Finance", items: financeNav },
-            { label: "Communications", items: commsNav },
-            { label: "Election Operations", items: electionNav },
-            { label: "Campaign Admin", items: campaignAdminNav },
-            { label: "Platform", items: platformNav },
-          ].map((section) => (
+            // Campaign — always visible to any authenticated user
+            { label: "Campaign", items: navigation, show: true },
+
+            // Finance — county coordinator level (7) and above covers all senior
+            // field staff; finance-officer and treasurer are also level 7, so a
+            // single level threshold works for both groups
+            { label: "Finance", items: financeNav, show: access.maxLevel >= 7 },
+
+            // Communications — shown to comms/coordinator/leadership families
+            // (level 7+ doesn't work alone because finance officers are also
+            // level 7 but should not see this section)
+            {
+              label: "Communications", items: commsNav,
+              show: access.families.has("comms")
+                 || access.families.has("coordinator")
+                 || access.families.has("leadership")
+                 || access.maxLevel >= 8,
+            },
+
+            // Election Operations — shown to field roles (agents + coordinators +
+            // leadership); back-office roles (finance, compliance) are excluded
+            // even though they may have high numeric levels
+            {
+              label: "Election Operations", items: electionNav,
+              show: access.families.has("agent")
+                 || access.families.has("coordinator")
+                 || access.families.has("leadership")
+                 || access.maxLevel >= 8,
+            },
+
+            // Campaign Admin — county-coordinator level (7) and above, plus
+            // compliance back-office roles (legal, auditor, DPO, etc.)
+            {
+              label: "Campaign Admin", items: campaignAdminNav,
+              show: access.maxLevel >= 7 || access.families.has("compliance"),
+            },
+
+            // Platform — global admins only (set via is_global_admin DB column)
+            { label: "Platform", items: platformNav, show: access.isGlobalAdmin },
+          ].filter((s) => s.show).map((section) => (
             <div key={section.label}>
               <div className="px-3 mb-1.5 text-[10px] font-black tracking-widest text-sidebar-foreground/40 uppercase">
                 {section.label}
