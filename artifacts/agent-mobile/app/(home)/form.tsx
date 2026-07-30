@@ -23,6 +23,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import * as Location from 'expo-location';
 import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
@@ -61,6 +62,7 @@ export default function FormScreen() {
   const [lookingUp, setLookingUp] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoSizeBytes, setPhotoSizeBytes] = useState<number | null>(null);
   const [submitResult, setSubmitResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const domain = process.env.EXPO_PUBLIC_DOMAIN;
@@ -83,15 +85,20 @@ export default function FormScreen() {
    * Returns the objectPath on success, or null if the upload fails.
    * The returned path is passed as `formPhotoUrl` in the submission payload
    * so the server can register it in submission_form_images.
+   *
+   * sizeBytes is hinted to the server so it can reject oversized uploads
+   * before a single byte is transferred to storage.
    */
   const uploadFormPhoto = useCallback(
-    async (photoUri: string): Promise<string | null> => {
+    async (photoUri: string, sizeBytes?: number): Promise<string | null> => {
       try {
         const token = await getToken();
-        // Step 1: get a short-lived presigned PUT URL
+        // Step 1: get a short-lived presigned PUT URL; hint the size so the
+        // server can reject oversized payloads before the PUT begins.
         const urlRes = await fetch(`https://${domain}/api/election-results/photo-upload-url`, {
           method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(sizeBytes !== undefined ? { sizeBytes } : {}),
         });
         if (!urlRes.ok) return null;
         const { uploadUrl, objectPath } = await urlRes.json() as { uploadUrl: string; objectPath: string };
@@ -296,6 +303,9 @@ export default function FormScreen() {
   };
 
   // ─── Camera ───────────────────────────────────────────────────────────────
+  /** Maximum pixels on the long edge. Keeps legibility while limiting upload size. */
+  const MAX_LONG_EDGE = 2000;
+
   const handleCapturePhoto = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
@@ -306,12 +316,41 @@ export default function FormScreen() {
       );
       return;
     }
+    // Capture at full quality without EXIF — we apply our own compression below.
     const result = await ImagePicker.launchCameraAsync({
-      quality: 0.85,
+      quality: 1,
       allowsEditing: false,
+      exif: false,
     });
     if (!result.canceled && result.assets[0]) {
-      updateDraft({ photoUri: result.assets[0].uri });
+      const asset = result.assets[0];
+
+      // Resize to max 2000 px on the long edge then recompress to JPEG 0.75.
+      // This cuts typical upload sizes from ~5 MB to ~300 KB without losing
+      // legibility of form text, protecting agents on metered data plans.
+      const longEdge = Math.max(asset.width ?? 0, asset.height ?? 0);
+      const resizeActions: ImageManipulator.Action[] =
+        longEdge > MAX_LONG_EDGE
+          ? [(asset.width ?? 0) >= (asset.height ?? 0)
+              ? { resize: { width: MAX_LONG_EDGE } }
+              : { resize: { height: MAX_LONG_EDGE } }]
+          : [];
+
+      const compressed = await ImageManipulator.manipulateAsync(
+        asset.uri,
+        resizeActions,
+        { compress: 0.75, format: ImageManipulator.SaveFormat.JPEG },
+      );
+
+      // Measure compressed size so it can be shown in the UI and hinted to the server.
+      try {
+        const blob = await fetch(compressed.uri).then((r) => r.blob());
+        setPhotoSizeBytes(blob.size);
+      } catch {
+        setPhotoSizeBytes(null);
+      }
+
+      updateDraft({ photoUri: compressed.uri });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }
   };
@@ -371,7 +410,7 @@ export default function FormScreen() {
     let photoUploadFailed = false;
     if (draft.photoUri && isOnline) {
       setUploadingPhoto(true);
-      formPhotoUrl = (await uploadFormPhoto(draft.photoUri)) ?? undefined;
+      formPhotoUrl = (await uploadFormPhoto(draft.photoUri, photoSizeBytes ?? undefined)) ?? undefined;
       setUploadingPhoto(false);
       if (!formPhotoUrl) photoUploadFailed = true;
     }
@@ -768,6 +807,17 @@ export default function FormScreen() {
             {draft.photoUri ? (
               <View style={s.photoContainer}>
                 <Image source={{ uri: draft.photoUri }} style={s.photo} resizeMode="cover" />
+                {photoSizeBytes !== null && (
+                  <View style={s.photoSizeBadge}>
+                    <Ionicons name="checkmark-circle" size={13} color={colors.success} />
+                    <Text style={s.photoSizeText}>
+                      {photoSizeBytes < 1024 * 1024
+                        ? `~${Math.round(photoSizeBytes / 1024)} KB`
+                        : `~${(photoSizeBytes / (1024 * 1024)).toFixed(1)} MB`}
+                      {' · compressed'}
+                    </Text>
+                  </View>
+                )}
                 <Pressable
                   style={({ pressed }) => [s.retakeBtn, pressed && { opacity: 0.85 }]}
                   onPress={handleCapturePhoto}
@@ -1202,6 +1252,21 @@ const styles = (colors: ReturnType<typeof useColors>) =>
       height: 220,
       borderRadius: colors.radius,
       backgroundColor: colors.muted,
+    },
+    photoSizeBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      alignSelf: 'flex-end',
+      backgroundColor: colors.muted,
+      borderRadius: 6,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+    },
+    photoSizeText: {
+      fontSize: 12,
+      fontFamily: 'Inter_500Medium',
+      color: colors.mutedForeground,
     },
     retakeBtn: {
       flexDirection: 'row',

@@ -213,8 +213,19 @@ async function runAutoValidation(submissionId: string, tenantId: string): Promis
 // POST /api/election-results/photo-upload-url
 // Returns a short-lived presigned PUT URL so mobile agents can upload Form 34A photos
 // directly to object storage without routing megabytes through the API server.
-router.post("/photo-upload-url", requireAuth, canSubmitResults, async (_req: any, res: any) => {
+router.post("/photo-upload-url", requireAuth, canSubmitResults, async (req: any, res: any) => {
   try {
+    // Reject before issuing a presigned URL when the caller hints the photo
+    // is already over the hard cap. This saves both upload bandwidth and
+    // storage quota without requiring the client to transfer a single byte.
+    const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
+    const { sizeBytes } = (req.body ?? {}) as { sizeBytes?: unknown };
+    if (typeof sizeBytes === "number" && sizeBytes > MAX_UPLOAD_BYTES) {
+      return res.status(413).json({
+        error: `Photo is too large (${(sizeBytes / (1024 * 1024)).toFixed(1)} MB). Maximum allowed size is 10 MB. Please retake with a lower resolution.`,
+      });
+    }
+
     const uploadUrl = await objectStorageService.getObjectEntityUploadURL();
     const objectPath = objectStorageService.normalizeObjectEntityPath(uploadUrl);
     res.json({ uploadUrl, objectPath });

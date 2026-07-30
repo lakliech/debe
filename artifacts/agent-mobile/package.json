@@ -60,6 +60,7 @@
     "zod-validation-error": "^3.4.0"
   },
   "dependencies": {
+    "expo-image-manipulator": "^57.0.6",
     "expo-local-authentication": "~17.0.8"
   }
 }
