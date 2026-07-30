@@ -16,10 +16,37 @@
  */
 
 import { getAuth } from "@clerk/express";
-import { db, tenantsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, tenantsTable, usersTable } from "@workspace/db";
+import { eq, asc } from "drizzle-orm";
 import type { Request, Response, NextFunction } from "express";
 import type { Tenant } from "@workspace/db";
+
+/**
+ * Return true if the given Clerk user ID belongs to a global admin.
+ * Used to bypass tenant requirements for platform owners.
+ */
+async function isGlobalAdmin(clerkUserId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ isGlobalAdmin: usersTable.isGlobalAdmin })
+    .from(usersTable)
+    .where(eq(usersTable.clerkId, clerkUserId))
+    .limit(1);
+  return !!row?.isGlobalAdmin;
+}
+
+/**
+ * Return the first non-suspended tenant in the DB (oldest by creation date).
+ * Used as a fallback context for global admins who have no active Clerk org.
+ */
+async function firstAvailableTenant(): Promise<Tenant | null> {
+  const [tenant] = await db
+    .select()
+    .from(tenantsTable)
+    .where(eq(tenantsTable.isSuspended, false))
+    .orderBy(asc(tenantsTable.createdAt))
+    .limit(1);
+  return tenant ?? null;
+}
 
 /** HTTP methods that mutate state — blocked on the read-only demo tenant. */
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -44,6 +71,14 @@ export async function resolveTenant(
     (auth as any).orgId ?? process.env.SEED_CLERK_ORG_ID ?? null;
 
   if (!clerkOrgId) {
+    // Global admins can operate without an active org — fall back to the first
+    // available tenant so campaign-scoped routes work.  Platform-only routes
+    // (which skip resolveTenant entirely) always work regardless.
+    if (await isGlobalAdmin(auth.userId)) {
+      const fallback = await firstAvailableTenant();
+      if (fallback) (req as TenantedRequest).tenant = fallback;
+      return next();
+    }
     res.status(403).json({
       error: "No active organisation in session. Please activate a campaign organisation.",
     });
@@ -57,6 +92,12 @@ export async function resolveTenant(
     .limit(1);
 
   if (!tenant) {
+    // Same fallback for global admins whose Clerk org isn't registered yet.
+    if (await isGlobalAdmin(auth.userId)) {
+      const fallback = await firstAvailableTenant();
+      if (fallback) (req as TenantedRequest).tenant = fallback;
+      return next();
+    }
     res.status(403).json({
       error: `Organisation '${clerkOrgId}' is not registered as a tenant.`,
     });
