@@ -74,6 +74,7 @@ async function listTenantsWithCounts() {
       plan: tenantsTable.plan,
       isSuspended: tenantsTable.isSuspended,
       customDomain: tenantsTable.customDomain,
+      tlsStatus: tenantsTable.tlsStatus,
       createdAt: tenantsTable.createdAt,
       userCount: sql<number>`CAST(COUNT(DISTINCT ${userRolesTable.userId}) AS INTEGER)`,
     })
@@ -87,6 +88,7 @@ async function listTenantsWithCounts() {
       tenantsTable.plan,
       tenantsTable.isSuspended,
       tenantsTable.customDomain,
+      tenantsTable.tlsStatus,
       tenantsTable.createdAt,
     )
     .orderBy(tenantsTable.createdAt);
@@ -200,6 +202,7 @@ router.get("/tenants/:id", requireAuth, requireLevel(0), async (req: any, res: a
         plan: tenantsTable.plan,
         isSuspended: tenantsTable.isSuspended,
         customDomain: tenantsTable.customDomain,
+        tlsStatus: tenantsTable.tlsStatus,
         createdAt: tenantsTable.createdAt,
         userCount: sql<number>`CAST(COUNT(DISTINCT ${userRolesTable.userId}) AS INTEGER)`,
       })
@@ -214,6 +217,7 @@ router.get("/tenants/:id", requireAuth, requireLevel(0), async (req: any, res: a
         tenantsTable.plan,
         tenantsTable.isSuspended,
         tenantsTable.customDomain,
+        tenantsTable.tlsStatus,
         tenantsTable.createdAt,
       )
       .limit(1);

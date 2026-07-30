@@ -28,6 +28,18 @@ export const tenantsTable = pgTable("tenants", {
    * in addition to the default <slug>.ushindi.app subdomain.
    */
   customDomain: text("custom_domain").unique(),
+  /**
+   * TLS certificate status for the custom domain.
+   * null    → no domain set or provisioning never triggered
+   * pending → HTTPS check in progress
+   * active  → HTTPS/TLS confirmed working
+   * error   → last check failed (see tlsCertError)
+   */
+  tlsStatus: text("tls_status"),
+  /** Human-readable error from the last failed TLS check. */
+  tlsCertError: text("tls_cert_error"),
+  /** Timestamp when TLS was last confirmed active. */
+  tlsProvisionedAt: timestamp("tls_provisioned_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

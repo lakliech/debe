@@ -11,7 +11,7 @@
  */
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Building2, Plus, Shield, Users, Calendar, ChevronRight, AlertCircle, CheckCircle2, XCircle, RefreshCw, Mail, Loader2, Globe, Copy, Check } from "lucide-react";
+import { Building2, Plus, Shield, Users, Calendar, ChevronRight, AlertCircle, CheckCircle2, XCircle, RefreshCw, Mail, Loader2, Globe, Copy, Check, LockKeyhole, Clock as ClockIcon, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -31,6 +31,7 @@ interface TenantRow {
   plan: string;
   isSuspended: boolean;
   customDomain: string | null;
+  tlsStatus: "pending" | "active" | "error" | null;
   createdAt: string;
   userCount: number;
 }
@@ -354,6 +355,22 @@ function TenantDetail({ tenant, onClose }: { tenant: TenantRow; onClose: () => v
             <div className="pt-1 space-y-1">
               <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Custom Domain</p>
               <CopyableUrl url={`https://${d.customDomain}`} />
+              {/* TLS status badge */}
+              {d.tlsStatus === "active" && (
+                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-full px-2.5 py-1">
+                  <LockKeyhole className="h-3.5 w-3.5" /> TLS active
+                </span>
+              )}
+              {d.tlsStatus === "pending" && (
+                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1">
+                  <ClockIcon className="h-3.5 w-3.5 animate-pulse" /> TLS provisioning…
+                </span>
+              )}
+              {d.tlsStatus === "error" && (
+                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-full px-2.5 py-1">
+                  <Lock className="h-3.5 w-3.5" /> TLS error
+                </span>
+              )}
             </div>
           )}
         </div>

@@ -141,6 +141,13 @@
       "when": 1785418779375,
       "tag": "0019_illegal_joystick",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1785460000000,
+      "tag": "0020_tls_status",
+      "breakpoints": true
     }
   ]
 }

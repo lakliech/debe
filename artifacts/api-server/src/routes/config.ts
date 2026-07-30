@@ -7,6 +7,7 @@ import { eq, and } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
 import { resolveTenant, resolveTenantPublic, resolveTenantMixed } from "../middlewares/resolveTenant";
 import { tenantFilter, assertTenant } from "../lib/withTenant";
+import { triggerTlsProvisioning } from "../lib/tlsCert";
 
 // ── DNS CNAME verification ────────────────────────────────────────────────────
 // The expected CNAME target is the platform's public hostname (PORTAL_DOMAIN).
@@ -159,7 +160,13 @@ router.get("/domain", requireAuth, resolveTenant, async (req: any, res: any) => 
   try {
     const t = assertTenant(req);
     const [tenant] = await db
-      .select({ slug: tenantsTable.slug, customDomain: tenantsTable.customDomain })
+      .select({
+        slug: tenantsTable.slug,
+        customDomain: tenantsTable.customDomain,
+        tlsStatus: tenantsTable.tlsStatus,
+        tlsCertError: tenantsTable.tlsCertError,
+        tlsProvisionedAt: tenantsTable.tlsProvisionedAt,
+      })
       .from(tenantsTable)
       .where(eq(tenantsTable.id, t.id))
       .limit(1);
@@ -172,6 +179,9 @@ router.get("/domain", requireAuth, resolveTenant, async (req: any, res: any) => 
       slug: tenant?.slug ?? null,
       customDomain,
       dnsVerified,
+      tlsStatus: tenant?.tlsStatus ?? null,
+      tlsCertError: tenant?.tlsCertError ?? null,
+      tlsProvisionedAt: tenant?.tlsProvisionedAt?.toISOString() ?? null,
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -215,13 +225,29 @@ router.patch("/domain", requireAuth, resolveTenant, canUpdateDomain, async (req:
       }
     }
 
+    // When clearing the domain, also clear TLS state
     const [updated] = await db
       .update(tenantsTable)
-      .set({ customDomain: normalised })
+      .set({
+        customDomain: normalised,
+        ...(normalised
+          ? {}
+          : { tlsStatus: null, tlsCertError: null, tlsProvisionedAt: null }),
+      })
       .where(eq(tenantsTable.id, t.id))
       .returning({ slug: tenantsTable.slug, customDomain: tenantsTable.customDomain });
 
-    res.json({ slug: updated.slug, customDomain: updated.customDomain, dnsVerified: !!normalised });
+    // Trigger async TLS provisioning when a new domain is being saved
+    if (normalised) {
+      triggerTlsProvisioning(t.id, normalised).catch(() => {});
+    }
+
+    res.json({
+      slug: updated.slug,
+      customDomain: updated.customDomain,
+      dnsVerified: !!normalised,
+      tlsStatus: normalised ? "pending" : null,
+    });
   } catch (err: any) {
     // Unique-constraint violation → domain already in use
     if ((err as any).code === "23505") {
@@ -249,6 +275,34 @@ router.post("/domain/check", requireAuth, resolveTenant, canUpdateDomain, async 
 
     const dnsVerified = await verifyCname(tenant.customDomain);
     res.json({ customDomain: tenant.customDomain, dnsVerified });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/config/domain/cert/retry ────────────────────────────────────
+// Re-triggers TLS certificate provisioning for the current custom domain.
+// Returns immediately (202 Accepted) — the result is polled via GET /domain.
+router.post("/domain/cert/retry", requireAuth, resolveTenant, canUpdateDomain, async (req: any, res: any) => {
+  try {
+    const t = assertTenant(req);
+    const [tenant] = await db
+      .select({ customDomain: tenantsTable.customDomain })
+      .from(tenantsTable)
+      .where(eq(tenantsTable.id, t.id))
+      .limit(1);
+
+    if (!tenant?.customDomain) {
+      return res.status(400).json({ error: "No custom domain is set for this campaign." });
+    }
+
+    // Fire async — client polls GET /domain for the updated status
+    triggerTlsProvisioning(t.id, tenant.customDomain).catch(() => {});
+
+    res.status(202).json({
+      message: "Certificate check started. Poll GET /api/config/domain for status.",
+      tlsStatus: "pending",
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
