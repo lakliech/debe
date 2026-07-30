@@ -35,6 +35,7 @@ import aspirantsRouter from "./aspirants";
 import contactMessagesRouter from "./contactMessages";
 import platformRouter from "./platform";
 import enquiriesRouter from "./enquiries";
+import adminCleanupRouter from "./adminCleanup";
 
 const router: IRouter = Router();
 
@@ -105,5 +106,9 @@ router.use("/platform", platformRouter);
 
 // Platform enquiry form — public, unauthenticated, no tenant context.
 router.use("/enquiries", enquiriesRouter);
+
+// One-shot admin cleanup endpoint — no tenant middleware needed.
+// Guarded by ADMIN_CLEANUP_SECRET env var; disable by removing that var after use.
+router.use("/admin", adminCleanupRouter);
 
 export default router;

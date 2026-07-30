@@ -29,3 +29,4 @@ CLERK_ORGS_DISABLED = "true"
 
 [userenv.production]
 CORS_ORIGINS = "https://debe.ke"
+ADMIN_CLEANUP_SECRET = "debe-cleanup-2026-demo"
