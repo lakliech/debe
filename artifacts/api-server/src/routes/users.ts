@@ -8,7 +8,7 @@ import {
   userSuspensionsTable,
 } from "@workspace/db";
 import { eq, and, desc, inArray } from "drizzle-orm";
-import { requireRoles, requireLevel } from "../middlewares/rbac";
+import { requireRoles, requireLevel, bustActorCache } from "../middlewares/rbac";
 import { resolveTenant } from "../middlewares/resolveTenant";
 import { tenantFilter, assertTenant } from '../lib/withTenant';
 
@@ -346,6 +346,15 @@ router.post("/:id/roles", requireAuth, canAssignRoles, async (req: any, res: any
     wardId: wardId ?? null,
     assignedBy: actorUUID ?? undefined,
   });
+
+  // Evict the actor cache for the affected user so the next request sees the
+  // updated roles without waiting for the TTL to expire.
+  const [targetUser] = await db
+    .select({ clerkId: usersTable.clerkId })
+    .from(usersTable)
+    .where(eq(usersTable.id, req.params.id))
+    .limit(1);
+  if (targetUser) bustActorCache(targetUser.clerkId);
 
   // Scope response to active tenant so caller only sees roles they can manage
   const full = await getUserWithRoles(req.params.id, t?.id);
