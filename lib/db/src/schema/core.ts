@@ -95,6 +95,13 @@ export const usersTable = pgTable("users", {
   phoneNumber: text("phone_number"),
   photoUrl: text("photo_url"),
   status: text("status").notNull().default("active"),
+  /**
+   * Global admins bypass all tenant-scoped RBAC checks and are granted
+   * platform_admin (level 0) + super-admin equivalence on every route.
+   * This flag must only be changed via direct DB access or a dedicated
+   * platform-level API — it is intentionally excluded from insertUserSchema.
+   */
+  isGlobalAdmin: boolean("is_global_admin").notNull().default(false),
   countyId: uuid("county_id").references(() => countiesTable.id),
   constituencyId: uuid("constituency_id"),
   wardId: uuid("ward_id"),
@@ -103,7 +110,12 @@ export const usersTable = pgTable("users", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
 
-export const insertUserSchema = createInsertSchema(usersTable).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertUserSchema = createInsertSchema(usersTable).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  isGlobalAdmin: true, // must never be set via the API
+});
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof usersTable.$inferSelect;
 

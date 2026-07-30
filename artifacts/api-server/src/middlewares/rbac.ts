@@ -26,8 +26,9 @@ import type { TenantedRequest } from "./resolveTenant";
 export interface AuthedRequest extends Request {
   clerkId: string;
   actorId: string | null;       // local users.id UUID, null if not yet provisioned
-  actorRoles: string[];         // role slugs (tenant-scoped)
+  actorRoles: string[];         // role slugs (tenant-scoped + platform)
   actorLevel: number;           // minimum (most privileged) level across all roles; 999 if no roles
+  isGlobalAdmin: boolean;       // true → platform_admin + super-admin on every route
 }
 
 // ── In-memory actor cache ────────────────────────────────────────────────────
@@ -38,6 +39,7 @@ interface CachedActor {
   actorId: string | null;
   actorRoles: string[];
   actorLevel: number;
+  isGlobalAdmin: boolean;
   expiresAt: number; // Date.now() + TTL
 }
 
@@ -87,12 +89,13 @@ export async function resolveActor(req: Request, res: Response, next: NextFuncti
     r.actorId = cached.actorId;
     r.actorRoles = cached.actorRoles;
     r.actorLevel = cached.actorLevel;
+    r.isGlobalAdmin = cached.isGlobalAdmin;
     return next();
   }
 
   // Cache miss — fetch from DB.
   const [row] = await db
-    .select({ id: usersTable.id })
+    .select({ id: usersTable.id, isGlobalAdmin: usersTable.isGlobalAdmin })
     .from(usersTable)
     .where(eq(usersTable.clerkId, r.clerkId))
     .limit(1);
@@ -101,16 +104,36 @@ export async function resolveActor(req: Request, res: Response, next: NextFuncti
     r.actorId = null;
     r.actorRoles = [];
     r.actorLevel = 999;
+    r.isGlobalAdmin = false;
     _actorCache.set(cacheKey, {
       actorId: null,
       actorRoles: [],
       actorLevel: 999,
+      isGlobalAdmin: false,
       expiresAt: Date.now() + ACTOR_CACHE_TTL_MS,
     });
     return next();
   }
 
   r.actorId = row.id;
+
+  // Global admins bypass all tenant-scoped RBAC and are granted platform_admin
+  // (level 0) + super-admin on every route — regardless of active tenant.
+  if (row.isGlobalAdmin) {
+    r.isGlobalAdmin = true;
+    r.actorRoles = ["platform_admin", "super-admin"];
+    r.actorLevel = 0;
+    _actorCache.set(cacheKey, {
+      actorId: row.id,
+      actorRoles: r.actorRoles,
+      actorLevel: 0,
+      isGlobalAdmin: true,
+      expiresAt: Date.now() + ACTOR_CACHE_TTL_MS,
+    });
+    return next();
+  }
+
+  r.isGlobalAdmin = false;
 
   // Build the where clause — always scope by user; add tenant filter when available.
   const roleWhere = tenantId
@@ -130,6 +153,7 @@ export async function resolveActor(req: Request, res: Response, next: NextFuncti
     actorId: row.id,
     actorRoles: r.actorRoles,
     actorLevel: r.actorLevel,
+    isGlobalAdmin: false,
     expiresAt: Date.now() + ACTOR_CACHE_TTL_MS,
   });
 

@@ -256,8 +256,11 @@ router.patch("/domain", requireAuth, resolveTenant, canUpdateDomain, async (req:
       tlsStatus: normalised ? "pending" : null,
     });
   } catch (err: any) {
-    // Unique-constraint violation → domain already in use
-    if ((err as any).code === "23505") {
+    // Unique-constraint violation → domain already in use.
+    // Drizzle ORM wraps the underlying postgres error in DrizzleQueryError,
+    // so the PostgreSQL SQLSTATE code lives at err.cause?.code, not err.code.
+    const pgCode: string | undefined = err.code ?? err.cause?.code;
+    if (pgCode === "23505") {
       return res.status(409).json({ error: "That domain is already registered to another campaign." });
     }
     res.status(500).json({ error: err.message });
