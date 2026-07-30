@@ -1,5 +1,16 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { db } from "../index";
 import { countiesTable, constituenciesTable, wardsTable } from "../schema";
+
+interface _WardJson { name: string; pollingStations: { name: string }[] }
+interface _ConstJson { name: string; wards: _WardJson[] }
+interface _CountyJson { name: string; constituencies: _ConstJson[] }
+const _dir = dirname(fileURLToPath(import.meta.url));
+const _countyData: _CountyJson[] = JSON.parse(
+  readFileSync(join(_dir, "county_data.json"), "utf-8"),
+);
 
 // All 47 counties with approximate coordinates
 export const COUNTIES = [
@@ -290,7 +301,9 @@ export async function seedGeography() {
   }
   console.log(`✓ ${constCount} constituencies seeded`);
 
-  // Seed sample wards (3 per constituency for demo)
+  // Seed all 1,450 real wards from county_data.json
+  // County index in _countyData (0-based) matches county code (1-based): _countyData[code-1]
+  // Constituency index within county matches CONSTITUENCY_DATA[code] order.
   let wardCount = 0;
   let wardCode = 1;
   for (const [countyCodeStr, consts] of Object.entries(CONSTITUENCY_DATA)) {
@@ -298,20 +311,33 @@ export async function seedGeography() {
     const countyId = countyIdMap[countyCode];
     if (!countyId) continue;
 
-    for (const c of consts) {
+    const jsonCounty = _countyData[countyCode - 1];
+
+    for (let constIdx = 0; constIdx < consts.length; constIdx++) {
+      const c = consts[constIdx];
       const constId = constIdMap[c.code];
       if (!constId) continue;
 
-      const wardNames = [`${c.name} East`, `${c.name} Central`, `${c.name} West`];
-      for (const wardName of wardNames) {
-        await db
-          .insert(wardsTable)
-          .values({ code: wardCode++, name: wardName, constituencyId: constId, countyId })
-          .onConflictDoUpdate({
-            target: wardsTable.code,
-            set: { name: wardName },
-          });
-        wardCount++;
+      const jsonWards = jsonCounty?.constituencies[constIdx]?.wards ?? [];
+
+      if (jsonWards.length === 0) {
+        // Fallback: generate 3 generic ward names if JSON data is missing for this constituency
+        const fallbackNames = [`${c.name} East`, `${c.name} Central`, `${c.name} West`];
+        for (const wardName of fallbackNames) {
+          await db
+            .insert(wardsTable)
+            .values({ code: wardCode++, name: wardName, constituencyId: constId, countyId })
+            .onConflictDoUpdate({ target: wardsTable.code, set: { name: wardName } });
+          wardCount++;
+        }
+      } else {
+        for (const ward of jsonWards) {
+          await db
+            .insert(wardsTable)
+            .values({ code: wardCode++, name: ward.name, constituencyId: constId, countyId })
+            .onConflictDoUpdate({ target: wardsTable.code, set: { name: ward.name } });
+          wardCount++;
+        }
       }
     }
   }

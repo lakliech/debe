@@ -16,6 +16,9 @@
  *   - Data retention policies and vendor register
  */
 
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { db, pool } from "@workspace/db";
 import {
   countiesTable,
@@ -38,6 +41,28 @@ import {
 } from "@workspace/db";
 import { eq, asc } from "drizzle-orm";
 
+// Real Kenya polling station data (47 counties → 290 constituencies → 1,450 wards → 24,594 stations)
+interface _WardJson { name: string; pollingStations: { name: string }[] }
+interface _ConstJson { name: string; wards: _WardJson[] }
+interface _CountyJson { name: string; constituencies: _ConstJson[] }
+const _seedDir = dirname(fileURLToPath(import.meta.url));
+const _countyData: _CountyJson[] = JSON.parse(
+  readFileSync(join(_seedDir, "../../lib/db/src/seeds/county_data.json"), "utf-8"),
+);
+
+/** Flat map of ward name (lower-cased) → real polling station names */
+const _wardStationsMap = new Map<string, string[]>();
+for (const county of _countyData) {
+  for (const constituency of county.constituencies) {
+    for (const ward of constituency.wards) {
+      _wardStationsMap.set(
+        ward.name.toLowerCase().trim(),
+        ward.pollingStations.map(ps => ps.name),
+      );
+    }
+  }
+}
+
 const FICTIONAL_NOTICE = "[DEMO DATA — FICTIONAL]";
 
 /** Load a page of existing data — used to seed dependent data. */
@@ -49,17 +74,8 @@ async function loadExisting<T>(table: any, limit = 50): Promise<T[]> {
 async function seedPollingCentresAndStations() {
   console.log("  Seeding polling centres and stations…");
 
-  // Check existing
-  const existingStations = await db
-    .select({ id: pollingStationsTable.id })
-    .from(pollingStationsTable)
-    .limit(1);
-  if (existingStations.length) {
-    console.log("    Polling stations already seeded");
-    return db.select().from(pollingStationsTable).limit(40);
-  }
-
-  // Load up to 6 wards (each has constituency + county IDs)
+  // Load first 8 wards from the DB (geography seed must have run first).
+  // These will be the first 8 real wards in Mombasa after the geography update.
   const wards = await db
     .select({
       id: wardsTable.id,
@@ -70,46 +86,113 @@ async function seedPollingCentresAndStations() {
     })
     .from(wardsTable)
     .orderBy(asc(wardsTable.code))
-    .limit(6);
+    .limit(8);
 
   if (!wards.length) {
     console.log("    No wards found — skipping polling centre/station seed");
     return [];
   }
 
-  const stationIds: { id: string }[] = [];
+  let inserted = 0;
+  let updated = 0;
 
   for (let wi = 0; wi < wards.length; wi++) {
     const ward = wards[wi];
 
-    // Create one polling centre per ward
-    const [centre] = await db.insert(pollingCentresTable).values({
-      name: `Demo Centre ${wi + 1} ${FICTIONAL_NOTICE}`,
-      wardId: ward.id,
-      constituencyId: ward.constituencyId,
-      countyId: ward.countyId,
-    }).returning({ id: pollingCentresTable.id });
+    // Look up real polling station names for this ward
+    const realStations = _wardStationsMap.get(ward.name.toLowerCase().trim()) ?? [];
+    // Cap at 8 stations per ward so the demo stays manageable
+    const stationsToSeed = realStations.slice(0, 8);
 
-    // Create 3 polling stations per centre
-    for (let si = 1; si <= 3; si++) {
-      const code = `DEMO${String(ward.code).padStart(4, "0")}PS${si}`;
-      const [station] = await db.insert(pollingStationsTable).values({
-        code,
-        name: `Demo Station ${wi + 1}-${si} ${FICTIONAL_NOTICE}`,
-        centreId: centre.id,
-        wardId: ward.id,
-        constituencyId: ward.constituencyId,
-        countyId: ward.countyId,
-        registeredVoters: 500 + wi * 100 + si * 17,
-        accreditationStatus: si <= 2 ? "accredited" : "pending",
-        trainingStatus: si === 1 ? "completed" : "in_progress",
-        reportingStatus: si === 1 ? "reporting" : "not_reported",
-      }).returning({ id: pollingStationsTable.id });
-      stationIds.push({ id: station.id });
+    // The polling centre name = the ward name (each ward maps to one demo centre)
+    const centreName = ward.name;
+
+    // Upsert the polling centre for this ward
+    const existingCentres = await db
+      .select({ id: pollingCentresTable.id })
+      .from(pollingCentresTable)
+      .where(eq(pollingCentresTable.wardId, ward.id))
+      .limit(1);
+
+    let centreId: string;
+
+    if (existingCentres.length) {
+      // Update centre name to the real ward name (replaces any DEMO placeholder)
+      await db
+        .update(pollingCentresTable)
+        .set({ name: centreName })
+        .where(eq(pollingCentresTable.id, existingCentres[0].id));
+      centreId = existingCentres[0].id;
+
+      // Update existing station names to real names (matched by position)
+      const existingStns = await db
+        .select({ id: pollingStationsTable.id })
+        .from(pollingStationsTable)
+        .where(eq(pollingStationsTable.centreId, centreId))
+        .orderBy(asc(pollingStationsTable.code));
+
+      for (let si = 0; si < existingStns.length && si < stationsToSeed.length; si++) {
+        await db
+          .update(pollingStationsTable)
+          .set({ name: stationsToSeed[si] })
+          .where(eq(pollingStationsTable.id, existingStns[si].id));
+        updated++;
+      }
+
+      // Insert extra real stations beyond the original stub count
+      for (let si = existingStns.length; si < stationsToSeed.length; si++) {
+        const code = `W${String(ward.code).padStart(4, "0")}S${String(si + 1).padStart(3, "0")}`;
+        await db.insert(pollingStationsTable).values({
+          code,
+          name: stationsToSeed[si],
+          centreId,
+          wardId: ward.id,
+          constituencyId: ward.constituencyId,
+          countyId: ward.countyId,
+          registeredVoters: 400 + si * 55,
+          accreditationStatus: "accredited",
+          trainingStatus: "completed",
+          reportingStatus: "reporting",
+        });
+        inserted++;
+      }
+    } else {
+      // No existing centre — insert fresh with real names
+      const [centre] = await db
+        .insert(pollingCentresTable)
+        .values({
+          name: centreName,
+          wardId: ward.id,
+          constituencyId: ward.constituencyId,
+          countyId: ward.countyId,
+        })
+        .returning({ id: pollingCentresTable.id });
+      centreId = centre.id;
+
+      for (let si = 0; si < stationsToSeed.length; si++) {
+        const code = `W${String(ward.code).padStart(4, "0")}S${String(si + 1).padStart(3, "0")}`;
+        await db.insert(pollingStationsTable).values({
+          code,
+          name: stationsToSeed[si],
+          centreId,
+          wardId: ward.id,
+          constituencyId: ward.constituencyId,
+          countyId: ward.countyId,
+          registeredVoters: 400 + si * 55,
+          accreditationStatus: si === 0 ? "accredited" : "pending",
+          trainingStatus: si === 0 ? "completed" : "in_progress",
+          reportingStatus: si === 0 ? "reporting" : "not_reported",
+        });
+        inserted++;
+      }
     }
   }
 
-  console.log(`    Inserted ${stationIds.length} polling stations across ${wards.length} wards`);
+  const total = inserted + updated;
+  console.log(
+    `    ${total} polling stations across ${wards.length} wards` +
+    ` (${inserted} inserted, ${updated} updated with real names)`,
+  );
   return db.select().from(pollingStationsTable).limit(40);
 }
 
