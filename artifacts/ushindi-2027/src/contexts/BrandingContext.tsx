@@ -57,11 +57,14 @@ const DEFAULTS: BrandingData = {
 interface BrandingContextValue {
   branding: BrandingData;
   isLoading: boolean;
+  /** True when the branding fetch returned HTTP 403 — the campaign is suspended. */
+  isSuspended: boolean;
 }
 
 const BrandingContext = createContext<BrandingContextValue>({
   branding: DEFAULTS,
   isLoading: true,
+  isSuspended: false,
 });
 
 // ─── Color helpers ────────────────────────────────────────────────────────────
@@ -139,7 +142,13 @@ function applyCssVars(branding: BrandingData) {
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
 export function BrandingProvider({ children }: { children: ReactNode }) {
-  const { data, isLoading } = useGetBranding();
+  const { data, isLoading, error } = useGetBranding();
+
+  // Detect suspended campaign: the branding endpoint returns 403 when the
+  // tenant's isSuspended flag is true.  ApiError carries a numeric .status.
+  const isSuspended =
+    (error as any)?.status === 403 ||
+    (error as any)?.response?.status === 403;
 
   const branding: BrandingData = data
     ? ({ ...DEFAULTS, ...(data as unknown as Partial<BrandingData>) } as BrandingData)
@@ -150,7 +159,7 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
   }, [data]);
 
   return (
-    <BrandingContext.Provider value={{ branding, isLoading }}>
+    <BrandingContext.Provider value={{ branding, isLoading, isSuspended }}>
       {children}
     </BrandingContext.Provider>
   );
@@ -162,4 +171,9 @@ export function useBranding(): BrandingData {
 
 export function useBrandingLoading(): boolean {
   return useContext(BrandingContext).isLoading;
+}
+
+/** True when the campaign is suspended — public portal should show an unavailable page. */
+export function useBrandingSuspended(): boolean {
+  return useContext(BrandingContext).isSuspended;
 }

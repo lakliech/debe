@@ -1,7 +1,7 @@
 import { Link } from "wouter";
 import { ChevronRight, MapPin, Activity, Shield, Users, BookOpen, Newspaper, Calendar, CheckCircle2, Menu, X } from "lucide-react";
 import { useState } from "react";
-import { useBranding } from "@/contexts/BrandingContext";
+import { useBranding, useBrandingSuspended } from "@/contexts/BrandingContext";
 
 const NAV_LINKS = [
   { href: "/about",       label: "About" },
@@ -15,7 +15,22 @@ const NAV_LINKS = [
 export default function Home() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const branding = useBranding();
+  const isSuspended = useBrandingSuspended();
   const nameParts = branding.candidateName.toUpperCase().split(" ");
+
+  if (isSuspended) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-white px-6 text-center gap-6">
+        <div className="text-8xl font-black text-gray-200 font-mono tracking-tighter select-none">404</div>
+        <div className="space-y-2">
+          <h1 className="text-2xl font-extrabold tracking-tight text-gray-900">Campaign Unavailable</h1>
+          <p className="text-gray-500 max-w-sm">
+            This campaign portal is currently unavailable. Please check back later or contact the campaign team directly.
+          </p>
+        </div>
+      </div>
+    );
+  }
   const logoLine1 = nameParts[0] ?? "";
   const logoLine2 = nameParts.slice(1).join(" ");
 

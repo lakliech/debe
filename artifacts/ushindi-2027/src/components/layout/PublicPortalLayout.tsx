@@ -4,7 +4,7 @@ import { Menu, X, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
-import { useBranding } from "@/contexts/BrandingContext";
+import { useBranding, useBrandingSuspended } from "@/contexts/BrandingContext";
 
 interface PublicPortalLayoutProps {
   children: React.ReactNode;
@@ -34,11 +34,29 @@ const footerLinks = [
   { href: "/data-request",        label: "Data Request" },
 ];
 
+function SuspendedPage() {
+  return (
+    <div className="flex flex-col items-center justify-center min-h-screen bg-white px-6 text-center gap-6">
+      <div className="text-8xl font-black text-gray-200 font-mono tracking-tighter select-none">404</div>
+      <div className="space-y-2">
+        <h1 className="text-2xl font-extrabold tracking-tight text-gray-900">Campaign Unavailable</h1>
+        <p className="text-gray-500 max-w-sm">
+          This campaign portal is currently unavailable. Please check back later or contact the campaign team directly.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function PublicPortalLayout({ children }: PublicPortalLayoutProps) {
   const [location] = useLocation();
   const { lang, setLang, t } = useLanguage();
   const [menuOpen, setMenuOpen] = useState(false);
   const branding = useBranding();
+  const isSuspended = useBrandingSuspended();
+
+  // Suspended campaigns get a clean unavailable page instead of the full portal.
+  if (isSuspended) return <SuspendedPage />;
 
   // Split candidateName into two visual lines: first word / rest
   const nameParts = branding.candidateName.toUpperCase().split(" ");
