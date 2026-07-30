@@ -61,7 +61,7 @@ interface BrandingContextValue {
   isSuspended: boolean;
 }
 
-const BrandingContext = createContext<BrandingContextValue>({
+export const BrandingContext = createContext<BrandingContextValue>({
   branding: DEFAULTS,
   isLoading: true,
   isSuspended: false,
