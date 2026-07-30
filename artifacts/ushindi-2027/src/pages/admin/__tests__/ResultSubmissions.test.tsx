@@ -62,7 +62,7 @@ function makeBranding(level: string): BrandingData {
 }
 
 function makeCtx(level: string) {
-  return { branding: makeBranding(level), isLoading: false, isSuspended: false };
+  return { branding: makeBranding(level), isLoading: false, isSuspended: false, isTenant: true };
 }
 
 /** Submission list payload with enough total rows to show pagination (> 20). */

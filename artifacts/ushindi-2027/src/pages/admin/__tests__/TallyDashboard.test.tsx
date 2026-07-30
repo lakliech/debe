@@ -62,7 +62,7 @@ function makeBranding(level: string): BrandingData {
 }
 
 function makeCtx(level: string) {
-  return { branding: makeBranding(level), isLoading: false, isSuspended: false };
+  return { branding: makeBranding(level), isLoading: false, isSuspended: false, isTenant: true };
 }
 
 /** All geography level button text labels as they appear in the component. */

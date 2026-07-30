@@ -59,12 +59,19 @@ interface BrandingContextValue {
   isLoading: boolean;
   /** True when the branding fetch returned HTTP 403 — the campaign is suspended. */
   isSuspended: boolean;
+  /**
+   * True when real tenant branding was successfully loaded from the API.
+   * False means the visitor is on the base platform domain (no tenant subdomain),
+   * so the platform landing page should be shown instead of a campaign page.
+   */
+  isTenant: boolean;
 }
 
 export const BrandingContext = createContext<BrandingContextValue>({
   branding: DEFAULTS,
   isLoading: true,
   isSuspended: false,
+  isTenant: false,
 });
 
 // ─── Color helpers ────────────────────────────────────────────────────────────
@@ -158,8 +165,13 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
     if (data) applyCssVars(branding);
   }, [data]);
 
+  // isTenant is an explicit field the API sets to true only when a real tenant
+  // was resolved from the request subdomain/header. Neutral/default responses
+  // always carry isTenant: false, so !!data alone is not a reliable signal.
+  const isTenant = !!(data as any)?.isTenant;
+
   return (
-    <BrandingContext.Provider value={{ branding, isLoading, isSuspended }}>
+    <BrandingContext.Provider value={{ branding, isLoading, isSuspended, isTenant }}>
       {children}
     </BrandingContext.Provider>
   );
@@ -176,4 +188,13 @@ export function useBrandingLoading(): boolean {
 /** True when the campaign is suspended — public portal should show an unavailable page. */
 export function useBrandingSuspended(): boolean {
   return useContext(BrandingContext).isSuspended;
+}
+
+/**
+ * True when the visitor is on a tenant subdomain and real campaign branding has
+ * loaded from the API.  False means the visitor is on the base platform domain,
+ * so the Debe platform landing page should be shown instead of a campaign page.
+ */
+export function useBrandingTenant(): boolean {
+  return useContext(BrandingContext).isTenant;
 }

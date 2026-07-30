@@ -57,6 +57,7 @@ router.get("/branding", resolveTenantMixed, async (req: any, res: any) => {
   try {
     const t = (req as any).tenant as import("../lib/withTenant").TenantInfo | undefined;
     const neutral = {
+      isTenant: false,
       campaignName: "Your Campaign",
       candidateName: "Your Candidate",
       positionTitle: "Your Position",
@@ -87,9 +88,10 @@ router.get("/branding", resolveTenantMixed, async (req: any, res: any) => {
       .limit(1);
 
     if (!branding) {
-      return res.json(neutral);
+      // Tenant resolved but no branding row yet — still a real tenant
+      return res.json({ ...neutral, isTenant: true });
     }
-    res.json({ ...branding, updatedAt: branding.updatedAt?.toISOString() });
+    res.json({ isTenant: true, ...branding, updatedAt: branding.updatedAt?.toISOString() });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
