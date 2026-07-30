@@ -107,6 +107,7 @@ router.patch("/branding", requireAuth, resolveTenant, canUpdateBranding, async (
       primaryColor, secondaryColor, accentColor,
       logoUrl, faviconUrl, tagline, electionYear, mpesaPaybill, electionLevel, websiteUrl,
       socialTwitter, socialFacebook, socialInstagram,
+      heroSubtagline, primaryCtaLabel, primaryCtaUrl, secondaryCtaLabel, secondaryCtaUrl,
     } = req.body;
 
     const updates: any = {};
@@ -127,6 +128,12 @@ router.patch("/branding", requireAuth, resolveTenant, canUpdateBranding, async (
     if (socialTwitter !== undefined) updates.socialTwitter = socialTwitter;
     if (socialFacebook !== undefined) updates.socialFacebook = socialFacebook;
     if (socialInstagram !== undefined) updates.socialInstagram = socialInstagram;
+    // Hero copy fields
+    if (heroSubtagline !== undefined) updates.heroSubtagline = heroSubtagline || null;
+    if (primaryCtaLabel !== undefined) updates.primaryCtaLabel = primaryCtaLabel || null;
+    if (primaryCtaUrl !== undefined) updates.primaryCtaUrl = primaryCtaUrl || null;
+    if (secondaryCtaLabel !== undefined) updates.secondaryCtaLabel = secondaryCtaLabel || null;
+    if (secondaryCtaUrl !== undefined) updates.secondaryCtaUrl = secondaryCtaUrl || null;
 
     const [existing] = await db
       .select()

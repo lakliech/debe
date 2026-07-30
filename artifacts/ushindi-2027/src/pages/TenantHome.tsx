@@ -172,21 +172,21 @@ export default function TenantHome() {
             {branding.tagline}
           </h1>
           <p className="text-lg text-gray-600 max-w-xl leading-relaxed">
-            Get informed, get involved, and make your voice count.
+            {branding.heroSubtagline || "Get informed, get involved, and make your voice count."}
           </p>
           <div className="flex flex-col sm:flex-row gap-3 mt-2">
             <Link
-              href="/manifesto"
+              href={branding.primaryCtaUrl || "/manifesto"}
               className="bg-primary text-white hover:bg-primary/90 px-8 py-4 font-black text-base tracking-widest uppercase transition-all flex items-center justify-center gap-2 group"
             >
-              Read the Manifesto
+              {branding.primaryCtaLabel || "Read the Manifesto"}
               <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
             </Link>
             <Link
-              href="/volunteer-register"
+              href={branding.secondaryCtaUrl || "/volunteer-register"}
               className="bg-black text-white hover:bg-black/80 px-8 py-4 font-black text-base tracking-widest uppercase transition-all flex items-center justify-center"
             >
-              Volunteer
+              {branding.secondaryCtaLabel || "Volunteer"}
             </Link>
           </div>
           <div className="flex flex-wrap gap-3 mt-2">

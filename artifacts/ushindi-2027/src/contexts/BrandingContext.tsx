@@ -37,6 +37,12 @@ export interface BrandingData {
   socialTwitter?: string | null;
   socialFacebook?: string | null;
   socialInstagram?: string | null;
+  // Hero copy — editable from Branding Settings; null/empty → TenantHome uses static defaults
+  heroSubtagline?: string | null;
+  primaryCtaLabel?: string | null;
+  primaryCtaUrl?: string | null;
+  secondaryCtaLabel?: string | null;
+  secondaryCtaUrl?: string | null;
   updatedAt: string;
 }
 

@@ -48,6 +48,12 @@ export const brandingTable = pgTable("branding", {
   socialTwitter: text("social_twitter"),
   socialFacebook: text("social_facebook"),
   socialInstagram: text("social_instagram"),
+  // Hero copy fields — editable by campaign admins from Branding Settings
+  heroSubtagline: text("hero_subtagline"),        // body copy under the main tagline
+  primaryCtaLabel: text("primary_cta_label"),     // primary button text (default: "Read the Manifesto")
+  primaryCtaUrl: text("primary_cta_url"),         // primary button destination (default: "/manifesto")
+  secondaryCtaLabel: text("secondary_cta_label"), // secondary button text (default: "Volunteer")
+  secondaryCtaUrl: text("secondary_cta_url"),     // secondary button destination (default: "/volunteer-register")
   updatedBy: uuid("updated_by"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

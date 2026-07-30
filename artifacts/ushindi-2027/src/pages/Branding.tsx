@@ -27,6 +27,12 @@ interface BrandingForm {
   socialTwitter: string;
   socialFacebook: string;
   socialInstagram: string;
+  // Hero copy
+  heroSubtagline: string;
+  primaryCtaLabel: string;
+  primaryCtaUrl: string;
+  secondaryCtaLabel: string;
+  secondaryCtaUrl: string;
 }
 
 const DEFAULTS: BrandingForm = {
@@ -46,6 +52,11 @@ const DEFAULTS: BrandingForm = {
   socialTwitter: "",
   socialFacebook: "",
   socialInstagram: "",
+  heroSubtagline: "",
+  primaryCtaLabel: "",
+  primaryCtaUrl: "",
+  secondaryCtaLabel: "",
+  secondaryCtaUrl: "",
 };
 
 function ColorSwatch({ hsl }: { hsl: string }) {
@@ -200,6 +211,11 @@ export default function Branding() {
         socialTwitter: branding.socialTwitter ?? "",
         socialFacebook: branding.socialFacebook ?? "",
         socialInstagram: branding.socialInstagram ?? "",
+        heroSubtagline: (branding as any).heroSubtagline ?? "",
+        primaryCtaLabel: (branding as any).primaryCtaLabel ?? "",
+        primaryCtaUrl: (branding as any).primaryCtaUrl ?? "",
+        secondaryCtaLabel: (branding as any).secondaryCtaLabel ?? "",
+        secondaryCtaUrl: (branding as any).secondaryCtaUrl ?? "",
       });
     }
   }, [branding]);
@@ -227,6 +243,13 @@ export default function Branding() {
           socialTwitter: form.socialTwitter || undefined,
           socialFacebook: form.socialFacebook || undefined,
           socialInstagram: form.socialInstagram || undefined,
+          // Hero copy: always send even when blank so the server can clear saved values.
+          // Empty string is normalized to null by the API; null → TenantHome falls back to default.
+          heroSubtagline: form.heroSubtagline || null,
+          primaryCtaLabel: form.primaryCtaLabel || null,
+          primaryCtaUrl: form.primaryCtaUrl || null,
+          secondaryCtaLabel: form.secondaryCtaLabel || null,
+          secondaryCtaUrl: form.secondaryCtaUrl || null,
         } as any,
       },
       {
@@ -324,6 +347,70 @@ export default function Branding() {
                 min={2024}
                 max={2040}
               />
+            </div>
+          </div>
+
+          {/* Hero copy */}
+          <div className="space-y-4">
+            <h2 className="text-sm font-black tracking-widest text-muted-foreground uppercase">Homepage Hero Copy</h2>
+            <p className="text-xs text-muted-foreground">
+              Customise the body text and call-to-action buttons on your public homepage.
+              Leave any field blank to use the built-in default.
+            </p>
+
+            <div className="space-y-2">
+              <Label className="font-semibold">Hero Sub-tagline</Label>
+              <Input
+                value={form.heroSubtagline}
+                onChange={f("heroSubtagline")}
+                placeholder="Get informed, get involved, and make your voice count."
+                maxLength={200}
+              />
+              <p className="text-xs text-muted-foreground">
+                Appears below the main tagline on the homepage hero.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label className="font-semibold text-sm">Primary Button Label</Label>
+                <Input
+                  value={form.primaryCtaLabel}
+                  onChange={f("primaryCtaLabel")}
+                  placeholder="Read the Manifesto"
+                  maxLength={60}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="font-semibold text-sm">Primary Button Link</Label>
+                <Input
+                  value={form.primaryCtaUrl}
+                  onChange={f("primaryCtaUrl")}
+                  placeholder="/manifesto"
+                  maxLength={200}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label className="font-semibold text-sm">Secondary Button Label</Label>
+                <Input
+                  value={form.secondaryCtaLabel}
+                  onChange={f("secondaryCtaLabel")}
+                  placeholder="Volunteer"
+                  maxLength={60}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="font-semibold text-sm">Secondary Button Link</Label>
+                <Input
+                  value={form.secondaryCtaUrl}
+                  onChange={f("secondaryCtaUrl")}
+                  placeholder="/volunteer-register"
+                  maxLength={200}
+                />
+              </div>
             </div>
           </div>
 
@@ -621,6 +708,40 @@ export default function Branding() {
               </div>
             )}
           </div>
+
+          {/* Hero copy preview */}
+          <Card className="overflow-hidden border shadow-sm">
+            <div className="text-[10px] font-black tracking-widest text-muted-foreground px-4 pt-3 pb-1 uppercase">
+              Homepage Hero Preview
+            </div>
+            <CardContent className="p-4 space-y-3">
+              <div
+                className="text-xl font-black tracking-tighter uppercase leading-tight"
+                style={{ color: "black" }}
+              >
+                {form.tagline || "Your Campaign Tagline"}
+              </div>
+              <p className="text-sm text-gray-500 leading-snug">
+                {form.heroSubtagline || (
+                  <span className="italic text-muted-foreground/60">
+                    Get informed, get involved, and make your voice count.
+                    <span className="not-italic text-[10px] block mt-0.5">(default — leave blank to keep)</span>
+                  </span>
+                )}
+              </p>
+              <div className="flex gap-2 flex-wrap">
+                <span
+                  className="text-white text-xs font-black px-3 py-1.5 uppercase tracking-wider"
+                  style={{ backgroundColor: `hsl(${form.primaryColor})` }}
+                >
+                  {form.primaryCtaLabel || "Read the Manifesto"}
+                </span>
+                <span className="bg-black text-white text-xs font-black px-3 py-1.5 uppercase tracking-wider">
+                  {form.secondaryCtaLabel || "Volunteer"}
+                </span>
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Public portal header preview */}
           <Card className="overflow-hidden border shadow-sm">
