@@ -504,6 +504,9 @@ export default function FormScreen() {
       },
       attempts: 0,
       createdAt: new Date().toISOString(),
+      // Station name label — used by the photo-failure warning banner on the
+      // dashboard to show "Photo for <station> could not be uploaded".
+      label: draft.stationName,
     });
     // Tag the draft so the context can clear it on successful sync
     updateDraft({ queueItemId: queueId });

@@ -29,7 +29,7 @@ export default function Dashboard() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const colors = useColors();
-  const { isOnline, pendingCount, isSyncing, syncNow, lastSyncAt, failedCount, failedQueue, clearFailedItem, saveRefCache } = useOffline();
+  const { isOnline, pendingCount, isSyncing, syncNow, lastSyncAt, failedCount, failedQueue, clearFailedItem, saveRefCache, refCache, failedPhotoUploads, retryPhotoUpload } = useOffline();
   const bio = useBiometrics(userId);
   const { candidateName, electionYear, formName } = useCampaignConfig();
 
@@ -120,6 +120,13 @@ export default function Dashboard() {
 
   const handleSync = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    syncNow();
+  };
+
+  const handleRetryPhotoUpload = (itemId: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    retryPhotoUpload(itemId);
+    // syncNow processes all pending items; the reset item will re-attempt its photo upload
     syncNow();
   };
 
@@ -271,6 +278,46 @@ export default function Dashboard() {
             All synced · Last: {lastSyncAt.toLocaleTimeString()}
           </Text>
         )}
+
+        {/* Photo upload failures — still retryable (in pending queue) */}
+        {failedPhotoUploads.length > 0 && failedPhotoUploads.map((item) => {
+          // Use the item's label if set at enqueue time, otherwise fall back to
+          // the cached assigned station name, then a generic fallback.
+          const stationLabel =
+            item.label ??
+            refCache.assignedStation?.name ??
+            'your station';
+          return (
+            <View key={item.id} style={s.photoFailBanner}>
+              <View style={s.photoFailHeader}>
+                <Ionicons name="warning-outline" size={18} color={colors.warningForeground} />
+                <Text style={s.photoFailTitle} numberOfLines={2}>
+                  ⚠ Photo for {stationLabel} could not be uploaded
+                </Text>
+              </View>
+              <Text style={s.photoFailBody}>
+                The Form 34A photo did not reach the server during the last sync.
+                Reconnect and tap Retry — the submission will be sent with the photo attached.
+              </Text>
+              <View style={s.photoFailActions}>
+                <Pressable
+                  style={({ pressed }) => [s.photoFailRetryBtn, pressed && { opacity: 0.75 }]}
+                  onPress={() => handleRetryPhotoUpload(item.id)}
+                  disabled={isSyncing || !isOnline}
+                >
+                  {isSyncing ? (
+                    <ActivityIndicator size="small" color={colors.warningForeground} />
+                  ) : (
+                    <Feather name="refresh-cw" size={14} color={colors.warningForeground} />
+                  )}
+                  <Text style={s.photoFailRetryLabel}>
+                    {isSyncing ? 'Syncing…' : isOnline ? 'Retry now' : 'Waiting for connection…'}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          );
+        })}
 
         {/* Failed submissions — require agent action */}
         {failedCount > 0 && (
@@ -506,6 +553,44 @@ const styleSheet = (colors: ReturnType<typeof useColors>) =>
       color: '#FFFFFF',
       fontSize: 16,
       fontFamily: 'Inter_700Bold',
+    },
+    photoFailBanner: {
+      backgroundColor: colors.warning,
+      borderRadius: colors.radius,
+      padding: 14,
+      gap: 8,
+      borderWidth: 1,
+      borderColor: colors.warningForeground + '33', // 20% opacity border
+    },
+    photoFailHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+    photoFailTitle: {
+      flex: 1,
+      fontSize: 14,
+      fontFamily: 'Inter_700Bold',
+      color: colors.warningForeground,
+      lineHeight: 20,
+    },
+    photoFailBody: {
+      fontSize: 13,
+      fontFamily: 'Inter_400Regular',
+      color: colors.warningForeground,
+      opacity: 0.85,
+      lineHeight: 18,
+    },
+    photoFailActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 2 },
+    photoFailRetryBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      borderRadius: colors.radius,
+      backgroundColor: 'rgba(0,0,0,0.12)',
+    },
+    photoFailRetryLabel: {
+      fontSize: 13,
+      fontFamily: 'Inter_600SemiBold',
+      color: colors.warningForeground,
     },
     failedCard: {
       backgroundColor: colors.card,

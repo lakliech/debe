@@ -111,6 +111,16 @@ export interface QueueItem {
   attempts: number;
   createdAt: string;
   lastError?: string;
+  /**
+   * Set to true when a Form 34A photo upload failed during the last sync attempt
+   * but the item is still in the pending queue (not yet exhausted MAX_RETRIES).
+   * Drives the "photo could not be uploaded" warning banner on the dashboard.
+   * Cleared automatically when the photo upload succeeds or when the agent
+   * taps "Retry" via retryPhotoUpload().
+   */
+  photoUploadFailed?: boolean;
+  /** Display label for the submission (e.g. station name) — set at enqueue time for UI hints. */
+  label?: string;
 }
 
 interface OfflineContextValue {
@@ -133,6 +143,18 @@ interface OfflineContextValue {
   /** Reference data cached from last online session — safe to use when offline */
   refCache: ReferenceCache;
   saveRefCache: (updates: Partial<ReferenceCache>) => void;
+  /**
+   * Pending queue items whose Form 34A photo upload failed on the last sync
+   * attempt but still have retry budget remaining.
+   * Drives the warning banner on the agent dashboard.
+   */
+  failedPhotoUploads: QueueItem[];
+  /**
+   * Reset a photo-failed queue item so it will retry the photo upload on the
+   * next sync. Clears photoUploadFailed and resets the attempt counter.
+   * Call syncNow() afterwards to trigger an immediate retry.
+   */
+  retryPhotoUpload: (id: string) => void;
 }
 
 const OfflineContext = createContext<OfflineContextValue | null>(null);
@@ -150,6 +172,11 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
   const isSyncingRef = useRef(false);
   // Keep a ref to the latest draft so syncNow can clear it when matched
   const draftRef = useRef<Draft | null>(null);
+  // Mirror of queue state kept in a ref so syncNow always reads the current
+  // snapshot, even when called synchronously after retryPhotoUpload(). Without
+  // this, syncNow's useCallback closure captures stale queue state and can run
+  // the just-reset item with its old attempts count.
+  const queueRef = useRef<QueueItem[]>([]);
 
   // Initialize device ID and restore persisted state
   useEffect(() => {
@@ -172,7 +199,11 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
 
       const queueStr = await AsyncStorage.getItem(QUEUE_KEY);
       if (queueStr) {
-        try { setQueue(JSON.parse(queueStr)); } catch { /* ignore */ }
+        try {
+          const parsedQueue = JSON.parse(queueStr) as QueueItem[];
+          setQueue(parsedQueue);
+          queueRef.current = parsedQueue;
+        } catch { /* ignore */ }
       }
 
       const failedStr = await AsyncStorage.getItem(FAILED_KEY);
@@ -239,6 +270,7 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
     async (item: QueueItem) => {
       setQueue((prev) => {
         const next = [...prev, item];
+        queueRef.current = next;
         AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(next)).catch(() => {});
         return next;
       });
@@ -254,6 +286,21 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const retryPhotoUpload = useCallback((id: string) => {
+    setQueue((prev) => {
+      const next = prev.map((item) =>
+        item.id === id
+          ? { ...item, photoUploadFailed: false, attempts: 0, lastError: undefined }
+          : item,
+      );
+      // Update the ref immediately so a syncNow() called on the same tick
+      // processes the reset item with attempts=0, not the stale attempts count.
+      queueRef.current = next;
+      AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  }, []);
+
   const saveRefCache = useCallback((updates: Partial<ReferenceCache>) => {
     setRefCacheState((prev) => {
       const next = { ...prev, ...updates };
@@ -264,6 +311,7 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
 
   const persistQueues = useCallback(
     async (pending: QueueItem[], failed: QueueItem[]) => {
+      queueRef.current = pending;
       setQueue(pending);
       setFailedQueue(failed);
       await Promise.all([
@@ -287,7 +335,10 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
       const remaining: QueueItem[] = [];
       const newFailed: QueueItem[] = [...failedQueue];
 
-      for (const item of queue) {
+      // Read from queueRef.current rather than the closed-over queue state so
+      // that a retryPhotoUpload() call on the same tick is always honoured —
+      // the ref is updated synchronously inside setQueue's updater function.
+      for (const item of queueRef.current) {
         let moved = false;
 
         // Upload pending Form 34A photo — must succeed before submission proceeds.
@@ -320,14 +371,29 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
           } catch { /* network / storage error */ }
 
           if (!photoOk) {
-            // Do not submit without the required photo — keep in retry queue
+            // Do not submit without the required photo — keep in retry queue and
+            // surface the failure to the agent via photoUploadFailed flag.
             if (item.attempts + 1 < MAX_RETRIES) {
-              remaining.push({ ...item, attempts: item.attempts + 1, lastError: 'Form photo upload failed — will retry on next sync' });
+              remaining.push({
+                ...item,
+                attempts: item.attempts + 1,
+                lastError: 'Form photo upload failed — will retry on next sync',
+                photoUploadFailed: true,
+              });
             } else {
-              newFailed.push({ ...item, attempts: item.attempts + 1, lastError: `Form photo could not reach the server after ${MAX_RETRIES} attempts` });
+              // Retry budget exhausted for photo — move to permanent failed queue
+              newFailed.push({
+                ...item,
+                attempts: item.attempts + 1,
+                lastError: `Form 34A photo could not reach the server after ${MAX_RETRIES} attempts`,
+                photoUploadFailed: false,
+              });
             }
             continue;
           }
+
+          // Photo uploaded successfully — syncBody already has formPhotoUrl set above.
+          // Execution continues to the submission step below.
         }
 
         try {
@@ -352,7 +418,8 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
             // 4xx: non-retryable — move to failed queue immediately
             const errBody = await res.json().catch(() => ({})) as Record<string, string>;
             const errorMsg = errBody?.error ?? errBody?.message ?? `Server rejected submission (HTTP ${res.status})`;
-            newFailed.push({ ...item, lastError: errorMsg, attempts: item.attempts + 1 });
+            // Photo succeeded (if applicable) so clear the flag
+            newFailed.push({ ...item, lastError: errorMsg, attempts: item.attempts + 1, photoUploadFailed: false });
             moved = true;
           } else {
             // 5xx: retryable server error
@@ -363,13 +430,15 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
 
         if (!moved) {
           if (item.attempts + 1 < MAX_RETRIES) {
-            remaining.push({ ...item, attempts: item.attempts + 1 });
+            // Photo succeeded (we're past the photoOk check), so clear the flag
+            remaining.push({ ...item, attempts: item.attempts + 1, photoUploadFailed: false });
           } else {
             // Retry budget exhausted — move to failed queue
             newFailed.push({
               ...item,
               lastError: `Failed after ${MAX_RETRIES} attempts — check connectivity`,
               attempts: item.attempts + 1,
+              photoUploadFailed: false,
             });
           }
         }
@@ -381,7 +450,9 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
       isSyncingRef.current = false;
       setIsSyncing(false);
     }
-  }, [queue, failedQueue, isOnline, getToken, persistQueues]);
+  // queue intentionally omitted — syncNow reads queueRef.current directly so
+  // it always processes the freshest snapshot without stale-closure races.
+  }, [failedQueue, isOnline, getToken, persistQueues]);
 
   return (
     <OfflineContext.Provider
@@ -404,6 +475,8 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
         lastSyncAt,
         refCache,
         saveRefCache,
+        failedPhotoUploads: queue.filter((i) => i.photoUploadFailed === true),
+        retryPhotoUpload,
       }}
     >
       {children}
