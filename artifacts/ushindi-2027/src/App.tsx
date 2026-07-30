@@ -231,11 +231,6 @@ function BrandingAwareClerkProvider() {
   const clerkAppearance = {
     theme: shadcn,
     cssLayerName: "clerk",
-    options: {
-      logoPlacement: "inside" as const,
-      logoLinkUrl: basePath || "/",
-      logoImageUrl: `${window.location.origin}${basePath}/logo.svg`,
-    },
     variables: {
       colorPrimary: primaryHsl,
       colorForeground: "hsl(0, 0%, 10%)",
