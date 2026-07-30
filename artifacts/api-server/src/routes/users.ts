@@ -7,7 +7,7 @@ import {
   rolesTable,
   userSuspensionsTable,
 } from "@workspace/db";
-import { eq, and, desc, inArray } from "drizzle-orm";
+import { eq, and, or, isNull, desc, inArray } from "drizzle-orm";
 import { requireRoles, requireLevel, bustActorCache } from "../middlewares/rbac";
 import { resolveTenant } from "../middlewares/resolveTenant";
 import { tenantFilter, assertTenant } from '../lib/withTenant';
@@ -76,8 +76,14 @@ async function getUserWithRoles(id: string, tenantId?: string | null) {
     .limit(1);
   if (!user[0]) return null;
 
+  // Include both tenant-scoped roles AND platform-level roles (tenant_id IS NULL)
+  // so that a user with NULL-tenant platform roles always sees them regardless
+  // of which tenant context is active on the request.
   const roleWhere = tenantId
-    ? and(eq(userRolesTable.userId, id), eq(userRolesTable.tenantId, tenantId))
+    ? and(
+        eq(userRolesTable.userId, id),
+        or(eq(userRolesTable.tenantId, tenantId), isNull(userRolesTable.tenantId)),
+      )
     : eq(userRolesTable.userId, id);
 
   const roles = await db
@@ -135,7 +141,10 @@ router.get("/me", requireAuth, async (req: any, res: any) => {
         .select({ roleId: rolesTable.id, roleName: rolesTable.name, roleSlug: rolesTable.slug, tenantId: userRolesTable.tenantId, countyId: userRolesTable.countyId, constituencyId: userRolesTable.constituencyId, wardId: userRolesTable.wardId })
         .from(userRolesTable)
         .innerJoin(rolesTable, eq(userRolesTable.roleId, rolesTable.id))
-        .where(and(eq(userRolesTable.userId, newUser.id!), eq(userRolesTable.tenantId, tenantId)));
+        .where(and(
+          eq(userRolesTable.userId, newUser.id!),
+          or(eq(userRolesTable.tenantId, tenantId), isNull(userRolesTable.tenantId)),
+        ));
       return res.json({ ...newUser, roles: tenantRoles });
     }
     return res.json(newUser);

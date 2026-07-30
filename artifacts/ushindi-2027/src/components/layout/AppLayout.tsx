@@ -152,7 +152,8 @@ function useUserAccess(): UserAccess {
         return r.json();
       }),
     staleTime: 5 * 60 * 1000,  // 5 minutes — only refresh on role changes
-    retry: false,
+    retry: 2,                  // allow 2 retries before falling back to ERROR_ACCESS
+    retryDelay: 1_500,
   });
 
   // Still fetching — show everything temporarily to avoid a jarring empty sidebar.
