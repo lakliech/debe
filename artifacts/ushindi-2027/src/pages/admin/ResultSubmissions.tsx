@@ -10,6 +10,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useBranding } from "@/contexts/BrandingContext";
+import { getLevelOptions } from "@/lib/electionLevel";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -49,6 +51,14 @@ export default function ResultSubmissions() {
   const [electionId, setElectionId] = useState("all");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+
+  // Derive which geography filters are relevant for this campaign's election level.
+  // getLevelOptions returns the subset of ["national","county","constituency","ward"]
+  // that applies to the configured race — e.g. MCA only has ["ward"].
+  const { electionLevel } = useBranding();
+  const levelOptions = getLevelOptions(electionLevel);
+  const showCountyFilter = levelOptions.includes("county");
+  const showConstituencyFilter = levelOptions.includes("constituency");
 
   const params = new URLSearchParams();
   if (tab === "queue") {
@@ -132,24 +142,28 @@ export default function ResultSubmissions() {
             </SelectContent>
           </Select>
         )}
-        <Select value={countyId} onValueChange={(v) => { setCountyId(v); setPage(1); }}>
-          <SelectTrigger className="w-44"><SelectValue placeholder="All Counties" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Counties</SelectItem>
-            {(data?.counties ?? []).map((c: any) => (
-              <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={constituencyId} onValueChange={(v) => { setConstituencyId(v); setPage(1); }}>
-          <SelectTrigger className="w-48"><SelectValue placeholder="All Constituencies" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Constituencies</SelectItem>
-            {(data?.constituencies ?? []).map((c: any) => (
-              <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {showCountyFilter && (
+          <Select value={countyId} onValueChange={(v) => { setCountyId(v); setPage(1); }}>
+            <SelectTrigger className="w-44"><SelectValue placeholder="All Counties" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Counties</SelectItem>
+              {(data?.counties ?? []).map((c: any) => (
+                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        {showConstituencyFilter && (
+          <Select value={constituencyId} onValueChange={(v) => { setConstituencyId(v); setPage(1); }}>
+            <SelectTrigger className="w-48"><SelectValue placeholder="All Constituencies" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Constituencies</SelectItem>
+              {(data?.constituencies ?? []).map((c: any) => (
+                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
         <Select value={electionId} onValueChange={(v) => { setElectionId(v); setPage(1); }}>
           <SelectTrigger className="w-44"><SelectValue placeholder="All Elections" /></SelectTrigger>
           <SelectContent>
