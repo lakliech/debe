@@ -18,6 +18,8 @@ import { db } from "@workspace/db";
 import {
   tenantsTable,
   userRolesTable,
+  rolesTable,
+  usersTable,
   brandingTable,
   campaignStationProfilesTable,
   resultSubmissionsTable,
@@ -27,8 +29,10 @@ import {
   countiesTable,
   constituenciesTable,
   wardsTable,
+  auditLogsTable,
 } from "@workspace/db";
-import { eq, sql, and, or, isNull, isNotNull, notExists, lt, gt, ne } from "drizzle-orm";
+import { eq, sql, and, or, isNull, isNotNull, notExists, lt, gt, ne, ilike, desc, inArray } from "drizzle-orm";
+import { bustActorCache } from "../middlewares/rbac";
 import { requireLevel } from "../middlewares/rbac";
 
 const router = Router();
@@ -503,6 +507,309 @@ router.get("/ops/:tenantId", requireAuth, requireLevel(0), async (req: any, res:
     ]);
 
     res.json({ countyBreakdown, silentStations });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Helpers for platform user routes ─────────────────────────────────────────
+
+/** Resolve a Clerk user ID to the local users.id UUID (or null). */
+async function resolveActorUUID(clerkId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ id: usersTable.id, email: usersTable.email, fullName: usersTable.fullName })
+    .from(usersTable)
+    .where(eq(usersTable.clerkId, clerkId))
+    .limit(1);
+  return row ? row.id : null;
+}
+
+async function resolveActorFull(clerkId: string) {
+  const [row] = await db
+    .select({ id: usersTable.id, email: usersTable.email, fullName: usersTable.fullName })
+    .from(usersTable)
+    .where(eq(usersTable.clerkId, clerkId))
+    .limit(1);
+  return row ?? null;
+}
+
+/** Get a user with all of their role assignments (all tenants) and geographic scope names. */
+async function getPlatformUserDetail(userId: string) {
+  const [user] = await db
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.id, userId))
+    .limit(1);
+  if (!user) return null;
+
+  const assignments = await db
+    .select({
+      assignmentId: userRolesTable.id,
+      tenantId: userRolesTable.tenantId,
+      tenantName: tenantsTable.name,
+      tenantSlug: tenantsTable.slug,
+      roleId: rolesTable.id,
+      roleName: rolesTable.name,
+      roleSlug: rolesTable.slug,
+      roleLevel: rolesTable.level,
+      countyId: userRolesTable.countyId,
+      countyName: countiesTable.name,
+      constituencyId: userRolesTable.constituencyId,
+      constituencyName: constituenciesTable.name,
+      wardId: userRolesTable.wardId,
+      wardName: wardsTable.name,
+      assignedBy: userRolesTable.assignedBy,
+      createdAt: userRolesTable.createdAt,
+    })
+    .from(userRolesTable)
+    .innerJoin(rolesTable, eq(userRolesTable.roleId, rolesTable.id))
+    .leftJoin(tenantsTable, eq(userRolesTable.tenantId, tenantsTable.id))
+    .leftJoin(countiesTable, eq(userRolesTable.countyId, countiesTable.id))
+    .leftJoin(constituenciesTable, eq(userRolesTable.constituencyId, constituenciesTable.id))
+    .leftJoin(wardsTable, eq(userRolesTable.wardId, wardsTable.id))
+    .where(eq(userRolesTable.userId, userId))
+    .orderBy(desc(userRolesTable.createdAt));
+
+  return { ...user, assignments };
+}
+
+// ── GET /api/platform/users ───────────────────────────────────────────────────
+// Cross-tenant user search. Searchable by email or full name.
+// Query params: q (search string), tenantId (filter), page, limit
+router.get("/users", requireAuth, requireLevel(0), async (req: any, res: any) => {
+  try {
+    const q = (req.query.q as string | undefined)?.trim() ?? "";
+    const filterTenantId = req.query.tenantId as string | undefined;
+    const page = Math.max(1, parseInt(req.query.page as string ?? "1", 10));
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string ?? "50", 10)));
+    const offset = (page - 1) * limit;
+
+    // Build WHERE conditions on the users table
+    const searchConditions = q.length > 0
+      ? or(ilike(usersTable.email, `%${q}%`), ilike(usersTable.fullName, `%${q}%`))
+      : undefined;
+
+    // When tenantId is provided we must JOIN user_roles BEFORE pagination so that
+    // we only paginate over users who actually belong to that tenant — not the full
+    // user table. Post-pagination filtering would break page sizes and counts.
+    let users: Array<{ id: string; email: string; fullName: string; status: string; isGlobalAdmin: boolean; lastLoginAt: Date | null; createdAt: Date }>;
+
+    if (filterTenantId) {
+      // Inner join constrains the candidate set to members of the target tenant
+      users = await db
+        .selectDistinctOn([usersTable.id], {
+          id: usersTable.id,
+          email: usersTable.email,
+          fullName: usersTable.fullName,
+          status: usersTable.status,
+          isGlobalAdmin: usersTable.isGlobalAdmin,
+          lastLoginAt: usersTable.lastLoginAt,
+          createdAt: usersTable.createdAt,
+        })
+        .from(usersTable)
+        .innerJoin(
+          userRolesTable,
+          and(
+            eq(userRolesTable.userId, usersTable.id),
+            eq(userRolesTable.tenantId, filterTenantId),
+          ),
+        )
+        .where(searchConditions)
+        .orderBy(usersTable.id, desc(usersTable.createdAt))
+        .limit(limit)
+        .offset(offset);
+    } else {
+      users = await db
+        .selectDistinctOn([usersTable.id], {
+          id: usersTable.id,
+          email: usersTable.email,
+          fullName: usersTable.fullName,
+          status: usersTable.status,
+          isGlobalAdmin: usersTable.isGlobalAdmin,
+          lastLoginAt: usersTable.lastLoginAt,
+          createdAt: usersTable.createdAt,
+        })
+        .from(usersTable)
+        .where(searchConditions)
+        .orderBy(usersTable.id, desc(usersTable.createdAt))
+        .limit(limit)
+        .offset(offset);
+    }
+
+    if (users.length === 0) {
+      return res.json({ users: [], page, limit });
+    }
+
+    const userIds = users.map((u) => u.id);
+
+    // Fetch all tenant memberships for the result set
+    const membershipRows = await db
+      .select({
+        userId: userRolesTable.userId,
+        tenantId: tenantsTable.id,
+        tenantName: tenantsTable.name,
+        tenantSlug: tenantsTable.slug,
+        roleCount: sql<number>`CAST(COUNT(*) AS INTEGER)`,
+      })
+      .from(userRolesTable)
+      .innerJoin(tenantsTable, eq(userRolesTable.tenantId, tenantsTable.id))
+      .where(inArray(userRolesTable.userId, userIds))
+      .groupBy(userRolesTable.userId, tenantsTable.id, tenantsTable.name, tenantsTable.slug);
+
+    const membershipMap: Record<string, Array<{ tenantId: string; tenantName: string; tenantSlug: string; roleCount: number }>> = {};
+    for (const row of membershipRows) {
+      if (!membershipMap[row.userId]) membershipMap[row.userId] = [];
+      membershipMap[row.userId].push({
+        tenantId: row.tenantId,
+        tenantName: row.tenantName,
+        tenantSlug: row.tenantSlug,
+        roleCount: row.roleCount,
+      });
+    }
+
+    const result = users.map((u) => ({ ...u, tenants: membershipMap[u.id] ?? [] }));
+    res.json({ users: result, page, limit });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/platform/users/:id ───────────────────────────────────────────────
+router.get("/users/:id", requireAuth, requireLevel(0), async (req: any, res: any) => {
+  try {
+    const user = await getPlatformUserDetail(req.params.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+    res.json(user);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/platform/users/:id/roles ───────────────────────────────────────
+// Assign a role to any user across any tenant. Writes an audit entry.
+router.post("/users/:id/roles", requireAuth, requireLevel(0), async (req: any, res: any) => {
+  try {
+    const { tenantId, roleId, countyId, constituencyId, wardId } = req.body as {
+      tenantId?: string;
+      roleId?: string;
+      countyId?: string;
+      constituencyId?: string;
+      wardId?: string;
+    };
+    if (!roleId) return res.status(400).json({ error: "roleId is required" });
+
+    // Verify target user exists
+    const [targetUser] = await db
+      .select({ id: usersTable.id, clerkId: usersTable.clerkId, email: usersTable.email, fullName: usersTable.fullName })
+      .from(usersTable)
+      .where(eq(usersTable.id, req.params.id))
+      .limit(1);
+    if (!targetUser) return res.status(404).json({ error: "User not found" });
+
+    // Verify role exists
+    const [role] = await db.select().from(rolesTable).where(eq(rolesTable.id, roleId)).limit(1);
+    if (!role) return res.status(404).json({ error: "Role not found" });
+
+    const actor = await resolveActorFull(req.clerkId);
+
+    const [assignment] = await db
+      .insert(userRolesTable)
+      .values({
+        userId: req.params.id,
+        roleId,
+        tenantId: tenantId ?? null,
+        countyId: countyId ?? null,
+        constituencyId: constituencyId ?? null,
+        wardId: wardId ?? null,
+        assignedBy: actor?.id ?? null,
+      })
+      .returning();
+
+    // Audit entry
+    if (actor) {
+      await db.insert(auditLogsTable).values({
+        tenantId: tenantId ?? null,
+        userId: actor.id,
+        userEmail: actor.email,
+        userFullName: actor.fullName,
+        action: "assign_role",
+        resource: "user_role",
+        resourceId: assignment.id,
+        newValue: JSON.stringify({ userId: req.params.id, roleId, roleName: role.name, tenantId: tenantId ?? null }),
+      });
+    }
+
+    // Evict role cache for the target user
+    bustActorCache(targetUser.clerkId);
+
+    const updated = await getPlatformUserDetail(req.params.id);
+    res.status(201).json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── DELETE /api/platform/users/:id/roles/:roleAssignmentId ───────────────────
+// Remove a specific role assignment. Writes an audit entry.
+router.delete("/users/:id/roles/:roleAssignmentId", requireAuth, requireLevel(0), async (req: any, res: any) => {
+  try {
+    const { id, roleAssignmentId } = req.params;
+
+    // Verify target user exists and owns this assignment
+    const [targetUser] = await db
+      .select({ id: usersTable.id, clerkId: usersTable.clerkId })
+      .from(usersTable)
+      .where(eq(usersTable.id, id))
+      .limit(1);
+    if (!targetUser) return res.status(404).json({ error: "User not found" });
+
+    const [existing] = await db
+      .select({
+        id: userRolesTable.id,
+        tenantId: userRolesTable.tenantId,
+        roleId: userRolesTable.roleId,
+        roleName: rolesTable.name,
+      })
+      .from(userRolesTable)
+      .innerJoin(rolesTable, eq(userRolesTable.roleId, rolesTable.id))
+      .where(and(eq(userRolesTable.id, roleAssignmentId), eq(userRolesTable.userId, id)))
+      .limit(1);
+    if (!existing) return res.status(404).json({ error: "Role assignment not found" });
+
+    await db
+      .delete(userRolesTable)
+      .where(and(eq(userRolesTable.id, roleAssignmentId), eq(userRolesTable.userId, id)));
+
+    // Audit entry
+    const actor = await resolveActorFull(req.clerkId);
+    if (actor) {
+      await db.insert(auditLogsTable).values({
+        tenantId: existing.tenantId ?? null,
+        userId: actor.id,
+        userEmail: actor.email,
+        userFullName: actor.fullName,
+        action: "remove_role",
+        resource: "user_role",
+        resourceId: roleAssignmentId,
+        oldValue: JSON.stringify({ userId: id, roleId: existing.roleId, roleName: existing.roleName, tenantId: existing.tenantId }),
+      });
+    }
+
+    // Evict role cache
+    bustActorCache(targetUser.clerkId);
+
+    res.status(204).end();
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/platform/roles ───────────────────────────────────────────────────
+// All available roles — used by the role inspector UI to populate dropdowns.
+router.get("/roles", requireAuth, requireLevel(0), async (_req: any, res: any) => {
+  try {
+    const roles = await db.select().from(rolesTable).orderBy(rolesTable.level, rolesTable.name);
+    res.json(roles);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

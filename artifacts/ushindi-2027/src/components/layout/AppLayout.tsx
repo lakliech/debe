@@ -79,6 +79,7 @@ const campaignAdminNav = [
 // tenants (counties, constituencies, wards), not per-campaign configuration.
 const platformNav = [
   { name: "Platform Admin", href: "/platform-admin", icon: Building2 },
+  { name: "User Search", href: "/platform/users", icon: Search },
   { name: "Operations Monitor", href: "/platform/ops", icon: Radio },
   { name: "Geography", href: "/geography", icon: MapPin },
 ];
