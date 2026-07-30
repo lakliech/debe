@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { ClipboardList, Search, AlertCircle } from "lucide-react";
@@ -59,6 +59,17 @@ export default function ResultSubmissions() {
   const levelOptions = getLevelOptions(electionLevel);
   const showCountyFilter = levelOptions.includes("county");
   const showConstituencyFilter = levelOptions.includes("constituency");
+
+  // Reset stale filter values when their UI control becomes hidden.
+  // Without this, countyId / constituencyId would still be appended to the
+  // API query string even though the user has no way to see or clear them.
+  useEffect(() => {
+    if (!showCountyFilter) { setCountyId("all"); setPage(1); }
+  }, [showCountyFilter]);
+
+  useEffect(() => {
+    if (!showConstituencyFilter) { setConstituencyId("all"); setPage(1); }
+  }, [showConstituencyFilter]);
 
   const params = new URLSearchParams();
   if (tab === "queue") {
