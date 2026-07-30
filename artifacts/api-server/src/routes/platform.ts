@@ -15,8 +15,20 @@
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
 import { db } from "@workspace/db";
-import { tenantsTable, userRolesTable, brandingTable } from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
+import {
+  tenantsTable,
+  userRolesTable,
+  brandingTable,
+  campaignStationProfilesTable,
+  resultSubmissionsTable,
+  pollingAgentsTable,
+  agentSyncStatusTable,
+  pollingStationsTable,
+  countiesTable,
+  constituenciesTable,
+  wardsTable,
+} from "@workspace/db";
+import { eq, sql, and, or, isNull, isNotNull, notExists, lt, gt, ne } from "drizzle-orm";
 import { requireLevel } from "../middlewares/rbac";
 
 const router = Router();
@@ -292,6 +304,207 @@ router.post("/tenants/:id/invite", requireAuth, requireLevel(0), async (req: any
     res.json({ message: `Invitation sent to ${adminEmail}` });
   } catch (err: any) {
     res.status(502).json({ error: err.message });
+  }
+});
+
+// ── GET /api/platform/ops ─────────────────────────────────────────────────────
+// Live cross-tenant operations summary for the platform owner.
+// Returns per-tenant: station coverage, submission counts, active agents, rate.
+router.get("/ops", requireAuth, requireLevel(0), async (req: any, res: any) => {
+  try {
+    // Any status except 'draft' means the agent pressed Submit — include the full
+    // lifecycle (submitted → auto_validated → exception → …verification chain… → verified).
+    // Using ne() rather than listing statuses is future-proof as new states are added.
+    const notDraft = ne(resultSubmissionsTable.status, "draft");
+
+    const [tenants, stationCounts, subCounts, activeAgentCounts, rateBuckets] =
+      await Promise.all([
+        db
+          .select({ id: tenantsTable.id, name: tenantsTable.name, slug: tenantsTable.slug, isSuspended: tenantsTable.isSuspended })
+          .from(tenantsTable)
+          .orderBy(tenantsTable.createdAt),
+
+        db
+          .select({
+            tenantId: campaignStationProfilesTable.tenantId,
+            total: sql<number>`CAST(COUNT(*) AS INTEGER)`,
+            assigned: sql<number>`CAST(COUNT(${campaignStationProfilesTable.primaryAgentId}) AS INTEGER)`,
+          })
+          .from(campaignStationProfilesTable)
+          .groupBy(campaignStationProfilesTable.tenantId),
+
+        db
+          .select({
+            tenantId: resultSubmissionsTable.tenantId,
+            // Count distinct stations that submitted — not submission rows —
+            // so a station retrying multiple times still counts as 1 covered.
+            received: sql<number>`CAST(COUNT(DISTINCT ${resultSubmissionsTable.pollingStationId}) AS INTEGER)`,
+            lastAt: sql<string | null>`MAX(${resultSubmissionsTable.submittedAt})`,
+          })
+          .from(resultSubmissionsTable)
+          .where(notDraft)
+          .groupBy(resultSubmissionsTable.tenantId),
+
+        db
+          .select({
+            tenantId: pollingAgentsTable.tenantId,
+            active: sql<number>`CAST(COUNT(*) AS INTEGER)`,
+          })
+          .from(pollingAgentsTable)
+          .innerJoin(agentSyncStatusTable, eq(agentSyncStatusTable.agentId, pollingAgentsTable.id))
+          .where(gt(agentSyncStatusTable.lastSeenAt, sql`NOW() - INTERVAL '30 minutes'`))
+          .groupBy(pollingAgentsTable.tenantId),
+
+        // 15-minute submission rate buckets over the last 6 hours
+        db
+          .select({
+            tenantId: resultSubmissionsTable.tenantId,
+            bucket: sql<string>`
+              date_trunc('hour', ${resultSubmissionsTable.submittedAt}) +
+              (FLOOR(EXTRACT(minute FROM ${resultSubmissionsTable.submittedAt}) / 15) * 15 * INTERVAL '1 minute')
+            `,
+            count: sql<number>`CAST(COUNT(*) AS INTEGER)`,
+          })
+          .from(resultSubmissionsTable)
+          .where(
+            and(
+              notDraft,
+              gt(resultSubmissionsTable.submittedAt, sql`NOW() - INTERVAL '6 hours'`),
+            ),
+          )
+          .groupBy(resultSubmissionsTable.tenantId, sql`2`)
+          .orderBy(sql`2`),
+      ]);
+
+    const stationMap = Object.fromEntries(stationCounts.map((r) => [r.tenantId, r]));
+    const subMap = Object.fromEntries(subCounts.map((r) => [r.tenantId, r]));
+    const agentMap = Object.fromEntries(activeAgentCounts.map((r) => [r.tenantId, r.active]));
+    const rateMap: Record<string, Array<{ bucket: string; count: number }>> = {};
+    for (const row of rateBuckets) {
+      const tid = row.tenantId as string;
+      if (!rateMap[tid]) rateMap[tid] = [];
+      rateMap[tid].push({ bucket: row.bucket, count: row.count });
+    }
+
+    const result = tenants.map((t) => {
+      const s = stationMap[t.id];
+      const sub = subMap[t.id];
+      const total = s?.total ?? 0;
+      const received = sub?.received ?? 0;
+      return {
+        tenantId: t.id,
+        name: t.name,
+        slug: t.slug,
+        isSuspended: t.isSuspended,
+        totalStations: total,
+        assignedStations: s?.assigned ?? 0,
+        submissionsReceived: received,
+        coveragePct: total > 0 ? Math.round((received / total) * 100) : 0,
+        lastSubmissionAt: sub?.lastAt ?? null,
+        activeAgents: agentMap[t.id] ?? 0,
+        submissionRate: rateMap[t.id] ?? [],
+      };
+    });
+
+    res.json({ tenants: result, updatedAt: new Date().toISOString() });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/platform/ops/:tenantId ──────────────────────────────────────────
+// Per-tenant drilldown: county/constituency/ward breakdown + silent stations.
+router.get("/ops/:tenantId", requireAuth, requireLevel(0), async (req: any, res: any) => {
+  try {
+    const { tenantId } = req.params;
+    // Exclude only 'draft' — every post-submit state counts as received.
+    // Status flow: draft → submitted → auto_validated → exception → …review chain… → verified
+
+    const [countyBreakdown, silentStations] = await Promise.all([
+      // County-level submission coverage
+      db
+        .select({
+          countyId: countiesTable.id,
+          countyName: countiesTable.name,
+          totalStations: sql<number>`CAST(COUNT(DISTINCT ${campaignStationProfilesTable.stationId}) AS INTEGER)`,
+          // Count stations that have an agent assigned (not distinct agents, which undercounts
+          // when one agent covers multiple stations)
+          assignedStations: sql<number>`CAST(COUNT(DISTINCT CASE WHEN ${campaignStationProfilesTable.primaryAgentId} IS NOT NULL THEN ${campaignStationProfilesTable.stationId} END) AS INTEGER)`,
+          // Count distinct stations covered, not submission rows (retries must not inflate coverage)
+          submissionsReceived: sql<number>`CAST(COUNT(DISTINCT ${resultSubmissionsTable.pollingStationId}) AS INTEGER)`,
+        })
+        .from(countiesTable)
+        .innerJoin(pollingStationsTable, eq(pollingStationsTable.countyId, countiesTable.id))
+        .innerJoin(
+          campaignStationProfilesTable,
+          and(
+            eq(campaignStationProfilesTable.stationId, pollingStationsTable.id),
+            eq(campaignStationProfilesTable.tenantId, tenantId),
+          ),
+        )
+        .leftJoin(
+          resultSubmissionsTable,
+          and(
+            eq(resultSubmissionsTable.pollingStationId, pollingStationsTable.id),
+            eq(resultSubmissionsTable.tenantId, tenantId),
+            ne(resultSubmissionsTable.status, "draft"),
+          ),
+        )
+        .groupBy(countiesTable.id, countiesTable.name)
+        .orderBy(countiesTable.name),
+
+      // Stations with assigned agent, no submitted result, last seen > 2 h ago
+      db
+        .select({
+          stationId: pollingStationsTable.id,
+          stationName: pollingStationsTable.name,
+          stationCode: pollingStationsTable.code,
+          countyName: countiesTable.name,
+          constituencyName: constituenciesTable.name,
+          wardName: wardsTable.name,
+          primaryAgentId: campaignStationProfilesTable.primaryAgentId,
+          lastSeenAt: agentSyncStatusTable.lastSeenAt,
+          syncStatus: agentSyncStatusTable.syncStatus,
+          pendingSubmissions: agentSyncStatusTable.pendingSubmissions,
+        })
+        .from(campaignStationProfilesTable)
+        .innerJoin(pollingStationsTable, eq(pollingStationsTable.id, campaignStationProfilesTable.stationId))
+        .innerJoin(countiesTable, eq(countiesTable.id, pollingStationsTable.countyId))
+        .innerJoin(constituenciesTable, eq(constituenciesTable.id, pollingStationsTable.constituencyId))
+        .innerJoin(wardsTable, eq(wardsTable.id, pollingStationsTable.wardId))
+        .leftJoin(pollingAgentsTable, eq(pollingAgentsTable.id, campaignStationProfilesTable.primaryAgentId))
+        .leftJoin(agentSyncStatusTable, eq(agentSyncStatusTable.agentId, pollingAgentsTable.id))
+        .where(
+          and(
+            eq(campaignStationProfilesTable.tenantId, tenantId),
+            isNotNull(campaignStationProfilesTable.primaryAgentId),
+            // No accepted result submission for this station
+            notExists(
+              db
+                .select({ x: sql`1` })
+                .from(resultSubmissionsTable)
+                .where(
+                  and(
+                    eq(resultSubmissionsTable.pollingStationId, pollingStationsTable.id),
+                    eq(resultSubmissionsTable.tenantId, tenantId),
+                    ne(resultSubmissionsTable.status, "draft"),
+                  ),
+                ),
+            ),
+            // Agent hasn't checked in for 2+ hours (or never)
+            or(
+              isNull(agentSyncStatusTable.lastSeenAt),
+              lt(agentSyncStatusTable.lastSeenAt, sql`NOW() - INTERVAL '2 hours'`),
+            ),
+          ),
+        )
+        .orderBy(countiesTable.name, constituenciesTable.name, wardsTable.name, pollingStationsTable.name)
+        .limit(200),
+    ]);
+
+    res.json({ countyBreakdown, silentStations });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 });
 

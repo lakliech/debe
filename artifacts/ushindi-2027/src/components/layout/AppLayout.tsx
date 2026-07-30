@@ -1,4 +1,4 @@
-import { Shield, Flag, Users, Activity, Settings, MapPin, Search, Menu, LogOut, ChevronRight, DollarSign, Megaphone, Library, Calendar, AlertTriangle, Settings2, ClipboardList, BarChart3, AlertOctagon, Scale, Monitor, Globe, Download, Lock, Vote, Mail, Building2, ChevronsUpDown, Check } from "lucide-react";
+import { Shield, Flag, Users, Activity, Settings, MapPin, Search, Menu, LogOut, ChevronRight, DollarSign, Megaphone, Library, Calendar, AlertTriangle, Settings2, ClipboardList, BarChart3, AlertOctagon, Scale, Monitor, Globe, Download, Lock, Vote, Mail, Building2, ChevronsUpDown, Check, Radio } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useClerk, useUser, useOrganizationList } from "@clerk/react";
 import { useQuery } from "@tanstack/react-query";
@@ -79,6 +79,7 @@ const campaignAdminNav = [
 // tenants (counties, constituencies, wards), not per-campaign configuration.
 const platformNav = [
   { name: "Platform Admin", href: "/platform-admin", icon: Building2 },
+  { name: "Operations Monitor", href: "/platform/ops", icon: Radio },
   { name: "Geography", href: "/geography", icon: MapPin },
 ];
 
