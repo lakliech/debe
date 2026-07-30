@@ -17,6 +17,13 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import {
+  useListCounties,
+  useListConstituencies,
+  useListWards,
+  getListConstituenciesQueryKey,
+  getListWardsQueryKey,
+} from "@workspace/api-client-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -151,8 +158,45 @@ function AddRoleForm({
 }) {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const [form, setForm] = useState({ tenantId: "", roleId: "", countyId: "", constituencyId: "", wardId: "" });
+  const [form, setForm] = useState({
+    tenantId: "",
+    roleId: "",
+    countyId: "",
+    constituencyId: "",
+    wardId: "",
+  });
 
+  // ── Geography dropdowns ──────────────────────────────────────────────────
+  const { data: counties = [], isLoading: countiesLoading } = useListCounties();
+
+  const { data: constituencies = [], isLoading: constsLoading } = useListConstituencies(
+    { countyId: form.countyId },
+    {
+      query: {
+        enabled: !!form.countyId,
+        queryKey: getListConstituenciesQueryKey({ countyId: form.countyId }),
+      },
+    },
+  );
+
+  const { data: wards = [], isLoading: wardsLoading } = useListWards(
+    { constituencyId: form.constituencyId },
+    {
+      query: {
+        enabled: !!form.constituencyId,
+        queryKey: getListWardsQueryKey({ constituencyId: form.constituencyId }),
+      },
+    },
+  );
+
+  function handleCountyChange(countyId: string) {
+    setForm((f) => ({ ...f, countyId, constituencyId: "", wardId: "" }));
+  }
+  function handleConstituencyChange(constituencyId: string) {
+    setForm((f) => ({ ...f, constituencyId, wardId: "" }));
+  }
+
+  // ── Submit ───────────────────────────────────────────────────────────────
   const mutation = useMutation({
     mutationFn: () =>
       apiFetch(`/users/${userId}/roles`, {
@@ -171,20 +215,24 @@ function AddRoleForm({
       toast({ title: "Role assigned", description: "The role has been assigned and the cache flushed." });
       onDone();
     },
-    onError: (e: Error) => toast({ title: "Failed to assign role", description: e.message, variant: "destructive" }),
+    onError: (e: Error) =>
+      toast({ title: "Failed to assign role", description: e.message, variant: "destructive" }),
   });
+
+  const selectCls = "w-full rounded-md border bg-background px-2 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed";
 
   return (
     <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
       <p className="text-sm font-medium">Assign a role</p>
 
+      {/* Campaign + Role */}
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
           <Label className="text-xs">Campaign (tenant)</Label>
           <select
             value={form.tenantId}
             onChange={(e) => setForm((f) => ({ ...f, tenantId: e.target.value }))}
-            className="w-full rounded-md border bg-background px-2 py-1.5 text-sm"
+            className={selectCls}
           >
             <option value="">— Platform-wide —</option>
             {tenants.map((t) => (
@@ -198,7 +246,7 @@ function AddRoleForm({
           <select
             value={form.roleId}
             onChange={(e) => setForm((f) => ({ ...f, roleId: e.target.value }))}
-            className="w-full rounded-md border bg-background px-2 py-1.5 text-sm"
+            className={selectCls}
             required
           >
             <option value="">Select a role…</option>
@@ -209,29 +257,80 @@ function AddRoleForm({
         </div>
       </div>
 
-      <details className="text-xs text-muted-foreground">
-        <summary className="cursor-pointer select-none hover:text-foreground">
+      {/* Geographic scope — cascading dropdowns */}
+      <details className="group">
+        <summary className="cursor-pointer select-none text-xs text-muted-foreground hover:text-foreground">
           Geographic scope (optional)
         </summary>
-        <div className="mt-2 space-y-1">
-          <Input
-            placeholder="County ID"
-            value={form.countyId}
-            onChange={(e) => setForm((f) => ({ ...f, countyId: e.target.value }))}
-            className="h-7 text-xs"
-          />
-          <Input
-            placeholder="Constituency ID"
-            value={form.constituencyId}
-            onChange={(e) => setForm((f) => ({ ...f, constituencyId: e.target.value }))}
-            className="h-7 text-xs"
-          />
-          <Input
-            placeholder="Ward ID"
-            value={form.wardId}
-            onChange={(e) => setForm((f) => ({ ...f, wardId: e.target.value }))}
-            className="h-7 text-xs"
-          />
+
+        <div className="mt-2 space-y-2">
+          {/* County */}
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">County</Label>
+            <select
+              value={form.countyId}
+              onChange={(e) => handleCountyChange(e.target.value)}
+              className={selectCls}
+              disabled={countiesLoading}
+            >
+              <option value="">
+                {countiesLoading ? "Loading…" : "— All counties —"}
+              </option>
+              {counties.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.code.toString().padStart(3, "0")} · {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Constituency — enabled only after a county is chosen */}
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Constituency</Label>
+            <select
+              value={form.constituencyId}
+              onChange={(e) => handleConstituencyChange(e.target.value)}
+              className={selectCls}
+              disabled={!form.countyId || constsLoading}
+            >
+              <option value="">
+                {!form.countyId
+                  ? "Select a county first"
+                  : constsLoading
+                  ? "Loading…"
+                  : "— All constituencies —"}
+              </option>
+              {constituencies.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.code} · {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Ward — enabled only after a constituency is chosen */}
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Ward</Label>
+            <select
+              value={form.wardId}
+              onChange={(e) => setForm((f) => ({ ...f, wardId: e.target.value }))}
+              className={selectCls}
+              disabled={!form.constituencyId || wardsLoading}
+            >
+              <option value="">
+                {!form.constituencyId
+                  ? "Select a constituency first"
+                  : wardsLoading
+                  ? "Loading…"
+                  : "— All wards —"}
+              </option>
+              {wards.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.code} · {w.name}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </details>
 
