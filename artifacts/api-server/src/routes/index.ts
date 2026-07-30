@@ -36,6 +36,7 @@ import contactMessagesRouter from "./contactMessages";
 import platformRouter from "./platform";
 import enquiriesRouter from "./enquiries";
 import adminCleanupRouter from "./adminCleanup";
+import { demoGuard } from "../middlewares/demoGuard";
 
 const router: IRouter = Router();
 
@@ -53,7 +54,7 @@ router.use("/public", resolveTenantPublic);
 // This avoids needing to call resolveTenant inside every individual route handler.
 function withTenant(subrouter: IRouter) {
   const r = Router();
-  r.use(resolveTenant, subrouter);
+  r.use(resolveTenant, demoGuard, subrouter);
   return r;
 }
 
@@ -64,7 +65,10 @@ function withTenant(subrouter: IRouter) {
 // Authenticated routes inside still call assertTenant(req) / requireAuth.
 function withTenantMixed(subrouter: IRouter) {
   const r = Router();
-  r.use(resolveTenantMixed, subrouter);
+  // demoGuard is also embedded in resolveTenant (for inline usages like /config),
+  // but we add it explicitly here as a defence-in-depth layer for unauthenticated
+  // paths that reach resolveTenantPublic instead of resolveTenant.
+  r.use(resolveTenantMixed, demoGuard, subrouter);
   return r;
 }
 

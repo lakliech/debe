@@ -21,6 +21,9 @@ import { eq } from "drizzle-orm";
 import type { Request, Response, NextFunction } from "express";
 import type { Tenant } from "@workspace/db";
 
+/** HTTP methods that mutate state — blocked on the read-only demo tenant. */
+const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
 export interface TenantedRequest extends Request {
   tenant: Tenant;
 }
@@ -66,6 +69,18 @@ export async function resolveTenant(
   }
 
   (req as TenantedRequest).tenant = tenant;
+
+  // Demo guard — block all mutating requests on the shared read-only demo tenant.
+  // Enforced here (inside resolveTenant) so it applies universally: via withTenant(),
+  // via withTenantMixed() for authenticated paths, and in routers (e.g. /config) that
+  // call resolveTenant inline per-route rather than through the helper wrappers.
+  if (tenant.slug === "demo" && MUTATING_METHODS.has(req.method)) {
+    res.status(403).json({
+      error: "Read-only demo — sign up for a real campaign to make changes.",
+    });
+    return;
+  }
+
   next();
 }
 
@@ -136,5 +151,16 @@ export async function resolveTenantPublic(
   }
 
   (req as TenantedRequest).tenant = tenant;
+
+  // Demo guard — also applied here so that unauthenticated public routes
+  // (volunteer registration, supporter sign-up, policy submissions, etc.)
+  // cannot mutate the shared read-only demo tenant.
+  if (tenant.slug === "demo" && MUTATING_METHODS.has(req.method)) {
+    res.status(403).json({
+      error: "Read-only demo — sign up for a real campaign to make changes.",
+    });
+    return;
+  }
+
   next();
 }

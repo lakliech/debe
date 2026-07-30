@@ -4,13 +4,21 @@
  * "Debe" (deh-beh) is Swahili for ballot box.
  */
 import { Link } from "wouter";
-import { ChevronRight, LayoutDashboard, Smartphone, Eye, Globe, CheckCircle, Menu, X } from "lucide-react";
+import { ChevronRight, LayoutDashboard, Smartphone, Eye, Globe, CheckCircle, Menu, X, Copy, ExternalLink } from "lucide-react";
 import { useState } from "react";
 
 const PLATFORM_NAV = [
   { href: "#features",    label: "Features" },
   { href: "#how-it-works", label: "How It Works" },
   { href: "/request-access", label: "Contact" },
+];
+
+const DEMO_URL = "https://demo.debe.co.ke";
+
+const DEMO_CREDENTIALS = [
+  { role: "Campaign Admin",     email: "admin@demo.debe.co.ke",  password: "Demo@2027!" },
+  { role: "County Coordinator", email: "coord@demo.debe.co.ke",  password: "Demo@2027!" },
+  { role: "Field Agent",        email: "agent@demo.debe.co.ke",  password: "Demo@2027!" },
 ];
 
 /** Simple ballot-box SVG illustration for the hero. */
@@ -91,11 +99,125 @@ const STEPS = [
   },
 ];
 
+/** Animated demo credentials card shown when "Try Demo" is clicked. */
+function DemoCredentialsCard({ onClose }: { onClose: () => void }) {
+  const [copied, setCopied] = useState<string | null>(null);
+
+  function copy(text: string, key: string) {
+    navigator.clipboard.writeText(text).catch(() => {});
+    setCopied(key);
+    setTimeout(() => setCopied(null), 1800);
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        className="bg-white w-full max-w-md shadow-2xl animate-in fade-in zoom-in-95 duration-200"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Demo credentials"
+      >
+        {/* Card header */}
+        <div className="bg-slate-950 px-6 py-5 flex items-start justify-between gap-4">
+          <div>
+            <div className="inline-flex items-center gap-1.5 bg-primary/20 border border-primary/30 px-2.5 py-0.5 text-[10px] font-black tracking-[0.2em] uppercase text-primary mb-2">
+              Live Demo
+            </div>
+            <h2 className="text-white font-black text-lg uppercase tracking-tight leading-tight">
+              Try Debe — Read-only
+            </h2>
+            <p className="text-slate-400 text-xs mt-1 leading-relaxed">
+              Pre-seeded campaign environment. All writes are blocked.
+              Resets nightly.
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-slate-500 hover:text-white transition-colors mt-0.5 flex-shrink-0"
+            aria-label="Close"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Credentials rows */}
+        <div className="divide-y divide-gray-100">
+          {DEMO_CREDENTIALS.map(({ role, email, password }) => (
+            <div key={role} className="px-6 py-4">
+              <p className="text-[10px] font-black tracking-[0.18em] uppercase text-gray-400 mb-2">
+                {role}
+              </p>
+              <div className="flex flex-col gap-1.5">
+                {/* Email row */}
+                <div className="flex items-center gap-2">
+                  <span className="flex-1 font-mono text-sm text-slate-800 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-sm truncate">
+                    {email}
+                  </span>
+                  <button
+                    onClick={() => copy(email, `email-${role}`)}
+                    className="text-slate-400 hover:text-primary transition-colors p-1.5"
+                    aria-label={`Copy email for ${role}`}
+                  >
+                    {copied === `email-${role}` ? (
+                      <span className="text-[10px] font-bold text-primary">✓</span>
+                    ) : (
+                      <Copy className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                </div>
+                {/* Password row */}
+                <div className="flex items-center gap-2">
+                  <span className="flex-1 font-mono text-sm text-slate-800 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-sm">
+                    {password}
+                  </span>
+                  <button
+                    onClick={() => copy(password, `pw-${role}`)}
+                    className="text-slate-400 hover:text-primary transition-colors p-1.5"
+                    aria-label={`Copy password for ${role}`}
+                  >
+                    {copied === `pw-${role}` ? (
+                      <span className="text-[10px] font-bold text-primary">✓</span>
+                    ) : (
+                      <Copy className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Open demo button */}
+        <div className="px-6 py-5 border-t border-gray-100 bg-slate-50">
+          <a
+            href={DEMO_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2 bg-primary text-white font-black text-sm tracking-widest uppercase px-6 py-3.5 hover:bg-primary/90 transition-colors w-full"
+          >
+            Open Demo
+            <ExternalLink className="w-4 h-4" />
+          </a>
+          <p className="text-center text-[10px] text-slate-400 mt-3">
+            {DEMO_URL}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function DebeHome() {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [showDemo, setShowDemo] = useState(false);
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-white selection:bg-primary selection:text-white">
+
+      {showDemo && <DemoCredentialsCard onClose={() => setShowDemo(false)} />}
 
       {/* Top bar */}
       <div className="bg-primary text-white text-xs sm:text-sm text-center py-2.5 px-4 font-medium tracking-wide">
@@ -137,6 +259,13 @@ export default function DebeHome() {
           >
             SIGN IN
           </Link>
+          <button
+            onClick={() => setShowDemo(true)}
+            className="border border-primary text-primary hover:bg-primary hover:text-white px-4 py-1.5 font-bold text-xs transition-all tracking-wide hidden sm:flex items-center gap-1.5"
+          >
+            Try Demo
+            <ExternalLink className="w-3 h-3" />
+          </button>
           <Link
             href="/request-access"
             className="bg-primary text-white hover:bg-primary/90 px-5 py-2 font-bold text-sm transition-all tracking-wide hidden sm:block"
@@ -173,6 +302,13 @@ export default function DebeHome() {
             >
               Sign In
             </Link>
+            <button
+              onClick={() => { setMobileOpen(false); setShowDemo(true); }}
+              className="flex-1 text-center text-sm font-bold py-2.5 border border-primary text-primary hover:bg-primary hover:text-white transition-colors flex items-center justify-center gap-1.5"
+            >
+              Try Demo
+              <ExternalLink className="w-3.5 h-3.5" />
+            </button>
             <Link
               href="/request-access"
               className="flex-1 text-center text-sm font-bold py-2.5 bg-primary text-white hover:bg-primary/90 transition-colors"
@@ -213,12 +349,13 @@ export default function DebeHome() {
                   Get Your Campaign on Debe
                   <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
                 </Link>
-                <a
-                  href="#features"
-                  className="border border-white/30 text-white hover:bg-white/10 px-8 py-4 font-black text-base tracking-widest uppercase transition-all flex items-center justify-center"
+                <button
+                  onClick={() => setShowDemo(true)}
+                  className="border border-white/40 text-white hover:bg-white/10 hover:border-white/60 px-8 py-4 font-black text-base tracking-widest uppercase transition-all flex items-center justify-center gap-2"
                 >
-                  See Features
-                </a>
+                  Try Demo
+                  <ExternalLink className="w-4 h-4" />
+                </button>
               </div>
             </div>
 
@@ -320,12 +457,13 @@ export default function DebeHome() {
                 Request Access
                 <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
               </Link>
-              <Link
-                href="/sign-in"
-                className="border-2 border-white text-white font-black text-sm tracking-widest uppercase px-8 py-4 hover:bg-white/10 transition-colors"
+              <button
+                onClick={() => setShowDemo(true)}
+                className="border-2 border-white text-white font-black text-sm tracking-widest uppercase px-8 py-4 hover:bg-white/10 transition-colors flex items-center justify-center gap-2"
               >
-                Sign In
-              </Link>
+                Try Demo
+                <ExternalLink className="w-4 h-4" />
+              </button>
             </div>
           </div>
         </section>

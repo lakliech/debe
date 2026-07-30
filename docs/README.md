@@ -65,6 +65,22 @@ pnpm run dev                  # start API + frontend
 5. **Four-eyes principle** — no single user may hold tally-alteration + payment-approval + audit-erasure privileges simultaneously
 6. **Immutable audit log** — `audit_logs` table has no DELETE route; the privileged-access review screen enforces this
 
+## Live Demo
+
+Try the platform without signing up at **[demo.debe.co.ke](https://demo.debe.co.ke)** — a pre-seeded campaign environment running on the `pro` plan.
+
+| Role | Email | Password |
+|---|---|---|
+| Campaign Admin | admin@demo.debe.co.ke | `Demo@2027!` |
+| County Coordinator | coord@demo.debe.co.ke | `Demo@2027!` |
+| Field Agent | agent@demo.debe.co.ke | `Demo@2027!` |
+
+> The demo tenant is **read-only** — all POST / PUT / PATCH / DELETE requests are blocked with a 403. Sign up for a real campaign to make changes.
+>
+> Demo data is reset nightly. Any accounts you create will be removed.
+
+---
+
 ## M-Pesa Integration
 
 Paybill: **3033049** — all donations via M-Pesa are matched to contributions via `mpesaRef`.
