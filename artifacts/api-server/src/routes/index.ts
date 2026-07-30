@@ -34,6 +34,7 @@ import privilegedAccessRouter from "./privilegedAccess";
 import aspirantsRouter from "./aspirants";
 import contactMessagesRouter from "./contactMessages";
 import platformRouter from "./platform";
+import enquiriesRouter from "./enquiries";
 
 const router: IRouter = Router();
 
@@ -101,5 +102,8 @@ router.use("/contact-messages", withTenant(contactMessagesRouter));
 // Platform admin routes — cross-tenant; no resolveTenant wrapper.
 // requireLevel(0) inside the router gates access to platform_admin holders only.
 router.use("/platform", platformRouter);
+
+// Platform enquiry form — public, unauthenticated, no tenant context.
+router.use("/enquiries", enquiriesRouter);
 
 export default router;

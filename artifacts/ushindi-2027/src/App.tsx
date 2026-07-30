@@ -44,6 +44,7 @@ import AspirantRegisterPage from "./pages/public/AspirantRegister";
 import AspirantsDirectoryPage from "./pages/public/AspirantsDirectory";
 import CrowdfundingPage from "./pages/public/Crowdfunding";
 import DataRequestPage from "./pages/public/DataRequest";
+import RequestAccessPage from "./pages/RequestAccess";
 
 // Admin pages — volunteers, supporters, training, coordinator, DSR
 import VolunteersPage from "./pages/admin/Volunteers";
@@ -309,6 +310,7 @@ function BrandingAwareClerkProvider() {
           <Route path="/aspirants-directory" component={AspirantsDirectoryPage} />
           <Route path="/crowdfunding" component={CrowdfundingPage} />
           <Route path="/data-request" component={DataRequestPage} />
+          <Route path="/request-access" component={RequestAccessPage} />
 
           {/* ── Admin (protected) — original ── */}
           <Route path="/dashboard">

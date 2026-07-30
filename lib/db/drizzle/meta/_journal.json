@@ -134,6 +134,13 @@
       "when": 1785353900000,
       "tag": "0018_custom_domain",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1785418779375,
+      "tag": "0019_illegal_joystick",
+      "breakpoints": true
     }
   ]
 }

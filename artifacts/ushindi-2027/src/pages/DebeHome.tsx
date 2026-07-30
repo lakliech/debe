@@ -8,9 +8,9 @@ import { ChevronRight, LayoutDashboard, Smartphone, Eye, Globe, CheckCircle, Men
 import { useState } from "react";
 
 const PLATFORM_NAV = [
-  { href: "#features", label: "Features" },
+  { href: "#features",    label: "Features" },
   { href: "#how-it-works", label: "How It Works" },
-  { href: "#contact", label: "Contact" },
+  { href: "/request-access", label: "Contact" },
 ];
 
 /** Simple ballot-box SVG illustration for the hero. */
@@ -100,9 +100,9 @@ export default function DebeHome() {
       {/* Top bar */}
       <div className="bg-primary text-white text-xs sm:text-sm text-center py-2.5 px-4 font-medium tracking-wide">
         Debe is built for Kenya's 2027 general election.{" "}
-        <a href="#contact" className="underline underline-offset-2 hover:opacity-80 transition-opacity">
+        <Link href="/request-access" className="underline underline-offset-2 hover:opacity-80 transition-opacity">
           Get your campaign on the platform →
-        </a>
+        </Link>
       </div>
 
       {/* Header */}
@@ -137,12 +137,12 @@ export default function DebeHome() {
           >
             SIGN IN
           </Link>
-          <a
-            href="#contact"
+          <Link
+            href="/request-access"
             className="bg-primary text-white hover:bg-primary/90 px-5 py-2 font-bold text-sm transition-all tracking-wide hidden sm:block"
           >
             GET STARTED
-          </a>
+          </Link>
           <button
             onClick={() => setMobileOpen(!mobileOpen)}
             className="lg:hidden p-2 text-black"
@@ -173,12 +173,12 @@ export default function DebeHome() {
             >
               Sign In
             </Link>
-            <a
-              href="#contact"
+            <Link
+              href="/request-access"
               className="flex-1 text-center text-sm font-bold py-2.5 bg-primary text-white hover:bg-primary/90 transition-colors"
             >
               Get Started
-            </a>
+            </Link>
           </div>
         </div>
       )}
@@ -206,13 +206,13 @@ export default function DebeHome() {
                 multi-tenant, and transparent by design.
               </p>
               <div className="flex flex-col sm:flex-row gap-3 mt-2">
-                <a
-                  href="#contact"
+                <Link
+                  href="/request-access"
                   className="bg-primary text-white hover:bg-primary/90 px-8 py-4 font-black text-base tracking-widest uppercase transition-all flex items-center justify-center gap-2 group"
                 >
                   Get Your Campaign on Debe
                   <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                </a>
+                </Link>
                 <a
                   href="#features"
                   className="border border-white/30 text-white hover:bg-white/10 px-8 py-4 font-black text-base tracking-widest uppercase transition-all flex items-center justify-center"
@@ -313,13 +313,13 @@ export default function DebeHome() {
               </p>
             </div>
             <div className="flex flex-col sm:flex-row gap-4">
-              <a
-                href="mailto:hello@debe.co.ke"
+              <Link
+                href="/request-access"
                 className="bg-white text-primary font-black text-sm tracking-widest uppercase px-8 py-4 hover:bg-white/90 transition-colors flex items-center gap-2 group"
               >
                 Request Access
                 <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-              </a>
+              </Link>
               <Link
                 href="/sign-in"
                 className="border-2 border-white text-white font-black text-sm tracking-widest uppercase px-8 py-4 hover:bg-white/10 transition-colors"
