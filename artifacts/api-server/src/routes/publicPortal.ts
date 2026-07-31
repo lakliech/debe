@@ -39,7 +39,9 @@ const router = Router();
 router.get("/stats", async (req: any, res: any) => {
   try {
     const tenantId = req.tenant?.id;
-    if (!tenantId) return res.json({ volunteers: 0, supporters: 0, campaignName: "Linda Mwananchi", tagline: "It's Time. Be Part of the Change." });
+    // No tenant context — return neutral zeros. The client supplies branding
+    // from its own BrandingContext; the API must never assert a campaign identity.
+    if (!tenantId) return res.json({ volunteers: 0, supporters: 0, campaignName: null, tagline: null });
     const [volunteerCount] = await db.select({ total: count() }).from(volunteersTable)
       .where(and(eq(volunteersTable.status, "active"), tenantFilter(volunteersTable, tenantId)));
     const [supporterCount] = await db.select({ total: count() }).from(supportersTable)
@@ -49,8 +51,8 @@ router.get("/stats", async (req: any, res: any) => {
     res.json({
       volunteers: Number(volunteerCount?.total ?? 0),
       supporters: Number(supporterCount?.total ?? 0),
-      campaignName: branding?.campaignName ?? "Linda Mwananchi",
-      tagline: branding?.tagline ?? "It's Time. Be Part of the Change.",
+      campaignName: branding?.campaignName ?? null,
+      tagline: branding?.tagline ?? null,
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -422,7 +424,7 @@ router.post("/aspirants", publicSubmitLimiter, async (req: any, res: any) => {
     }
 
     res.status(201).json({
-      message: "Declaration received. The Linda Mwananchi 2027 team will review your application.",
+      message: "Declaration received. The campaign team will review your application.",
       aspirant,
     });
   } catch (err: any) {

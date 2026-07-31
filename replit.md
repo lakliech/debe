@@ -86,7 +86,8 @@ eas build --platform android --profile production
 - **Public portal**: landing, manifesto, county priorities, events, news, volunteer/supporter registration, crowdfunding, data requests
 - **Command Centre** (admin): volunteer management, supporter CRM, finance (contributions, budget, expenditure), communications, content library, events management, rapid response / fact-checking
 - **Election Operations**: polling station management, agent deployment, offline-first Form 34A submission, multi-tier verification workflow, tally dashboard, incidents, disputes, transparency portal
-- **Platform admin** (`/platform/*`): tenant management, Election-Day Operations Monitor, User Search & Role Inspector with cascading geography dropdowns; routes skip `resolveTenant` and require `requireLevel(0)`
+- **Platform admin** (`/platform/*`): tenant management, Election-Day Operations Monitor, User Search & Role Inspector with cascading geography dropdowns, Billing & Revenue (MRR/ARR, trials, at-risk), Tenant Lifecycle (suspend / rename / schedule deletion / purge, plus the domain-change review queue); routes skip `resolveTenant` and require `requireLevel(0)`
+- **SaaS surfaces**: neutral platform homepage (`/platform-home`), pricing (`/pricing`), self-serve campaign registration (`/register`, one campaign per founder, starts a 14-day Pro trial), campaign settings hub (`/settings`, tab-driven via `?tab=`), onboarding checklist, trial banner, and a 6-step guided demo tour
 - **Geography** (`/geography`): four-column drill-down — Counties → Constituencies → Wards → Polling Stations — all fetched live from the DB (47 counties, 290 constituencies, 1,450 wards, 24,594 stations)
 - **Compliance**: data subject requests, DPIA register, vendor register, breach register, consent audit, retention policies
 - **Reporting**: 19 downloadable report types (CSV + Excel), all exports logged to immutable audit trail
@@ -115,6 +116,16 @@ eas build --platform android --profile production
 | `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` | Mobile Clerk key |
 | `EXPO_PUBLIC_TENANT_SLUG` | Mobile build-time campaign slug |
 | `EXPO_PUBLIC_DOMAIN` | Mobile API base URL |
+| `BILLING_JOBS_ENABLED` | Set `true` on ONE instance only to run the trial-expiry and tenant-purge crons |
+| `PLATFORM_URL` | Absolute base URL used in emails and Stripe redirect URLs |
+| `SUPPORT_EMAIL` | Address shown to campaigns in lifecycle emails |
+| `EMAIL_PROVIDER` | `resend`, `sendgrid`, or unset (unset = log to stdout, status `skipped`) |
+| `EMAIL_API_KEY` | API key for the chosen email provider |
+| `EMAIL_FROM` | From address for transactional mail |
+| `STRIPE_SECRET_KEY` | Stripe secret key. Unset = billing routes return 503 and the UI hides checkout |
+| `STRIPE_WEBHOOK_SECRET` | Verifies the `/api/billing/webhook` signature |
+| `STRIPE_PRO_PRICE_ID` | Stripe price for the Pro tier |
+| `STRIPE_ENTERPRISE_PRICE_ID` | Stripe price for the Enterprise tier |
 
 ## User preferences
 
@@ -133,6 +144,10 @@ eas build --platform android --profile production
 - `electionIncidentReportsTable` is the correct table (not `electionIncidentsTable`)
 - `auditLogsTable` uses `resource`/`resourceId`/`userId` (not `entityType`/`entityId`/`actorId`)
 - Frontend `useUserAccess` caches `/me` for 5 minutes with `retry: 2` — after a role change, either wait 5 min or invalidate the `["user-me-nav-access"]` query key
+- Never read `tenants.plan` directly — call `getEffectivePlan()`. The stored column is not the granted plan (trials and manual grants ride on `planOverrideUntil`)
+- The Stripe webhook must stay mounted **before** `express.json()` in `app.ts`; Stripe signs raw bytes, so a parsed body fails verification
+- The frontend registers a service worker (`public/sw.js`), so a stale cached bundle can survive an HMR update. When a dev-server change appears not to apply, hard-reload or add a cache-busting query param before assuming the code is wrong
+- Any page that queries an authenticated endpoint while signed out must set `enabled` on the query — the global QueryClient default is `retry: 1`, so an ungated 401 keeps `isLoading` true and pins the page on its loading state
 
 ## Pointers
 

@@ -1,4 +1,4 @@
-import { Shield, Flag, Users, Activity, Settings, MapPin, Search, Menu, LogOut, ChevronRight, DollarSign, Megaphone, Library, Calendar, AlertTriangle, Settings2, ClipboardList, BarChart3, AlertOctagon, Scale, Monitor, Globe, Download, Lock, Vote, Mail, Building2, ChevronsUpDown, Check, Radio } from "lucide-react";
+import { Shield, Flag, Users, Activity, Settings, MapPin, Search, Menu, LogOut, ChevronRight, DollarSign, Megaphone, Library, Calendar, AlertTriangle, Settings2, ClipboardList, BarChart3, AlertOctagon, Scale, Monitor, Globe, Download, Lock, Vote, Mail, Building2, ChevronsUpDown, Check, Radio, CreditCard, LifeBuoy } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useClerk, useUser, useOrganizationList } from "@clerk/react";
 import { useQuery } from "@tanstack/react-query";
@@ -8,6 +8,8 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { useBranding } from "@/contexts/BrandingContext";
 import { ROLES } from "@/lib/constants";
+import DemoTour from "@/components/DemoTour";
+import TrialBanner from "@/components/TrialBanner";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -63,6 +65,7 @@ const electionNav = [
 // Branding and System Config appear first so campaign identity settings
 // are easy to find. Geography moves to Platform (it is shared reference data).
 const campaignAdminNav = [
+  { name: "Settings", href: "/settings", icon: Settings },
   { name: "Branding", href: "/settings/branding", icon: Flag },
   { name: "System Config", href: "/settings/system", icon: Settings },
   { name: "User Management", href: "/users", icon: Users },
@@ -79,6 +82,8 @@ const campaignAdminNav = [
 // tenants (counties, constituencies, wards), not per-campaign configuration.
 const platformNav = [
   { name: "Platform Admin", href: "/platform-admin", icon: Building2 },
+  { name: "Billing & Revenue", href: "/platform/billing", icon: CreditCard },
+  { name: "Tenant Lifecycle", href: "/platform/lifecycle", icon: LifeBuoy },
   { name: "User Search", href: "/platform/users", icon: Search },
   { name: "Operations Monitor", href: "/platform/ops", icon: Radio },
   { name: "Geography", href: "/geography", icon: MapPin },
@@ -296,6 +301,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
   return (
     <div className="flex h-[100dvh] overflow-hidden bg-background">
+      <DemoTour />
+      
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
         <div 
@@ -362,6 +369,16 @@ export default function AppLayout({ children }: AppLayoutProps) {
               <nav className="space-y-0.5">
                 {section.items.map((item) => {
                   const isActive = location === item.href || (item.href !== "/finance" && item.href !== "/communications" && item.href !== "/content-library" && location.startsWith(`${item.href}/`));
+                  
+                  // Add data-tour attributes for tour targets
+                  const tourAttr: Record<string, string> = {};
+                  if (item.href === "/dashboard") tourAttr["data-tour"] = "dashboard";
+                  if (item.href === "/polling-stations") tourAttr["data-tour"] = "polling-stations";
+                  if (item.href === "/polling-agents") tourAttr["data-tour"] = "polling-agents";
+                  if (item.href === "/election-results") tourAttr["data-tour"] = "results";
+                  if (item.href === "/tally") tourAttr["data-tour"] = "tally";
+                  if (item.href === "/transparency-portal") tourAttr["data-tour"] = "transparency";
+                  
                   return (
                     <Link
                       key={item.name}
@@ -373,6 +390,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
                           : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
                       )}
                       onClick={() => setSidebarOpen(false)}
+                      {...tourAttr}
                     >
                       <item.icon className={cn("h-4 w-4 shrink-0", isActive ? "text-sidebar-accent-foreground" : "text-sidebar-foreground/50")} />
                       <span className="truncate flex-1">{item.name}</span>
@@ -448,6 +466,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
           <div className="mx-auto max-w-7xl">
+            {/* Trial / billing state. Renders nothing on a healthy paid plan. */}
+            <TrialBanner />
             {children}
           </div>
         </div>

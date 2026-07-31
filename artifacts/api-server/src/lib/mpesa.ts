@@ -8,12 +8,13 @@
  * Required environment variables for live mode:
  *   MPESA_CONSUMER_KEY        — Daraja API consumer key
  *   MPESA_CONSUMER_SECRET     — Daraja API consumer secret
- *   MPESA_SHORTCODE           — Business shortcode (Paybill 3033049)
+ *   MPESA_SHORTCODE           — Business shortcode (campaign's own Paybill)
  *   MPESA_PASSKEY             — Lipa Na M-Pesa passkey from Daraja portal
  *   MPESA_CALLBACK_URL        — Public HTTPS URL for STK callbacks
  *   MPESA_ENV                 — "sandbox" | "production" (default: "sandbox")
  *
- * Linda Mwananchi Campaign — Paybill: 3033049
+ * Each campaign configures its own Daraja credentials via these environment
+ * variables — no campaign-specific shortcode is hardcoded here.
  */
 
 export interface StkPushRequest {

@@ -108,6 +108,20 @@ app.use(
     },
   }),
 );
+// ── Stripe webhook ─────────────────────────────────────────────────────────
+// MUST be mounted before express.json(). Stripe signs the raw request bytes,
+// so a parsed-and-restringified body fails signature verification. This route
+// takes the raw Buffer; every other route still gets normal JSON parsing.
+app.post(
+  "/api/billing/webhook",
+  express.raw({ type: "application/json" }),
+  (req, res, next) => {
+    import("./routes/billing.js")
+      .then(({ stripeWebhookHandler }) => stripeWebhookHandler(req, res))
+      .catch(next);
+  },
+);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -230,6 +244,20 @@ if (process.env.DEMO_RESET_ENABLED === "true") {
     // Non-fatal — log and continue; the server should still start.
     console.error("[demoReset] Failed to register demo reset job:", err);
   });
+}
+
+// ── SaaS lifecycle jobs ────────────────────────────────────────────────────
+// Trial expiry and tenant purge. Both are idempotent, but they must run on
+// exactly one instance — set BILLING_JOBS_ENABLED=true on the primary only,
+// otherwise a scaled-out deployment would send duplicate emails.
+if (process.env.BILLING_JOBS_ENABLED === "true") {
+  import("./jobs/trialExpiry.js")
+    .then(({ registerTrialExpiryJob }) => registerTrialExpiryJob())
+    .catch((err) => console.error("[trialExpiry] Failed to register job:", err));
+
+  import("./jobs/tenantPurge.js")
+    .then(({ registerTenantPurgeJob }) => registerTenantPurgeJob())
+    .catch((err) => console.error("[tenantPurge] Failed to register job:", err));
 }
 
 export default app;

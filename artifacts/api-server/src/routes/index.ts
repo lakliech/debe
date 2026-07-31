@@ -34,8 +34,13 @@ import privilegedAccessRouter from "./privilegedAccess";
 import aspirantsRouter from "./aspirants";
 import contactMessagesRouter from "./contactMessages";
 import platformRouter from "./platform";
+import platformLifecycleRouter from "./platformLifecycle";
+import platformBillingRouter from "./platformBilling";
 import enquiriesRouter from "./enquiries";
 import adminCleanupRouter from "./adminCleanup";
+import registerRouter from "./register";
+import billingRouter from "./billing";
+import settingsRouter from "./settings";
 import { demoGuard } from "../middlewares/demoGuard";
 
 const router: IRouter = Router();
@@ -104,9 +109,21 @@ router.use("/privileged-access", withTenant(privilegedAccessRouter));
 router.use("/aspirants", withTenant(aspirantsRouter));
 router.use("/contact-messages", withTenant(contactMessagesRouter));
 
+// Billing — GET /plans is public (pricing page); the rest need a tenant.
+router.use("/billing", withTenantMixed(billingRouter));
+
+// Campaign admin settings hub.
+router.use("/settings", withTenant(settingsRouter));
+
+// Self-serve campaign registration — the caller has no tenant yet by
+// definition, so this must NOT be wrapped in resolveTenant.
+router.use("/register", registerRouter);
+
 // Platform admin routes — cross-tenant; no resolveTenant wrapper.
-// requireLevel(0) inside the router gates access to platform_admin holders only.
+// requireLevel(0) inside each router gates access to platform_admin holders only.
 router.use("/platform", platformRouter);
+router.use("/platform", platformLifecycleRouter);
+router.use("/platform", platformBillingRouter);
 
 // Platform enquiry form — public, unauthenticated, no tenant context.
 router.use("/enquiries", enquiriesRouter);

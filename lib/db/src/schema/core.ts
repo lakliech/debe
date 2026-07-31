@@ -19,8 +19,31 @@ export const tenantsTable = pgTable("tenants", {
   name: text("name").notNull(),
   /** URL-safe identifier used in subdomains / public links */
   slug: text("slug").notNull().unique(),
-  /** Billing tier stub — free | pro */
+  /** Billing tier — free | pro | enterprise */
   plan: text("plan").notNull().default("free"),
+  /**
+   * When set and in the future, the tenant retains `plan` access regardless of
+   * subscription status. Used for trials and manual platform-admin grants.
+   */
+  planOverrideUntil: timestamp("plan_override_until", { withTimezone: true }),
+  /** True once this tenant has consumed its one-time trial. */
+  trialUsed: boolean("trial_used").notNull().default(false),
+  /** Stripe customer handle — created lazily on first checkout. */
+  stripeCustomerId: text("stripe_customer_id"),
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  /** active | trialing | past_due | canceled | incomplete | null */
+  stripeSubscriptionStatus: text("stripe_subscription_status"),
+  /** Billing contact — may differ from the campaign admin's login email. */
+  billingEmail: text("billing_email"),
+  /**
+   * Lifecycle state machine:
+   *   active | suspended | deletion_scheduled | purged
+   * `isSuspended` is kept in sync for backward compatibility with existing
+   * middleware that reads it directly.
+   */
+  lifecycleState: text("lifecycle_state").notNull().default("active"),
+  /** When set, the purge cron deletes this tenant after this timestamp. */
+  scheduledDeletionAt: timestamp("scheduled_deletion_at", { withTimezone: true }),
   isSuspended: boolean("is_suspended").notNull().default(false),
   /**
    * Optional fully-qualified custom domain (e.g. vote.amina.ke).
@@ -197,3 +220,74 @@ export const userSuspensionsTable = pgTable("user_suspensions", {
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ── Email Logs ───────────────────────────────────────────────────────────────
+// Audit trail of every transactional email the platform attempts to send.
+// Writes here must never throw — email failures are logged, not propagated.
+export const emailLogsTable = pgTable("email_logs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
+  recipient: text("recipient").notNull(),
+  /** Template key, e.g. campaign_welcome | trial_expiring | payment_receipt */
+  template: text("template").notNull(),
+  subject: text("subject"),
+  /** sent | failed | skipped */
+  status: text("status").notNull(),
+  error: text("error"),
+  /** Provider message id, when the provider returns one. */
+  providerId: text("provider_id"),
+  sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type EmailLog = typeof emailLogsTable.$inferSelect;
+
+// ── Domain Change Requests ───────────────────────────────────────────────────
+// Campaign admins request a slug or custom-domain change; platform admins action it.
+export const domainChangeRequestsTable = pgTable("domain_change_requests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenantsTable.id, { onDelete: "cascade" }),
+  requestedBy: uuid("requested_by").references(() => usersTable.id, { onDelete: "set null" }),
+  /** slug | custom_domain */
+  kind: text("kind").notNull(),
+  currentValue: text("current_value"),
+  requestedValue: text("requested_value").notNull(),
+  /** pending | approved | rejected */
+  status: text("status").notNull().default("pending"),
+  reviewNotes: text("review_notes"),
+  reviewedBy: uuid("reviewed_by").references(() => usersTable.id, { onDelete: "set null" }),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type DomainChangeRequest = typeof domainChangeRequestsTable.$inferSelect;
+
+// ── Deletion Requests ────────────────────────────────────────────────────────
+// Campaign admins request account deletion; platform admins approve before purge.
+export const deletionRequestsTable = pgTable("deletion_requests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenantsTable.id, { onDelete: "cascade" }),
+  requestedBy: uuid("requested_by").references(() => usersTable.id, { onDelete: "set null" }),
+  reason: text("reason"),
+  /** pending | approved | rejected | completed */
+  status: text("status").notNull().default("pending"),
+  reviewNotes: text("review_notes"),
+  reviewedBy: uuid("reviewed_by").references(() => usersTable.id, { onDelete: "set null" }),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type DeletionRequest = typeof deletionRequestsTable.$inferSelect;
+
+// ── Onboarding Progress ──────────────────────────────────────────────────────
+// One row per tenant, tracking the 5-step first-run setup checklist.
+export const onboardingProgressTable = pgTable("onboarding_progress", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().unique().references(() => tenantsTable.id, { onDelete: "cascade" }),
+  logoUploaded: boolean("logo_uploaded").notNull().default(false),
+  coloursSet: boolean("colours_set").notNull().default(false),
+  staffInvited: boolean("staff_invited").notNull().default(false),
+  stationsConfigured: boolean("stations_configured").notNull().default(false),
+  profileCompleted: boolean("profile_completed").notNull().default(false),
+  /** Admin dismissed the checklist panel — stop showing it. */
+  dismissed: boolean("dismissed").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+export type OnboardingProgress = typeof onboardingProgressTable.$inferSelect;

@@ -2,6 +2,7 @@ import { useGetDashboardSummary, useGetCoverageSummary, useGetRecentActivity, us
 import { Users, MapPin, Flag, Activity, CheckCircle2, AlertTriangle, Clock } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { format } from "date-fns";
+import OnboardingChecklist from "@/components/OnboardingChecklist";
 
 // Reusable card for summary metrics
 function StatCard({ title, value, icon: Icon, trend, trendValue, colorClass }: any) {
@@ -72,6 +73,9 @@ export default function Dashboard() {
         <h1 className="text-3xl font-extrabold tracking-tight text-foreground">Executive Overview</h1>
         <p className="text-muted-foreground mt-1">National operations and deployment status.</p>
       </div>
+
+      {/* First-run setup checklist. Hides itself once complete or dismissed. */}
+      <OnboardingChecklist />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard 

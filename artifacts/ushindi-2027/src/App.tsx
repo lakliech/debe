@@ -101,6 +101,14 @@ import ContactMessagesPage from "./pages/admin/ContactMessages";
 import PlatformAdminPage from "./pages/admin/PlatformAdmin";
 import PlatformOpsPage from "./pages/admin/PlatformOps";
 import PlatformUsersPage from "./pages/admin/PlatformUsers";
+import PlatformBillingPage from "./pages/admin/PlatformBilling";
+import PlatformLifecyclePage from "./pages/admin/PlatformLifecycle";
+
+// SaaS platform surfaces — marketing, self-serve signup, settings hub
+import PlatformHome from "./pages/PlatformHome";
+import PricingPage from "./pages/Pricing";
+import RegisterCampaignPage from "./pages/RegisterCampaign";
+import SettingsPage from "./pages/Settings";
 
 // Admin pages — Task 5: Compliance, Reporting, Privileged Access
 import ReportingPage from "./pages/admin/Reporting";
@@ -290,6 +298,13 @@ function BrandingAwareClerkProvider() {
           <Route path="/sign-in/*?" component={SignInPage} />
           <Route path="/sign-up/*?" component={SignUpPage} />
 
+          {/* ── SaaS platform (no auth required) ── */}
+          <Route path="/platform-home" component={PlatformHome} />
+          <Route path="/pricing" component={PricingPage} />
+          {/* Self-serve signup renders its own shell — the founder has no campaign yet,
+              so it must not be wrapped in AppLayout. */}
+          <Route path="/register" component={RegisterCampaignPage} />
+
           {/* ── Public portal (no auth required) ── */}
           <Route path="/about" component={AboutPage} />
           <Route path="/manifesto" component={ManifestoPage} />
@@ -330,6 +345,12 @@ function BrandingAwareClerkProvider() {
           </Route>
           <Route path="/audit">
             <ProtectedRoute component={AuditLog} />
+          </Route>
+          {/* Settings hub. Must be declared before the nested /settings/* routes so
+              wouter's Switch does not fall through — these are exact paths, but keeping
+              the hub first documents it as the entry point. */}
+          <Route path="/settings">
+            <ProtectedRoute component={SettingsPage} />
           </Route>
           <Route path="/settings/branding">
             <ProtectedRoute component={Branding} />
@@ -477,6 +498,12 @@ function BrandingAwareClerkProvider() {
           </Route>
           <Route path="/platform/ops">
             <ProtectedRoute component={PlatformOpsPage} />
+          </Route>
+          <Route path="/platform/billing">
+            <ProtectedRoute component={PlatformBillingPage} />
+          </Route>
+          <Route path="/platform/lifecycle">
+            <ProtectedRoute component={PlatformLifecyclePage} />
           </Route>
 
           {/* ── Admin (protected) — Task 5: Compliance, Reporting ── */}
