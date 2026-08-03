@@ -11,6 +11,7 @@ import {
   getClerkProxyHost,
 } from "./middlewares/clerkProxyMiddleware";
 import router from "./routes";
+import { NO_CAMPAIGN_SELECTED } from "./lib/withTenant";
 import { logger } from "./lib/logger";
 
 const app: Express = express();
@@ -232,6 +233,21 @@ app.use(async (req: Request, _res: Response, next: NextFunction) => {
 });
 
 app.use("/api", router);
+
+// ── Error handling ─────────────────────────────────────────────────────────
+// "No campaign selected" is a legitimate state, not a crash: platform
+// operators hold no campaign until they explicitly enter one. Translate it to
+// a 409 with a machine-readable code so the frontend can send them to the
+// campaign picker, instead of letting it surface as an opaque 500.
+app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
+  if (res.headersSent) return next(err);
+  if (err?.code === NO_CAMPAIGN_SELECTED) {
+    res.status(409).json({ code: NO_CAMPAIGN_SELECTED, error: err.message });
+    return;
+  }
+  logger.error({ err }, "Unhandled request error");
+  res.status(500).json({ error: "Internal server error" });
+});
 
 // ── Demo nightly reset job ─────────────────────────────────────────────────
 // Only active when DEMO_RESET_ENABLED=true so the cron never fires in

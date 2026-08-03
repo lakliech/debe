@@ -7,10 +7,9 @@ import {
   rolesTable,
   userSuspensionsTable,
 } from "@workspace/db";
-import { eq, and, or, isNull, desc, inArray } from "drizzle-orm";
-import { requireRoles, requireLevel, bustActorCache } from "../middlewares/rbac";
-import { resolveTenant } from "../middlewares/resolveTenant";
-import { tenantFilter, assertTenant } from '../lib/withTenant';
+import { eq, and, desc, inArray } from "drizzle-orm";
+import { requireRoles, bustActorCache } from "../middlewares/rbac";
+import { getUserWithRoles } from "../lib/userIdentity";
 
 const router = Router();
 
@@ -62,96 +61,6 @@ async function userBelongsToTenant(userId: string, tenantId: string): Promise<bo
     .limit(1);
   return !!row;
 }
-
-// Helper: get user with roles by local UUID.
-// When tenantId is provided, only roles belonging to that tenant are returned
-// (scopes role lookups to the active campaign). Without tenantId all roles are
-// returned (used by /me and internal provisioning helpers where tenant may not
-// yet be resolved).
-async function getUserWithRoles(id: string, tenantId?: string | null) {
-  const user = await db
-    .select()
-    .from(usersTable)
-    .where(eq(usersTable.id, id))
-    .limit(1);
-  if (!user[0]) return null;
-
-  // Include both tenant-scoped roles AND platform-level roles (tenant_id IS NULL)
-  // so that a user with NULL-tenant platform roles always sees them regardless
-  // of which tenant context is active on the request.
-  const roleWhere = tenantId
-    ? and(
-        eq(userRolesTable.userId, id),
-        or(eq(userRolesTable.tenantId, tenantId), isNull(userRolesTable.tenantId)),
-      )
-    : eq(userRolesTable.userId, id);
-
-  const roles = await db
-    .select({
-      roleId: rolesTable.id,
-      roleName: rolesTable.name,
-      roleSlug: rolesTable.slug,
-      tenantId: userRolesTable.tenantId,
-      countyId: userRolesTable.countyId,
-      constituencyId: userRolesTable.constituencyId,
-      wardId: userRolesTable.wardId,
-    })
-    .from(userRolesTable)
-    .innerJoin(rolesTable, eq(userRolesTable.roleId, rolesTable.id))
-    .where(roleWhere);
-
-  return { ...user[0], roles };
-}
-
-// JIT-provision a local user from a Clerk ID
-async function getOrCreateLocalUser(
-  clerkId: string,
-  defaultData?: { email?: string; fullName?: string }
-) {
-  const existing = await db
-    .select()
-    .from(usersTable)
-    .where(eq(usersTable.clerkId, clerkId))
-    .limit(1);
-  if (existing[0]) return getUserWithRoles(existing[0].id);
-
-  const email = defaultData?.email ?? `${clerkId}@clerk.local`;
-  const fullName = defaultData?.fullName ?? "New User";
-  const [created] = await db
-    .insert(usersTable)
-    .values({ clerkId, email, fullName, status: "active" })
-    .returning();
-  return getUserWithRoles(created.id);
-}
-
-// GET /api/users/me — uses tenant from resolveTenant (applied globally via withTenant wrapper)
-router.get("/me", requireAuth, async (req: any, res: any) => {
-  const tenantId: string | undefined = req.tenant?.id;
-  const existing = await db
-    .select()
-    .from(usersTable)
-    .where(eq(usersTable.clerkId, req.clerkId))
-    .limit(1);
-
-  if (!existing[0]) {
-    const newUser = await getOrCreateLocalUser(req.clerkId);
-    // Return with tenant-scoped roles if available
-    if (newUser && tenantId) {
-      const tenantRoles = await db
-        .select({ roleId: rolesTable.id, roleName: rolesTable.name, roleSlug: rolesTable.slug, tenantId: userRolesTable.tenantId, countyId: userRolesTable.countyId, constituencyId: userRolesTable.constituencyId, wardId: userRolesTable.wardId })
-        .from(userRolesTable)
-        .innerJoin(rolesTable, eq(userRolesTable.roleId, rolesTable.id))
-        .where(and(
-          eq(userRolesTable.userId, newUser.id!),
-          or(eq(userRolesTable.tenantId, tenantId), isNull(userRolesTable.tenantId)),
-        ));
-      return res.json({ ...newUser, roles: tenantRoles });
-    }
-    return res.json(newUser);
-  }
-  const full = await getUserWithRoles(existing[0].id, tenantId);
-  res.json(full);
-});
 
 // GET /api/users — list users belonging to the current tenant (have at least one role in it)
 router.get("/", requireAuth, async (req: any, res: any) => {

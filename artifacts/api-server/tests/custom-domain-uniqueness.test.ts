@@ -87,15 +87,21 @@ beforeAll(async () => {
   orgAId = `org_domain_A_${ts}`;
   orgBId = `org_domain_B_${ts}`;
 
+  // Custom domains are a paid feature, and a stored plan alone does not grant
+  // entitlement — the effective plan needs an active subscription or an
+  // unexpired override. Give both fixtures a manual grant so these tests
+  // exercise domain uniqueness rather than billing.
+  const paidUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
   const [tA] = await db
     .insert(tenantsTable)
-    .values({ clerkOrgId: orgAId, name: "Domain Test Tenant A", slug: `domain-a-${ts}`, plan: "free" })
+    .values({ clerkOrgId: orgAId, name: "Domain Test Tenant A", slug: `domain-a-${ts}`, plan: "pro", planOverrideUntil: paidUntil })
     .returning();
   tenantAId = tA.id;
 
   const [tB] = await db
     .insert(tenantsTable)
-    .values({ clerkOrgId: orgBId, name: "Domain Test Tenant B", slug: `domain-b-${ts}`, plan: "free" })
+    .values({ clerkOrgId: orgBId, name: "Domain Test Tenant B", slug: `domain-b-${ts}`, plan: "pro", planOverrideUntil: paidUntil })
     .returning();
   tenantBId = tB.id;
 

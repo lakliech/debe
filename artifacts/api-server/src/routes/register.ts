@@ -171,7 +171,14 @@ router.post("/", requireAuth, async (req: any, res: any) => {
     }
 
     // Resolve or create the local user row for the caller.
-    const email = (typeof contactEmail === "string" && contactEmail) || (await clerkUserEmail(req.clerkId));
+    // The signed-in account's own Clerk address is authoritative for the user
+    // row. contactEmail is campaign contact detail from the request body and
+    // must not decide who this user is — privilege decisions read this column's
+    // owner, so letting a caller set it to someone else's address is an
+    // impersonation vector.
+    const email =
+      (await clerkUserEmail(req.clerkId)) ??
+      (typeof contactEmail === "string" && contactEmail ? contactEmail : null);
     const fullName = (await clerkUserName(req.clerkId)) ?? "Campaign Administrator";
 
     let [user] = await db

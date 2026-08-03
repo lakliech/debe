@@ -3,6 +3,7 @@
  * Access, correction, deletion requests by data subjects.
  */
 import { Router } from "express";
+import { sendRouteError } from "../lib/routeError";
 import { getAuth } from "@clerk/express";
 import { db } from "@workspace/db";
 import { dataSubjectRequestsTable, supportersTable, volunteersTable } from "@workspace/db";
@@ -57,7 +58,7 @@ router.get("/", requireAuth, canManageDSRs, async (req: any, res: any) => {
 
     res.json({ data: rows, total: totalRow?.total ?? 0, page: pageNum });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -96,7 +97,7 @@ router.post("/", publicSubmitLimiter, async (req: any, res: any) => {
 
     res.status(201).json({ message: "Your request has been received. We will respond within 30 days.", requestId: request.id });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -112,7 +113,7 @@ router.get("/:id", requireAuth, canManageDSRs, async (req: any, res: any) => {
     if (!request) return res.status(404).json({ error: "Request not found" });
     res.json(request);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -133,7 +134,7 @@ router.patch("/:id", requireAuth, canManageDSRs, async (req: any, res: any) => {
     if (!updated) return res.status(404).json({ error: "Request not found" });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -170,7 +171,7 @@ router.post("/:id/resolve", requireAuth, canManageDSRs, async (req: any, res: an
 
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 

@@ -26,6 +26,7 @@ channel = "stable-25_05"
 
 [userenv.shared]
 CLERK_ORGS_DISABLED = "true"
+PLATFORM_ADMIN_EMAILS = "jaredkoyier@gmail.com"
 
 [userenv.production]
 CORS_ORIGINS = "https://debe.ke"

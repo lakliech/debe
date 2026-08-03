@@ -185,14 +185,22 @@ export function requireRoles(slugs: string[]) {
 
 /**
  * Require that the actor's minimum role level is at most maxLevel.
- * (Level 1 = most privileged; level 10 = least privileged.)
- * Super-admins always pass.
+ * (Level 0 = platform operator; level 1 = most privileged tenant role;
+ * level 10 = least privileged.)
+ *
+ * There is deliberately NO super-admin slug bypass here. "Super Administrator"
+ * is a *tenant* role at level 1 that every self-serve founder is granted, so a
+ * slug bypass would let any campaign founder clear requireLevel(0) and
+ * administer — including purge — every other tenant on the platform.
+ * The bypass was also redundant: at level 1, super-admins already satisfy every
+ * guard with maxLevel >= 1 through the level comparison below. Platform-only
+ * access (maxLevel 0) is reached solely by the level-0 platform_admin role or
+ * by a global admin, both of which resolve to actorLevel 0 in resolveActor.
  */
 export function requireLevel(maxLevel: number) {
   return async (req: Request, res: Response, next: NextFunction) => {
     const r = req as AuthedRequest;
     if (r.actorRoles === undefined) await resolveActor(req, res, () => {});
-    if (r.actorRoles?.includes("super-admin")) return next();
     if (r.actorLevel <= maxLevel) return next();
     return res.status(403).json({ error: `Forbidden — requires role level ≤ ${maxLevel}` });
   };

@@ -1,6 +1,13 @@
 import { Router, type IRouter } from "express";
-import { resolveTenant, resolveTenantPublic, resolveTenantMixed } from "../middlewares/resolveTenant";
+import {
+  resolveTenant,
+  resolveTenantPublic,
+  resolveTenantMixed,
+  resolveTenantOptional,
+} from "../middlewares/resolveTenant";
+import { requireTenantContext } from "../lib/withTenant";
 import healthRouter from "./health";
+import identityRouter from "./identity";
 import usersRouter from "./users";
 import rolesRouter from "./roles";
 import geographyRouter from "./geography";
@@ -57,9 +64,13 @@ router.use("/public", resolveTenantPublic);
 
 // Helper: mount a sub-router with resolveTenant applied first (authenticated routes).
 // This avoids needing to call resolveTenant inside every individual route handler.
+// requireTenantContext runs after resolveTenant so that a caller with no
+// campaign context (a platform operator who has not entered one) gets a clean
+// 409 telling them to pick a campaign, instead of every handler's
+// assertTenant() throwing and surfacing as a 500.
 function withTenant(subrouter: IRouter) {
   const r = Router();
-  r.use(resolveTenant, demoGuard, subrouter);
+  r.use(resolveTenant, requireTenantContext, demoGuard, subrouter);
   return r;
 }
 
@@ -77,6 +88,10 @@ function withTenantMixed(subrouter: IRouter) {
   return r;
 }
 
+// Identity first — /api/users/me answers "who am I?" and must work for callers
+// with no campaign (platform operators, users whose org isn't registered yet).
+// Mounted before the campaign-scoped users router so it wins the /me path.
+router.use("/users", identityRouter);
 router.use("/users", withTenant(usersRouter));
 router.use("/roles", withTenant(rolesRouter));
 router.use("/geography", geographyRouter); // geography is global/shared — no tenant filter needed

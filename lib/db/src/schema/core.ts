@@ -6,7 +6,9 @@ import {
   integer,
   uuid,
   unique,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { countiesTable } from "./geography";
@@ -125,6 +127,21 @@ export const usersTable = pgTable("users", {
    * platform-level API — it is intentionally excluded from insertUserSchema.
    */
   isGlobalAdmin: boolean("is_global_admin").notNull().default(false),
+  /**
+   * The campaign a platform operator has explicitly entered.
+   *
+   * Platform operators (global admins) intentionally have NO tenant of their
+   * own — they administer every campaign from the platform surface. When they
+   * want to make changes inside a specific campaign they "enter" it, which
+   * records the tenant here. Nothing is inferred: an operator with a NULL
+   * value has no campaign context at all, and campaign-scoped routes reject
+   * the request rather than silently picking a tenant for them.
+   *
+   * Deliberately untyped as a FK reference in Drizzle (the tenants table lives
+   * in schema/platform.ts and importing it here would create a cycle); the FK
+   * with ON DELETE SET NULL is declared in the migration.
+   */
+  activeTenantId: uuid("active_tenant_id"),
   countyId: uuid("county_id").references(() => countiesTable.id),
   constituencyId: uuid("constituency_id"),
   wardId: uuid("ward_id"),
@@ -155,7 +172,17 @@ export const userRolesTable = pgTable("user_roles", {
   wardId: uuid("ward_id"),
   assignedBy: uuid("assigned_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => ({
+  /**
+   * Platform-level grants (tenant_id IS NULL) are unique per user+role, so the
+   * startup bootstrap's grant is idempotent even if two instances boot at once.
+   * Campaign roles are excluded: the same role is legitimately held in several
+   * counties or wards.
+   */
+  platformGrantUnique: uniqueIndex("user_roles_platform_grant_unique")
+    .on(t.userId, t.roleId)
+    .where(sql`${t.tenantId} IS NULL`),
+}));
 
 export type UserRole = typeof userRolesTable.$inferSelect;
 
@@ -239,6 +266,19 @@ export const emailLogsTable = pgTable("email_logs", {
   sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
 });
 export type EmailLog = typeof emailLogsTable.$inferSelect;
+
+// ── Processed Webhook Events ─────────────────────────────────────────────────
+// Idempotency ledger for inbound billing webhooks. Stripe retries on any non-2xx
+// (and can deliver the same event more than once regardless), so every handler
+// must claim the event id here before it mutates state or sends mail.
+export const processedWebhookEventsTable = pgTable("processed_webhook_events", {
+  /** The provider's event id, e.g. Stripe "evt_...". Primary key = the claim. */
+  eventId: text("event_id").primaryKey(),
+  provider: text("provider").notNull().default("stripe"),
+  eventType: text("event_type"),
+  processedAt: timestamp("processed_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type ProcessedWebhookEvent = typeof processedWebhookEventsTable.$inferSelect;
 
 // ── Domain Change Requests ───────────────────────────────────────────────────
 // Campaign admins request a slug or custom-domain change; platform admins action it.

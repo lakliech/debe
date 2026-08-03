@@ -120,6 +120,96 @@ router.get("/tenants", requireAuth, requireLevel(0), async (req: any, res: any) 
   }
 });
 
+// ── Active campaign context for platform operators ────────────────────────────
+//
+// A platform operator has no campaign of their own. To make config changes
+// inside a campaign they must explicitly enter it; leaving sets the context
+// back to null and returns them to the platform surface. The choice is stored
+// on the user row so it survives reloads and server restarts.
+
+// ── GET /api/platform/active-campaign ─────────────────────────────────────────
+router.get("/active-campaign", requireAuth, requireLevel(0), async (req: any, res: any) => {
+  try {
+    const [row] = await db
+      .select({ activeTenantId: usersTable.activeTenantId })
+      .from(usersTable)
+      .where(eq(usersTable.clerkId, req.clerkId))
+      .limit(1);
+
+    if (!row?.activeTenantId) return res.json({ activeCampaign: null });
+
+    const [tenant] = await db
+      .select({
+        id: tenantsTable.id,
+        name: tenantsTable.name,
+        slug: tenantsTable.slug,
+        plan: tenantsTable.plan,
+        isSuspended: tenantsTable.isSuspended,
+      })
+      .from(tenantsTable)
+      .where(eq(tenantsTable.id, row.activeTenantId))
+      .limit(1);
+
+    res.json({ activeCampaign: tenant ?? null });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── PUT /api/platform/active-campaign ─────────────────────────────────────────
+// Body: { tenantId: string | null } — null exits the campaign.
+router.put("/active-campaign", requireAuth, requireLevel(0), async (req: any, res: any) => {
+  try {
+    const { tenantId } = req.body ?? {};
+
+    if (tenantId !== null && typeof tenantId !== "string") {
+      return res
+        .status(400)
+        .json({ error: "tenantId must be a campaign id, or null to exit the campaign." });
+    }
+
+    let activeCampaign: any = null;
+
+    if (tenantId) {
+      const [tenant] = await db
+        .select({
+          id: tenantsTable.id,
+          name: tenantsTable.name,
+          slug: tenantsTable.slug,
+          plan: tenantsTable.plan,
+          isSuspended: tenantsTable.isSuspended,
+        })
+        .from(tenantsTable)
+        .where(eq(tenantsTable.id, tenantId))
+        .limit(1);
+
+      if (!tenant) return res.status(404).json({ error: "Campaign not found." });
+      if (tenant.isSuspended) {
+        return res
+          .status(409)
+          .json({ error: "This campaign is suspended. Unsuspend it before entering." });
+      }
+      activeCampaign = tenant;
+    }
+
+    const [updated] = await db
+      .update(usersTable)
+      .set({ activeTenantId: tenantId })
+      .where(eq(usersTable.clerkId, req.clerkId))
+      .returning({ id: usersTable.id });
+
+    if (!updated) return res.status(404).json({ error: "No local profile for this account." });
+
+    // Effective roles differ per campaign, so the cached actor snapshot for
+    // this operator is stale the moment the context changes.
+    bustActorCache(req.clerkId);
+
+    res.json({ activeCampaign });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── POST /api/platform/tenants ────────────────────────────────────────────────
 router.post("/tenants", requireAuth, requireLevel(0), async (req: any, res: any) => {
   try {

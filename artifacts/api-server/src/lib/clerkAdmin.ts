@@ -66,6 +66,49 @@ export async function clerkUserEmail(clerkUserId: string): Promise<string | null
   }
 }
 
+/**
+ * The user's primary email, but only if Clerk has verified it.
+ *
+ * Use this — never the local users.email column — for any decision that grants
+ * privilege. The local column can be written from request data (campaign
+ * registration accepts a contact email), so treating it as proof of identity
+ * would let a caller claim someone else's address.
+ */
+export async function clerkVerifiedPrimaryEmail(
+  clerkUserId: string,
+): Promise<string | null> {
+  try {
+    const user: any = await clerkGet(`/users/${clerkUserId}`);
+    const primaryId = user?.primary_email_address_id;
+    const addresses: any[] = user?.email_addresses ?? [];
+    const primary = addresses.find((a) => a.id === primaryId);
+    if (!primary) return null;
+    if (primary.verification?.status !== "verified") return null;
+    return primary.email_address ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Clerk user IDs holding a given email address.
+ *
+ * Clerk is the source of truth for who owns an address, so the platform
+ * bootstrap resolves its allowlist through here rather than searching local
+ * rows by email.
+ */
+export async function clerkUserIdsByEmail(email: string): Promise<string[]> {
+  try {
+    const users: any = await clerkGet(
+      `/users?email_address=${encodeURIComponent(email)}&limit=10`,
+    );
+    const list: any[] = Array.isArray(users) ? users : (users?.data ?? []);
+    return list.map((u) => u?.id).filter((id): id is string => typeof id === "string");
+  } catch {
+    return [];
+  }
+}
+
 /** Display name for a Clerk user, or null. */
 export async function clerkUserName(clerkUserId: string): Promise<string | null> {
   try {

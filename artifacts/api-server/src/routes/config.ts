@@ -8,6 +8,7 @@ import { requireRoles } from "../middlewares/rbac";
 import { resolveTenant, resolveTenantPublic, resolveTenantMixed } from "../middlewares/resolveTenant";
 import { tenantFilter, assertTenant } from "../lib/withTenant";
 import { triggerTlsProvisioning } from "../lib/tlsCert";
+import { PLANS, getEffectivePlan, minimumTierFor } from "../lib/plans";
 
 // ── DNS CNAME verification ────────────────────────────────────────────────────
 // The expected CNAME target is the platform's public hostname (PORTAL_DOMAIN).
@@ -217,6 +218,35 @@ router.patch("/domain", requireAuth, resolveTenant, canUpdateDomain, async (req:
     // Basic hostname validation when a value is provided
     if (normalised && !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(normalised)) {
       return res.status(400).json({ error: "Invalid domain format. Use e.g. vote.example.ke" });
+    }
+
+    // Custom domains are a paid feature. This gate must live here as well as on
+    // the settings request queue — otherwise this older direct mutator hands the
+    // feature to Free and lapsed campaigns for free.
+    // Clearing a domain is always allowed, so a downgraded campaign can still
+    // tidy up after losing the entitlement.
+    if (normalised) {
+      // resolveTenant only carries identity fields, so read the billing columns
+      // the plan resolver needs.
+      const [planRow] = await db
+        .select({
+          plan: tenantsTable.plan,
+          planOverrideUntil: tenantsTable.planOverrideUntil,
+          stripeSubscriptionStatus: tenantsTable.stripeSubscriptionStatus,
+        })
+        .from(tenantsTable)
+        .where(eq(tenantsTable.id, t.id))
+        .limit(1);
+
+      const effective = getEffectivePlan(planRow ?? { plan: "free" });
+      if (!PLANS[effective.plan].customDomain) {
+        return res.status(402).json({
+          error: `Custom domains require the ${PLANS[minimumTierFor("customDomain")!].label} plan.`,
+          feature: "customDomain",
+          currentPlan: effective.plan,
+          requiredPlan: minimumTierFor("customDomain"),
+        });
+      }
     }
 
     // DNS verification — required before a domain can be saved.

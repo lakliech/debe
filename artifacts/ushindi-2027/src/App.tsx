@@ -12,6 +12,7 @@ import { LanguageProvider } from "./contexts/LanguageContext";
 import { LowBandwidthProvider } from "./contexts/LowBandwidthContext";
 import { BrandingProvider, useBranding, toCssColor } from "./contexts/BrandingContext";
 import { setTenantSlug } from "@workspace/api-client-react";
+import { useIdentity } from "@/hooks/useIdentity";
 
 // Existing admin pages
 import Home from "./pages/Home";
@@ -175,11 +176,29 @@ function ClerkQueryClientCacheInvalidator() {
   return null;
 }
 
+/**
+ * Where a signed-in user lands depends on what they are.
+ *
+ * A platform operator holds no campaign, so the campaign dashboard is the wrong
+ * home for them — they belong on the platform surface until they explicitly
+ * enter a campaign. Everyone else goes to their campaign dashboard.
+ */
+function SignedInHome() {
+  const { isLoaded, isPlatformOperator, activeTenant } = useIdentity();
+
+  // Wait for the answer rather than bouncing the operator through the campaign
+  // dashboard first — a visible wrong redirect is worse than a brief blank.
+  if (!isLoaded) return null;
+
+  if (isPlatformOperator && !activeTenant) return <Redirect to="/platform-admin" />;
+  return <Redirect to="/dashboard" />;
+}
+
 function HomeRedirect() {
   return (
     <>
       <Show when="signed-in">
-        <Redirect to="/dashboard" />
+        <SignedInHome />
       </Show>
       <Show when="signed-out">
         <Home />

@@ -3,6 +3,7 @@
  * Public result publication with dual-approval workflow
  */
 import { Router } from "express";
+import { sendRouteError } from "../lib/routeError";
 import { getAuth } from "@clerk/express";
 import { db } from "@workspace/db";
 import {
@@ -82,7 +83,7 @@ router.get("/publications", requireAuth, resolveActor, async (req: any, res: any
 
     res.json({ data: filtered, total: Number(total), page: pageNum, pageSize });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -98,7 +99,7 @@ router.get("/publications/:id", async (req: any, res: any) => {
     if (!row) return res.status(404).json({ error: "Publication not found" });
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -119,7 +120,7 @@ router.post("/publications", requireAuth, canPublishTransparency, async (req: an
     }).returning();
     res.status(201).json({ ...row, status: derivePublicationStatus(row) });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -135,7 +136,7 @@ router.post("/publications/:id/legal-approve", requireAuth, canLegalApprove, asy
     if (!row) return res.status(404).json({ error: "Publication not found" });
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -151,7 +152,7 @@ router.post("/publications/:id/comms-approve", requireAuth, canCommsApprove, asy
     if (!row) return res.status(404).json({ error: "Publication not found" });
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -176,7 +177,7 @@ router.post("/publications/:id/publish", requireAuth, canPublishTransparency, as
     }).where(and(eq(transparencyPublicationsTable.id, req.params.id), tenantFilter(transparencyPublicationsTable, t.id))).returning();
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 

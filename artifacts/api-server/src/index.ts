@@ -1,5 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { runPlatformBootstrap } from "./lib/platformBootstrap";
 import { db } from "@workspace/db";
 import { pollingStationsTable } from "@workspace/db";
 import { sql, like, count } from "drizzle-orm";
@@ -86,8 +87,9 @@ async function runDemoStationCleanupIfNeeded() {
 }
 
 async function main() {
-  await runDemoStationCleanupIfNeeded();
-
+  // Open the port first. Startup housekeeping talks to the database, and a
+  // slow or unreachable database must not delay the port opening — the
+  // platform kills a workflow that takes too long to listen.
   app.listen(port, (err) => {
     if (err) {
       logger.error({ err }, "Error listening on port");
@@ -95,6 +97,16 @@ async function main() {
     }
 
     logger.info({ port }, "Server listening");
+
+    // Both are idempotent and swallow their own failures, so they are safe to
+    // run in the background. The bootstrap recovers a deployment whose
+    // database has no roles and no platform operator — a state that otherwise
+    // locks the owner out of their own product with no in-app way back in.
+    void runPlatformBootstrap()
+      .then(() => runDemoStationCleanupIfNeeded())
+      .catch((bootErr) => {
+        logger.error({ err: bootErr }, "Startup housekeeping failed (non-fatal).");
+      });
   });
 }
 

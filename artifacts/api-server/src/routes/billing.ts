@@ -10,8 +10,9 @@
  */
 
 import { Router } from "express";
+import { sendRouteError } from "../lib/routeError";
 import { getAuth } from "@clerk/express";
-import { db, tenantsTable, brandingTable } from "@workspace/db";
+import { db, tenantsTable, brandingTable, processedWebhookEventsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireLevel } from "../middlewares/rbac";
 import { logger } from "../lib/logger";
@@ -92,7 +93,7 @@ router.get("/subscription", requireAuth, async (req: any, res: any) => {
       catalogue: publicPlanCatalogue(),
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -164,7 +165,7 @@ router.post("/checkout", requireAuth, requireLevel(1), async (req: any, res: any
     res.json({ url });
   } catch (err: any) {
     logger.error({ err }, "[billing] checkout failed");
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -195,7 +196,7 @@ router.post("/portal", requireAuth, requireLevel(1), async (req: any, res: any) 
     res.json({ url });
   } catch (err: any) {
     logger.error({ err }, "[billing] portal failed");
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -265,6 +266,22 @@ export async function stripeWebhookHandler(req: any, res: any) {
   } catch (err: any) {
     logger.warn({ err: err.message }, "[billing] webhook signature verification failed");
     return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  // ── Idempotency claim ──────────────────────────────────────────────────────
+  // Stripe retries on any non-2xx and can redeliver an event even on success.
+  // Without a claim, a retried invoice.paid re-sends the receipt and a retried
+  // subscription update re-applies state. The primary key is the claim: if the
+  // insert conflicts, another delivery already handled this event.
+  const claimed = await db
+    .insert(processedWebhookEventsTable)
+    .values({ eventId: event.id, provider: "stripe", eventType: event.type })
+    .onConflictDoNothing()
+    .returning({ eventId: processedWebhookEventsTable.eventId });
+
+  if (claimed.length === 0) {
+    logger.info({ eventId: event.id, type: event.type }, "[billing] duplicate webhook ignored");
+    return res.json({ received: true, duplicate: true });
   }
 
   try {
@@ -420,6 +437,12 @@ export async function stripeWebhookHandler(req: any, res: any) {
     }
   } catch (err: any) {
     logger.error({ err, type: event?.type }, "[billing] webhook handler failed");
+    // Release the claim, otherwise the retry we are about to ask for would be
+    // rejected as a duplicate and the event would never be processed.
+    await db
+      .delete(processedWebhookEventsTable)
+      .where(eq(processedWebhookEventsTable.eventId, event.id))
+      .catch(() => {});
     // 500 tells Stripe to retry — appropriate for transient DB failures.
     return res.status(500).send("Webhook handler failed");
   }

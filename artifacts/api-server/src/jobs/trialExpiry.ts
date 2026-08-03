@@ -16,7 +16,7 @@
  */
 
 import { schedule } from "node-cron";
-import { db, tenantsTable, brandingTable } from "@workspace/db";
+import { db, tenantsTable, brandingTable, emailLogsTable } from "@workspace/db";
 import { and, eq, isNotNull, lte, sql, inArray } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import { sendEmail } from "../lib/email";
@@ -78,6 +78,24 @@ async function sendTrialWarnings(): Promise<number> {
       (new Date(t.planOverrideUntil).getTime() - now) / 86_400_000,
     );
     if (!WARN_DAYS.includes(daysLeft)) continue;
+
+    // Exact-day matching stops a *daily* re-send, but a restart or a second
+    // instance on the same day would still re-warn. The milestones are days
+    // apart, so treating "already warned in the last 20 hours" as done makes
+    // the pass safe to re-run without a separate marker table.
+    const [recent] = await db
+      .select({ id: emailLogsTable.id })
+      .from(emailLogsTable)
+      .where(
+        and(
+          eq(emailLogsTable.tenantId, t.id),
+          eq(emailLogsTable.template, "trial_expiring"),
+          sql`${emailLogsTable.status} <> 'failed'`,
+          sql`${emailLogsTable.sentAt} > NOW() - INTERVAL '20 hours'`,
+        ),
+      )
+      .limit(1);
+    if (recent) continue;
 
     const result = await sendEmail({
       to: t.billingEmail,

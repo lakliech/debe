@@ -2,6 +2,7 @@
  * Finance API: M-Pesa STK Push, Contributions, Budget, Vouchers, Alerts, Dashboards
  */
 import { Router } from "express";
+import { sendRouteError } from "../lib/routeError";
 import { z } from "zod";
 import { getAuth } from "@clerk/express";
 import { db } from "@workspace/db";
@@ -168,7 +169,7 @@ router.post("/mpesa/stk-push", async (req: any, res: any) => {
 
     res.json({ success: true, checkoutRequestId: stkRes.checkoutRequestId, transactionId: txn.id, customerMessage: stkRes.customerMessage });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -236,7 +237,7 @@ router.get("/mpesa/transactions", requireAuth, canViewFinance, async (req: any, 
     ]);
     res.json({ data: rows, total: Number(total), page: pageNum, pageSize });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -294,7 +295,7 @@ router.post("/contributions", requireAuth, canManageFinance, async (req: any, re
     await logFinance("contribution", contribution.id, "created", actorId, { channel: rest.channel, amount: rest.amount });
     res.status(201).json(contribution);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -325,7 +326,7 @@ router.get("/contributions", requireAuth, canViewFinance, async (req: any, res: 
     ]);
     res.json({ data: rows, total: Number(total), page: pageNum, pageSize });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -339,7 +340,7 @@ router.get("/contributions/:id", requireAuth, canViewFinance, async (req: any, r
     const inKind = await db.select().from(inKindContributionsTable).where(eq(inKindContributionsTable.contributionId, req.params.id));
     res.json({ ...contribution, inKind });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -362,7 +363,7 @@ router.patch("/contributions/:id/verify", requireAuth, canManageFinance, async (
     await logFinance("contribution", updated.id, status === "verified" ? "verified" : "rejected", actorId);
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -392,7 +393,7 @@ router.get("/dashboard", requireAuth, canViewFinance, async (req: any, res: any)
       pendingVerification: Number(pendingVerification[0]?.count ?? 0),
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -407,7 +408,7 @@ router.get("/alerts", requireAuth, canViewFinance, async (req: any, res: any) =>
     const rows = await db.select().from(donorAlertsTable).where(and(...conditions)).orderBy(desc(donorAlertsTable.createdAt)).limit(50);
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -425,7 +426,7 @@ router.patch("/alerts/:id/resolve", requireAuth, canManageFinance, async (req: a
     if (!updated) return res.status(404).json({ error: "Alert not found" });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -439,7 +440,7 @@ router.get("/budget-categories", requireAuth, canViewFinance, async (req: any, r
       .orderBy(budgetCategoriesTable.name);
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -453,7 +454,7 @@ router.post("/budget-categories", requireAuth, canManageFinance, async (req: any
     const [row] = await db.insert(budgetCategoriesTable).values({ ...body, tenantId: t.id, createdBy: actorId ?? undefined }).returning();
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -470,7 +471,7 @@ router.get("/budget-lines", requireAuth, canViewFinance, async (req: any, res: a
     const rows = await db.select().from(budgetLinesTable).where(where).orderBy(budgetLinesTable.fiscalPeriod);
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -485,7 +486,7 @@ router.post("/budget-lines", requireAuth, canManageFinance, async (req: any, res
     await logFinance("budget_line", row.id, "created", actorId);
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -505,7 +506,7 @@ router.get("/expenditure-requests", requireAuth, canViewFinance, async (req: any
     ]);
     res.json({ data: rows, total: Number(total), page: pageNum, pageSize });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -524,7 +525,7 @@ router.post("/expenditure-requests", requireAuth, canManageFinance, async (req: 
     await logFinance("expenditure", row.id, "created", actorId);
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -536,7 +537,7 @@ router.get("/expenditure-requests/:id", requireAuth, canViewFinance, async (req:
     if (!row) return res.status(404).json({ error: "Not found" });
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -559,7 +560,7 @@ router.post("/expenditure-requests/:id/first-approve", requireAuth, canApproveEx
     await logFinance("expenditure", row.id, "first_approved", actorId);
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -594,7 +595,7 @@ router.post("/expenditure-requests/:id/final-approve", requireAuth, canApproveEx
     await logFinance("expenditure", expReq.id, "final_approved", actorId, { voucherId: voucher.id });
     res.json({ expenditure: updated, voucher });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -613,7 +614,7 @@ router.post("/expenditure-requests/:id/reject", requireAuth, canApproveExpenditu
     await logFinance("expenditure", row.id, "rejected", actorId, { reason: body.reason });
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -626,7 +627,7 @@ router.get("/vouchers", requireAuth, canViewFinance, async (req: any, res: any) 
       .orderBy(desc(paymentVouchersTable.createdAt)).limit(100);
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 

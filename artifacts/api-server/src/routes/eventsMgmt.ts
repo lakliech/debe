@@ -3,6 +3,7 @@
  * Registrations, QR check-in, incidents, reconciliation, speakers, transport, media accreditation
  */
 import { Router } from "express";
+import { sendRouteError } from "../lib/routeError";
 import { z } from "zod";
 import { getAuth } from "@clerk/express";
 import { db } from "@workspace/db";
@@ -158,7 +159,7 @@ router.get("/", requireAuth, canViewEvents, async (req: any, res: any) => {
     ]);
     res.json({ data: rows, total: Number(total), page: pageNum, pageSize });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -172,7 +173,7 @@ router.post("/", requireAuth, canManageEvents, async (req: any, res: any) => {
     const [event] = await db.insert(eventsTable).values({ ...body, tenantId: t.id, status: body.status ?? "draft" }).returning();
     res.status(201).json(event);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -190,7 +191,7 @@ router.get("/:id", requireAuth, canViewEvents, async (req: any, res: any) => {
     ]);
     res.json({ ...event, registrationCount: Number(registrations[0]?.count ?? 0), speakers, incidents, reconciliation: reconciliation[0] ?? null });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -205,7 +206,7 @@ router.patch("/:id", requireAuth, canManageEvents, async (req: any, res: any) =>
     if (!updated) return res.status(404).json({ error: "Not found" });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -220,7 +221,7 @@ router.post("/:id/approve", requireAuth, canApproveEvents, async (req: any, res:
     if (!updated) return res.status(400).json({ error: "Event not in pending_approval status" });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -235,7 +236,7 @@ router.post("/:id/submit-approval", requireAuth, canManageEvents, async (req: an
     if (!updated) return res.status(400).json({ error: "Event must be in draft status" });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -263,7 +264,7 @@ router.post("/:id/register", async (req: any, res: any) => {
     res.status(201).json({ ...registration, qrCode });
   } catch (err: any) {
     if (err.message?.includes("unique")) return res.status(409).json({ error: "Registration conflict — try again" });
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -285,7 +286,7 @@ router.get("/:id/registrations", requireAuth, canCheckIn, async (req: any, res: 
     ]);
     res.json({ data: rows, total: Number(total), page: pageNum, pageSize });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -313,7 +314,7 @@ router.post("/:id/check-in", requireAuth, canCheckIn, async (req: any, res: any)
       .where(eq(eventRegistrationsTable.id, reg.id)).returning();
     res.json({ success: true, registration: updated });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -331,7 +332,7 @@ router.post("/:id/incidents", requireAuth, canViewEvents, async (req: any, res: 
     const [row] = await db.insert(eventIncidentsTable).values({ ...body, eventId: req.params.id, reportedBy: actorId }).returning();
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -350,7 +351,7 @@ router.patch("/:id/incidents/:incidentId/resolve", requireAuth, canManageEvents,
     if (!row) return res.status(404).json({ error: "Incident not found" });
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -371,7 +372,7 @@ router.post("/:id/reconciliation", requireAuth, canManageEvents, async (req: any
     res.status(201).json(row);
   } catch (err: any) {
     if (err.message?.includes("unique")) return res.status(409).json({ error: "Reconciliation already submitted for this event" });
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -384,7 +385,7 @@ router.get("/:id/speakers", requireAuth, canViewEvents, async (req: any, res: an
     const rows = await db.select().from(eventSpeakersTable).where(eq(eventSpeakersTable.eventId, req.params.id)).orderBy(eventSpeakersTable.talkOrder);
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -398,7 +399,7 @@ router.post("/:id/speakers", requireAuth, canManageEvents, async (req: any, res:
     const [row] = await db.insert(eventSpeakersTable).values({ ...body, eventId: req.params.id }).returning();
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -411,7 +412,7 @@ router.get("/:id/transport", requireAuth, canViewTransport, async (req: any, res
     const rows = await db.select().from(eventTransportTable).where(eq(eventTransportTable.eventId, req.params.id));
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -426,7 +427,7 @@ router.post("/:id/transport", requireAuth, canViewTransport, async (req: any, re
     const [row] = await db.insert(eventTransportTable).values({ ...body, eventId: req.params.id, coordinatorId: actorId ?? undefined }).returning();
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -439,7 +440,7 @@ router.get("/:id/media-accreditations", requireAuth, canViewEvents, async (req: 
     const rows = await db.select().from(eventMediaAccreditationsTable).where(eq(eventMediaAccreditationsTable.eventId, req.params.id)).orderBy(desc(eventMediaAccreditationsTable.createdAt));
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -459,7 +460,7 @@ router.post("/:id/media-accreditations", async (req: any, res: any) => {
     const [row] = await db.insert(eventMediaAccreditationsTable).values({ ...body, eventId: req.params.id, status: "pending", qrCode }).returning();
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -475,7 +476,7 @@ router.patch("/:id/media-accreditations/:accId/approve", requireAuth, canManageE
     if (!row) return res.status(404).json({ error: "Not found" });
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 

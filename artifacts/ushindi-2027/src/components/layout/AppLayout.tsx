@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { useBranding } from "@/contexts/BrandingContext";
-import { ROLES } from "@/lib/constants";
+import { SECTION_RULES } from "@/lib/access";
+import { useIdentity, type ActiveTenant } from "@/hooks/useIdentity";
 import DemoTour from "@/components/DemoTour";
 import TrialBanner from "@/components/TrialBanner";
 
@@ -91,104 +92,12 @@ const platformNav = [
 
 // ── Role-based nav visibility ─────────────────────────────────────────────────
 //
-// Each role slug is classified into a "family" so that sections can be shown
-// to functional groups (e.g. comms officers) independently of their numeric
-// level.  This lets us distinguish roles at the same level that have very
-// different remits (e.g. finance-officer vs county-coordinator, both level 7).
+// The derivation and the per-section rules live in @/lib/access so they can be
+// unit-tested against the seeded role catalogue. See that module for the
+// privilege scale (lower = more privileged) and why gates are family-based.
 //
-// The API /api/users/me returns roles scoped to the active tenant.  We cache
-// the result for 5 minutes — it only needs to refresh on role changes.
-//
-const ROLE_FAMILY: Record<string, string> = {
-  // Finance back-office
-  "finance-officer": "finance",   "treasurer": "finance",
-  // Communications / content
-  "communications-officer": "comms",  "content-approver": "comms",
-  // Compliance / legal back-office
-  "legal-officer": "compliance",       "data-protection-officer": "compliance",
-  "auditor": "compliance",             "security-administrator": "compliance",
-  "verification-officer": "compliance",
-  // Field agents
-  "polling-station-agent": "agent",    "backup-polling-agent": "agent",
-  "call-centre-agent": "agent",        "polling-centre-coordinator": "agent",
-  // Field coordinators
-  "ward-coordinator": "coordinator",   "constituency-coordinator": "coordinator",
-  "county-coordinator": "coordinator", "national-organising-director": "coordinator",
-  // Senior campaign leadership
-  "national-campaign-manager": "leadership",
-  "campaign-executive-director": "leadership",
-  "presidential-candidate": "leadership",
-  "super-administrator": "leadership", "super-admin": "leadership",
-  // General supporters
-  "volunteer": "supporter",  "donor": "supporter",  "public-supporter": "supporter",
-};
-
-interface UserAccess {
-  maxLevel: number;
-  families: Set<string>;
-  isGlobalAdmin: boolean;
-  isLoaded: boolean;
-}
-
-// While the /api/users/me fetch is in-flight, show all sections so the
-// sidebar doesn't flash an empty state.
-const LOADING_ACCESS: UserAccess = {
-  maxLevel: 999,
-  families: new Set(Object.values(ROLE_FAMILY)),
-  isGlobalAdmin: true,
-  isLoaded: false,
-};
-
-// Least-privilege sentinel returned on fetch error or missing data — only
-// the Campaign section is visible until a successful response arrives.
-const ERROR_ACCESS: UserAccess = {
-  maxLevel: 0,
-  families: new Set<string>(),
-  isGlobalAdmin: false,
-  isLoaded: true,
-};
-
-function useUserAccess(): UserAccess {
-  const { data, isLoading, isError } = useQuery<any>({
-    queryKey: ["user-me-nav-access"],
-    queryFn: () =>
-      fetch(`${BASE}/api/users/me`, { credentials: "include" }).then((r) => {
-        if (!r.ok) throw new Error(`/api/users/me ${r.status}`);
-        return r.json();
-      }),
-    staleTime: 5 * 60 * 1000,  // 5 minutes — only refresh on role changes
-    retry: 2,                  // allow 2 retries before falling back to ERROR_ACCESS
-    retryDelay: 1_500,
-  });
-
-  // Still fetching — show everything temporarily to avoid a jarring empty sidebar.
-  if (isLoading) return LOADING_ACCESS;
-
-  // Network error or non-OK response — fall back to least privilege so we
-  // never accidentally show sections the user shouldn't see.
-  if (isError || !data) return ERROR_ACCESS;
-
-  // Global admins bypass every role check — they see everything.
-  if (data.isGlobalAdmin) {
-    return {
-      maxLevel: 999,
-      families: new Set(Object.values(ROLE_FAMILY)),
-      isGlobalAdmin: true,
-      isLoaded: true,
-    };
-  }
-
-  const slugs: string[] = (data.roles ?? []).map((r: any) => r.roleSlug as string);
-  const families = new Set(slugs.map((s) => ROLE_FAMILY[s]).filter(Boolean));
-
-  // Derive max level from the ROLES catalogue; unknown slugs contribute 0.
-  const slugToLevel = Object.fromEntries(ROLES.map((r) => [r.slug, r.level]));
-  const maxLevel = slugs.length
-    ? Math.max(...slugs.map((s) => slugToLevel[s] ?? 0))
-    : 0;
-
-  return { maxLevel, families, isGlobalAdmin: false, isLoaded: true };
-}
+// The identity payload (/api/users/me, via useIdentity) carries roles scoped to
+// the campaign in context, each with an authoritative `roleLevel`.
 
 /** Sidebar header — renders candidate name + "COMMAND CENTRE" from live branding */
 function SidebarHeader() {
@@ -215,7 +124,139 @@ function SidebarHeader() {
 }
 
 // ── Campaign Switcher ─────────────────────────────────────────────────────────
-function CampaignSwitcher() {
+//
+// Two different mechanisms, because the two kinds of user are different:
+//
+//   Campaign staff belong to Clerk organisations, so switching campaign means
+//   switching the active org — the JWT is the source of truth.
+//
+//   Platform operators belong to no organisation at all. They administer every
+//   campaign from the platform surface and explicitly *enter* one when they
+//   need to change its configuration. That choice is stored server-side, and
+//   exiting returns them to the platform with no campaign context.
+
+/** Operator variant — enter or leave any campaign on the platform. */
+function PlatformCampaignSwitcher({ activeTenant }: { activeTenant: ActiveTenant | null }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [, navigate] = useLocation();
+
+  const { data: tenants } = useQuery<any[]>({
+    queryKey: ["/api/platform/tenants"],
+    queryFn: () =>
+      fetch(`${BASE}/api/platform/tenants`, { credentials: "include" }).then((r) =>
+        r.ok ? r.json() : [],
+      ),
+    enabled: open,
+    staleTime: 60_000,
+  });
+
+  const setCampaign = async (tenantId: string | null) => {
+    setBusy(true);
+    try {
+      const res = await fetch(`${BASE}/api/platform/active-campaign`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenantId }),
+      });
+      if (!res.ok) return;
+      setOpen(false);
+      // Entering or leaving a campaign re-scopes every cached query, so send
+      // the operator to the surface that matches the new context and reload.
+      window.location.assign(`${BASE}${tenantId ? "/dashboard" : "/platform-admin"}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const list = (tenants ?? []).filter((t: any) => !t.isSuspended);
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        disabled={busy}
+        className={cn(
+          "flex items-center gap-2 text-sm border rounded-sm px-3 py-1.5 transition-colors hover:bg-muted/50",
+          activeTenant ? "border-border" : "border-dashed border-primary/60 text-primary",
+        )}
+        title={
+          activeTenant
+            ? `Working inside ${activeTenant.name}`
+            : "Platform view — no campaign selected"
+        }
+      >
+        <Building2 className="h-4 w-4 shrink-0 opacity-70" />
+        <span className="font-semibold truncate max-w-[140px]">
+          {activeTenant ? activeTenant.name : "Platform view"}
+        </span>
+        <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full mt-1 z-50 w-64 bg-popover border border-border rounded-sm shadow-md py-1">
+            <p className="px-3 py-1.5 text-[10px] font-black tracking-widest text-muted-foreground uppercase">
+              Enter a campaign
+            </p>
+
+            <button
+              onClick={() => navigate("/platform-admin")}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50 transition-colors text-left"
+            >
+              <span className="w-3.5 shrink-0" />
+              <span className="truncate text-muted-foreground">Manage all campaigns…</span>
+            </button>
+
+            <div className="my-1 border-t border-border" />
+
+            {list.length === 0 && (
+              <p className="px-3 py-2 text-xs text-muted-foreground">No active campaigns.</p>
+            )}
+
+            {list.map((t: any) => {
+              const isCurrent = t.id === activeTenant?.id;
+              return (
+                <button
+                  key={t.id}
+                  disabled={busy}
+                  onClick={() => setCampaign(t.id)}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50 transition-colors text-left disabled:opacity-50"
+                >
+                  {isCurrent ? (
+                    <Check className="h-3.5 w-3.5 text-primary shrink-0" />
+                  ) : (
+                    <span className="w-3.5 shrink-0" />
+                  )}
+                  <span className="truncate">{t.name}</span>
+                </button>
+              );
+            })}
+
+            {activeTenant && (
+              <>
+                <div className="my-1 border-t border-border" />
+                <button
+                  disabled={busy}
+                  onClick={() => setCampaign(null)}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50 transition-colors text-left disabled:opacity-50"
+                >
+                  <span className="w-3.5 shrink-0" />
+                  <span className="truncate">Leave campaign</span>
+                </button>
+              </>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Campaign-staff variant — switch between the Clerk orgs you belong to. */
+function OrgCampaignSwitcher() {
   const { setActive, userMemberships, isLoaded } = useOrganizationList({ userMemberships: true });
   const [open, setOpen] = useState(false);
   const orgs = (userMemberships as any)?.data ?? [];
@@ -275,12 +316,50 @@ function CampaignSwitcher() {
   );
 }
 
+/**
+ * Shown to a platform operator who has landed on a campaign page without
+ * entering a campaign. This is a normal state, not an error: operators hold no
+ * campaign of their own, so there is simply nothing to render until they pick
+ * one.
+ */
+function NoCampaignSelected() {
+  const [, navigate] = useLocation();
+  return (
+    <div className="max-w-xl mx-auto mt-12 border border-border rounded-sm bg-card p-8 text-center">
+      <Building2 className="h-10 w-10 mx-auto text-muted-foreground/60" />
+      <h1 className="mt-4 text-lg font-black tracking-tight">No campaign selected</h1>
+      <p className="mt-2 text-sm text-muted-foreground">
+        You are signed in as a platform operator, which is not tied to any single
+        campaign. Choose a campaign from the switcher above to work inside it, or
+        continue administering all campaigns from the platform.
+      </p>
+      <Button className="mt-6 rounded-sm" onClick={() => navigate("/platform-admin")}>
+        Go to platform admin
+      </Button>
+    </div>
+  );
+}
+
 export default function AppLayout({ children }: AppLayoutProps) {
   const [location] = useLocation();
   const { signOut } = useClerk();
   const { user } = useUser();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const access = useUserAccess();
+  const { access, isPlatformOperator, activeTenant } = useIdentity();
+
+  // A platform operator outside any campaign has no campaign data to show, so
+  // the campaign sections would be dead links. Show only Platform until they
+  // enter a campaign.
+  const inCampaignContext = !isPlatformOperator || Boolean(activeTenant);
+
+  // Hiding the nav is not enough — a bookmark or a typed URL still lands on a
+  // campaign page. Those pages would fire requests the API answers with
+  // "no campaign selected", so intercept and say so plainly instead.
+  const isPlatformRoute =
+    location.startsWith("/platform-admin") ||
+    location.startsWith("/platform/") ||
+    location.startsWith("/geography");
+  const needsCampaign = !inCampaignContext && !isPlatformRoute;
 
   // Fetch open message count for the sidebar badge; refresh every 60 s.
   const { data: msgCounts } = useQuery<Record<string, number>>({
@@ -321,47 +400,22 @@ export default function AppLayout({ children }: AppLayoutProps) {
         <SidebarHeader />
         
         <div className="flex-1 overflow-y-auto py-4 px-4 space-y-6">
-          {[
-            // Campaign — always visible to any authenticated user
-            { label: "Campaign", items: navigation, show: true },
-
-            // Finance — county coordinator level (7) and above covers all senior
-            // field staff; finance-officer and treasurer are also level 7, so a
-            // single level threshold works for both groups
-            { label: "Finance", items: financeNav, show: access.maxLevel >= 7 },
-
-            // Communications — shown to comms/coordinator/leadership families
-            // (level 7+ doesn't work alone because finance officers are also
-            // level 7 but should not see this section)
-            {
-              label: "Communications", items: commsNav,
-              show: access.families.has("comms")
-                 || access.families.has("coordinator")
-                 || access.families.has("leadership")
-                 || access.maxLevel >= 8,
-            },
-
-            // Election Operations — shown to field roles (agents + coordinators +
-            // leadership); back-office roles (finance, compliance) are excluded
-            // even though they may have high numeric levels
-            {
-              label: "Election Operations", items: electionNav,
-              show: access.families.has("agent")
-                 || access.families.has("coordinator")
-                 || access.families.has("leadership")
-                 || access.maxLevel >= 8,
-            },
-
-            // Campaign Admin — county-coordinator level (7) and above, plus
-            // compliance back-office roles (legal, auditor, DPO, etc.)
-            {
-              label: "Campaign Admin", items: campaignAdminNav,
-              show: access.maxLevel >= 7 || access.families.has("compliance"),
-            },
-
-            // Platform — global admins only (set via is_global_admin DB column)
-            { label: "Platform", items: platformNav, show: access.isGlobalAdmin },
-          ].filter((s) => s.show).map((section) => (
+          {/*
+            Visibility rules live in @/lib/access (SECTION_RULES) so they can be
+            unit-tested against the seeded role catalogue. Keep these labels in
+            sync with the SectionLabel union there.
+          */}
+          {([
+            { label: "Campaign", items: navigation },
+            { label: "Finance", items: financeNav },
+            { label: "Communications", items: commsNav },
+            { label: "Election Operations", items: electionNav },
+            { label: "Campaign Admin", items: campaignAdminNav },
+            { label: "Platform", items: platformNav },
+          ] as const)
+            .filter((s) => (s.label === "Platform" ? true : inCampaignContext))
+            .filter((s) => SECTION_RULES[s.label](access))
+            .map((section) => (
             <div key={section.label}>
               <div className="px-3 mb-1.5 text-[10px] font-black tracking-widest text-sidebar-foreground/40 uppercase">
                 {section.label}
@@ -454,8 +508,13 @@ export default function AppLayout({ children }: AppLayoutProps) {
           </div>
           
           <div className="flex items-center gap-3 text-sm font-mono text-muted-foreground">
-            {/* Campaign switcher — only visible when user belongs to multiple orgs */}
-            <CampaignSwitcher />
+            {/* Platform operators pick which campaign to enter; campaign staff
+                switch between the orgs they belong to. */}
+            {isPlatformOperator ? (
+              <PlatformCampaignSwitcher activeTenant={activeTenant} />
+            ) : (
+              <OrgCampaignSwitcher />
+            )}
             {/* Status indicator */}
             <div className="flex items-center gap-2 bg-muted/50 px-3 py-1.5 rounded-sm border border-border">
               <div className="w-2 h-2 rounded-full bg-green-600 animate-pulse" />
@@ -468,7 +527,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
           <div className="mx-auto max-w-7xl">
             {/* Trial / billing state. Renders nothing on a healthy paid plan. */}
             <TrialBanner />
-            {children}
+            {needsCampaign ? <NoCampaignSelected /> : children}
           </div>
         </div>
       </main>

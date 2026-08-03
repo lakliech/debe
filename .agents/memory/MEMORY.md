@@ -5,3 +5,6 @@
 - [Tenant deletion is two-phase](tenant-deletion-two-phase.md) — schedule then purge, and detach external systems before the DB row that records them.
 - [Service worker masks dev changes](vite-service-worker-stale-bundle.md) — a cached bundle can survive HMR; rule out staleness before debugging the code.
 - [Gate queries on auth state](react-query-auth-gating.md) — an ungated authenticated query retries its 401 and pins the page on a loading spinner.
+- [RBAC level scale](rbac-level-scale.md) — lower = more privileged; the client must read levels off the API, never keep its own slug→level table.
+- [Identity is not tenant context](identity-vs-tenant-context.md) — never infer a campaign for an operator; "lost privileges" is usually a context bug, not RBAC.
+- [Dev/prod parity & privilege bootstrap](env-parity-and-privilege-bootstrap.md) — "still broken" after a verified fix usually means the user is on prod; and never allowlist on a locally-stored email.

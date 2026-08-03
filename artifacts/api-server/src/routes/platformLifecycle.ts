@@ -318,7 +318,15 @@ router.delete("/tenants/:id/purge", requireAuth, requireLevel(0), async (req: an
       });
     }
 
-    await purgeTenant(id);
+    // Phase two only. purgeTenant refuses anything not already scheduled for
+    // deletion; "purge now" waives the remaining grace period, nothing more.
+    if (tenant.lifecycleState !== "deletion_scheduled") {
+      return res.status(409).json({
+        error: `${tenant.name} is not scheduled for deletion. Schedule deletion first — purging is irreversible.`,
+      });
+    }
+
+    await purgeTenant(id, { ignoreGracePeriod: true });
     res.json({ message: `${tenant.name} and all its data have been permanently deleted.` });
   } catch (err: any) {
     logger.error({ err }, "[lifecycle] manual purge failed");
