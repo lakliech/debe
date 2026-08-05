@@ -291,6 +291,15 @@ router.post("/", requireAuth, async (req: any, res: any) => {
       message: `${tenant.name} is ready. Your ${TRIAL_DAYS}-day Pro trial has started.`,
     });
   } catch (err: any) {
+    // The slugTaken() pre-check above races with concurrent registrations —
+    // two callers can both pass it before either inserts. The tenants.slug
+    // unique constraint is the real arbiter, so translate its violation into
+    // the same clean 409 the pre-check returns. Drizzle wraps pg errors: the
+    // SQLSTATE and constraint name live on err.cause, never the wrapper.
+    const cause = (err as any)?.cause ?? err;
+    if (cause?.code === "23505" && String(cause?.constraint ?? "").includes("slug")) {
+      return res.status(409).json({ error: "That web address is already taken." });
+    }
     logger.error({ err }, "[register] failed");
 
     res.status(500).json({ error: "We couldn't create your campaign. Please try again." });
