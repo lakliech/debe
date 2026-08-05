@@ -1,4 +1,4 @@
-# Linda Mwananchi 2027 — Campaign Management Platform
+# — Campaign Management Platform
 
 **IT'S TIME. BE PART OF THE CHANGE.**
 
