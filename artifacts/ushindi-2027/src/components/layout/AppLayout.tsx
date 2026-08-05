@@ -87,6 +87,7 @@ const platformNav = [
   { name: "Tenant Lifecycle", href: "/platform/lifecycle", icon: LifeBuoy },
   { name: "User Search", href: "/platform/users", icon: Search },
   { name: "Operations Monitor", href: "/platform/ops", icon: Radio },
+  { name: "Activity Log", href: "/platform/activity", icon: Activity },
   { name: "Geography", href: "/geography", icon: MapPin },
 ];
 
@@ -135,6 +136,49 @@ function SidebarHeader() {
 //   campaign from the platform surface and explicitly *enter* one when they
 //   need to change its configuration. That choice is stored server-side, and
 //   exiting returns them to the platform with no campaign context.
+
+/**
+ * Persistent override notice — while a platform operator is working inside a
+ * customer's campaign the interface must make that unmistakable, and offer a
+ * one-click return to the platform area.
+ */
+function PlatformOverrideBanner({ activeTenant }: { activeTenant: ActiveTenant }) {
+  const [busy, setBusy] = useState(false);
+
+  const exitToPlatform = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch(`${BASE}/api/platform/active-campaign`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenantId: null }),
+      });
+      if (res.ok) window.location.assign(`${BASE}/platform-admin`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="shrink-0 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 px-4 py-2 bg-amber-100 border-b border-amber-300 text-amber-950 text-sm">
+      <span className="flex items-center gap-2">
+        <AlertTriangle className="h-4 w-4 shrink-0" />
+        <span>
+          You are working inside <strong>{activeTenant.name}</strong> as platform super admin
+          — every action is recorded.
+        </span>
+      </span>
+      <button
+        onClick={exitToPlatform}
+        disabled={busy}
+        className="font-semibold underline underline-offset-2 hover:text-amber-700 disabled:opacity-50"
+      >
+        Return to platform
+      </button>
+    </div>
+  );
+}
 
 /** Operator variant — enter or leave any campaign on the platform. */
 function PlatformCampaignSwitcher({ activeTenant }: { activeTenant: ActiveTenant | null }) {
@@ -498,6 +542,10 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
       {/* Main content */}
       <main className="flex-1 flex flex-col min-w-0 bg-background overflow-hidden">
+        {/* Unmistakable while an operator works inside a customer's campaign. */}
+        {isPlatformOperator && activeTenant && (
+          <PlatformOverrideBanner activeTenant={activeTenant} />
+        )}
         {/* Topbar for mobile & subtle breadcrumb for desktop */}
         <header className="h-16 shrink-0 flex items-center justify-between px-4 sm:px-6 lg:px-8 border-b border-border bg-card">
           <div className="flex items-center">

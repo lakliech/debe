@@ -101,6 +101,7 @@ import ContactMessagesPage from "./pages/admin/ContactMessages";
 // Platform Admin
 import PlatformAdminPage from "./pages/admin/PlatformAdmin";
 import PlatformOpsPage from "./pages/admin/PlatformOps";
+import PlatformActivityPage from "./pages/admin/PlatformActivity";
 import PlatformUsersPage from "./pages/admin/PlatformUsers";
 import PlatformBillingPage from "./pages/admin/PlatformBilling";
 import PlatformLifecyclePage from "./pages/admin/PlatformLifecycle";
@@ -517,6 +518,9 @@ function BrandingAwareClerkProvider() {
           </Route>
           <Route path="/platform/ops">
             <ProtectedRoute component={PlatformOpsPage} />
+          </Route>
+          <Route path="/platform/activity">
+            <ProtectedRoute component={PlatformActivityPage} />
           </Route>
           <Route path="/platform/billing">
             <ProtectedRoute component={PlatformBillingPage} />

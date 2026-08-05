@@ -10,11 +10,17 @@
  *   { error, feature, currentPlan, requiredPlan, upgradeUrl }
  *
  * Must run AFTER resolveTenant — it reads req.tenant.
+ *
+ * Platform super admin override: every gate in this module passes for the
+ * platform super admin (lib/platformOverride.ts). They support and repair
+ * customer campaigns, and must never be forced to change a customer's
+ * billing just to use a feature inside that customer's campaign.
  */
 
 import type { Request, Response, NextFunction } from "express";
 import { db, tenantsTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
+import { hasPlatformOverride } from "../lib/platformOverride";
 import {
   PLANS,
   getEffectivePlan,
@@ -45,11 +51,17 @@ function upgradeUrl(): string {
  *   router.get("/export.xlsx", requireAuth, requirePlanFeature("excelExport"), handler)
  */
 export function requirePlanFeature(feature: PlanFeature) {
-  return function planFeatureGate(req: Request, res: Response, next: NextFunction) {
+  return async function planFeatureGate(req: Request, res: Response, next: NextFunction) {
     const tenant = (req as any).tenant;
 
     // No tenant context (e.g. platform-admin route) — nothing to gate.
     if (!tenant) return next();
+
+    try {
+      if (await hasPlatformOverride(req, res)) return next();
+    } catch (err) {
+      return next(err);
+    }
 
     const effective = getEffectivePlan(tenant);
     if (PLANS[effective.plan][feature]) return next();
@@ -69,9 +81,15 @@ export function requirePlanFeature(feature: PlanFeature) {
  * Block the request unless the tenant's effective plan is at least `tier`.
  */
 export function requirePlanTier(tier: PlanTier) {
-  return function planTierGate(req: Request, res: Response, next: NextFunction) {
+  return async function planTierGate(req: Request, res: Response, next: NextFunction) {
     const tenant = (req as any).tenant;
     if (!tenant) return next();
+
+    try {
+      if (await hasPlatformOverride(req, res)) return next();
+    } catch (err) {
+      return next(err);
+    }
 
     const effective = getEffectivePlan(tenant);
     if (planSatisfies(effective.plan, tier)) return next();
@@ -100,6 +118,12 @@ export function requireCapacity(
   return async function capacityGate(req: Request, res: Response, next: NextFunction) {
     const tenant = (req as any).tenant;
     if (!tenant) return next();
+
+    try {
+      if (await hasPlatformOverride(req, res)) return next();
+    } catch (err) {
+      return next(err);
+    }
 
     const effective = getEffectivePlan(tenant);
     const limit = PLANS[effective.plan][limitKey];

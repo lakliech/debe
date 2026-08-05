@@ -35,6 +35,7 @@ import { eq, sql, and, or, isNull, isNotNull, notExists, lt, gt, ne, ilike, desc
 import { bustActorCache } from "../middlewares/rbac";
 import { requireLevel } from "../middlewares/rbac";
 import { grantCampaignAdminByEmail } from "../lib/grantCampaignAdmin";
+import { recordPlatformAction } from "../lib/platformAudit";
 
 const router = Router();
 
@@ -159,11 +160,50 @@ router.put("/active-campaign", requireAuth, requireLevel(0), async (req: any, re
       activeCampaign = tenant;
     }
 
-    const [updated] = await db
-      .update(usersTable)
-      .set({ activeTenantId: tenantId })
+    const [previous] = await db
+      .select({ activeTenantId: usersTable.activeTenantId })
+      .from(usersTable)
       .where(eq(usersTable.clerkId, req.clerkId))
-      .returning({ id: usersTable.id });
+      .limit(1);
+
+    // The context change and its audit record commit in one transaction —
+    // entering or leaving a customer's campaign is an auditable platform
+    // event in its own right, and it must never happen unrecorded.
+    const [updated] = await db.transaction(async (tx) => {
+      const [u] = await tx
+        .update(usersTable)
+        .set({ activeTenantId: tenantId })
+        .where(eq(usersTable.clerkId, req.clerkId))
+        .returning({ id: usersTable.id });
+
+      if (!u) return [undefined];
+
+      if (tenantId) {
+        await recordPlatformAction(
+          req,
+          {
+            action: "platform.campaign.enter",
+            resource: "tenant",
+            tenantId,
+            resourceId: tenantId,
+            details: { slug: activeCampaign.slug, name: activeCampaign.name },
+          },
+          tx,
+        );
+      } else if (previous?.activeTenantId) {
+        await recordPlatformAction(
+          req,
+          {
+            action: "platform.campaign.exit",
+            resource: "tenant",
+            tenantId: previous.activeTenantId,
+            resourceId: previous.activeTenantId,
+          },
+          tx,
+        );
+      }
+      return [u];
+    });
 
     if (!updated) return res.status(404).json({ error: "No local profile for this account." });
 
@@ -204,16 +244,32 @@ router.post("/tenants", requireAuth, requireLevel(0), async (req: any, res: any)
       return res.status(409).json({ error: `Tenant slug '${slug}' is already taken` });
     }
 
-    // Membership is owned by the app — creating a campaign is just the tenant
-    // row; no identity-provider workspace needs provisioning.
-    const [tenant] = await db
-      .insert(tenantsTable)
-      .values({ name, slug, plan })
-      .returning();
+    // The tenant row and its audit record commit in one transaction — the
+    // campaign never exists without the record of who created it.
+    const [tenant] = await db.transaction(async (tx) => {
+      const [t] = await tx
+        .insert(tenantsTable)
+        .values({ name, slug, plan })
+        .returning();
+
+      await recordPlatformAction(
+        req,
+        {
+          action: "platform.tenant.create",
+          resource: "tenant",
+          tenantId: t.id,
+          resourceId: t.id,
+          details: { name, slug, plan },
+        },
+        tx,
+      );
+      return [t];
+    });
 
     // Grant the designated admin access (best-effort — don't block tenant
     // creation). The invitee must already have an account; if they don't,
-    // say so plainly rather than inventing a pending grant.
+    // say so plainly rather than inventing a pending grant. The grant runs
+    // post-commit through the shared helper and is recorded only on success.
     let invitationWarning: string | null = null;
     if (adminEmail) {
       const grant = await grantCampaignAdminByEmail(tenant.id, adminEmail);
@@ -222,6 +278,13 @@ router.post("/tenants", requireAuth, requireLevel(0), async (req: any, res: any)
           grant.reason === "no_account"
             ? `Campaign created, but no account exists for ${adminEmail} yet. Ask them to sign up, then resend the invite.`
             : "Campaign created, but the Super Administrator role is missing from the roles table.";
+      } else {
+        await recordPlatformAction(req, {
+          action: "platform.membership.grant",
+          resource: "user_role",
+          tenantId: tenant.id,
+          details: { email: adminEmail, role: "super-admin", via: "tenant-create" },
+        });
       }
     }
 
@@ -304,13 +367,31 @@ router.patch("/tenants/:id/suspend", requireAuth, requireLevel(0), async (req: a
       return res.status(400).json({ error: "isSuspended (boolean) is required" });
     }
 
-    const [tenant] = await db
-      .update(tenantsTable)
-      .set({ isSuspended })
-      .where(eq(tenantsTable.id, id))
-      .returning();
+    let tenant: any;
+    await db.transaction(async (tx) => {
+      [tenant] = await tx
+        .update(tenantsTable)
+        .set({ isSuspended })
+        .where(eq(tenantsTable.id, id))
+        .returning();
+
+      if (!tenant) return; // nothing written — falls through to the 404
+
+      await recordPlatformAction(
+        req,
+        {
+          action: isSuspended ? "platform.tenant.suspend" : "platform.tenant.resume",
+          resource: "tenant",
+          tenantId: tenant.id,
+          resourceId: tenant.id,
+          details: { slug: tenant.slug, name: tenant.name },
+        },
+        tx,
+      );
+    });
 
     if (!tenant) return res.status(404).json({ error: "Tenant not found" });
+
     res.json(tenant);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -346,7 +427,62 @@ router.post("/tenants/:id/invite", requireAuth, requireLevel(0), async (req: any
         .json({ error: "The Super Administrator role is missing from the roles table." });
     }
 
+    await recordPlatformAction(req, {
+      action: "platform.membership.grant",
+      resource: "user_role",
+      tenantId: tenant.id,
+      details: { email: adminEmail, role: "super-admin", via: "invite" },
+    });
+
     res.json({ message: `${adminEmail} now has campaign administrator access.` });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/platform/activity ────────────────────────────────────────────────
+// Platform-wide activity log — every audited action across every campaign.
+// Only platform standing can read it (requireLevel(0)); a campaign
+// administrator — including a campaign super-admin — must never see another
+// campaign's records, and no campaign role slug can satisfy that gate.
+router.get("/activity", requireAuth, requireLevel(0), async (req: any, res: any) => {
+  try {
+    const { userId, tenantId, action, email, limit = "50", offset = "0" } = req.query as any;
+    const lim = Math.min(Math.max(Number(limit) || 50, 1), 200);
+    const off = Math.max(Number(offset) || 0, 0);
+
+    const conditions: any[] = [];
+    if (userId) conditions.push(eq(auditLogsTable.userId, userId));
+    if (tenantId) conditions.push(eq(auditLogsTable.tenantId, tenantId));
+    if (action) conditions.push(eq(auditLogsTable.action, action));
+    // Operator filter is server-side so it spans every page, not just the
+    // rows the client happens to have loaded.
+    if (email) conditions.push(ilike(auditLogsTable.userEmail, `%${email}%`));
+
+    const rows = await db
+      .select({
+        id: auditLogsTable.id,
+        action: auditLogsTable.action,
+        resource: auditLogsTable.resource,
+        resourceId: auditLogsTable.resourceId,
+        newValue: auditLogsTable.newValue,
+        oldValue: auditLogsTable.oldValue,
+        createdAt: auditLogsTable.createdAt,
+        userId: auditLogsTable.userId,
+        userEmail: auditLogsTable.userEmail,
+        userFullName: auditLogsTable.userFullName,
+        tenantId: auditLogsTable.tenantId,
+        tenantName: tenantsTable.name,
+        tenantSlug: tenantsTable.slug,
+      })
+      .from(auditLogsTable)
+      .leftJoin(tenantsTable, eq(auditLogsTable.tenantId, tenantsTable.id))
+      .where(conditions.length ? and(...conditions) : undefined)
+      .orderBy(desc(auditLogsTable.createdAt))
+      .limit(lim)
+      .offset(off);
+
+    res.json(rows.map((r) => ({ ...r, createdAt: r.createdAt?.toISOString() ?? null })));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -753,32 +889,34 @@ router.post("/users/:id/roles", requireAuth, requireLevel(0), async (req: any, r
 
     const actor = await resolveActorFull(req.clerkId);
 
-    const [assignment] = await db
-      .insert(userRolesTable)
-      .values({
-        userId: req.params.id,
-        roleId,
-        tenantId: tenantId ?? null,
-        countyId: countyId ?? null,
-        constituencyId: constituencyId ?? null,
-        wardId: wardId ?? null,
-        assignedBy: actor?.id ?? null,
-      })
-      .returning();
+    // The grant and its audit record commit in one transaction.
+    const [assignment] = await db.transaction(async (tx) => {
+      const [a] = await tx
+        .insert(userRolesTable)
+        .values({
+          userId: req.params.id,
+          roleId,
+          tenantId: tenantId ?? null,
+          countyId: countyId ?? null,
+          constituencyId: constituencyId ?? null,
+          wardId: wardId ?? null,
+          assignedBy: actor?.id ?? null,
+        })
+        .returning();
 
-    // Audit entry
-    if (actor) {
-      await db.insert(auditLogsTable).values({
-        tenantId: tenantId ?? null,
-        userId: actor.id,
-        userEmail: actor.email,
-        userFullName: actor.fullName,
-        action: "assign_role",
-        resource: "user_role",
-        resourceId: assignment.id,
-        newValue: JSON.stringify({ userId: req.params.id, roleId, roleName: role.name, tenantId: tenantId ?? null }),
-      });
-    }
+      await recordPlatformAction(
+        req,
+        {
+          action: "assign_role",
+          resource: "user_role",
+          tenantId: tenantId ?? null,
+          resourceId: a.id,
+          details: { userId: req.params.id, roleId, roleName: role.name, tenantId: tenantId ?? null },
+        },
+        tx,
+      );
+      return [a];
+    });
 
     // Evict role cache for the target user
     bustActorCache(targetUser.clerkId);
@@ -817,24 +955,24 @@ router.delete("/users/:id/roles/:roleAssignmentId", requireAuth, requireLevel(0)
       .limit(1);
     if (!existing) return res.status(404).json({ error: "Role assignment not found" });
 
-    await db
-      .delete(userRolesTable)
-      .where(and(eq(userRolesTable.id, roleAssignmentId), eq(userRolesTable.userId, id)));
+    // The revocation and its audit record commit in one transaction.
+    await db.transaction(async (tx) => {
+      await tx
+        .delete(userRolesTable)
+        .where(and(eq(userRolesTable.id, roleAssignmentId), eq(userRolesTable.userId, id)));
 
-    // Audit entry
-    const actor = await resolveActorFull(req.clerkId);
-    if (actor) {
-      await db.insert(auditLogsTable).values({
-        tenantId: existing.tenantId ?? null,
-        userId: actor.id,
-        userEmail: actor.email,
-        userFullName: actor.fullName,
-        action: "remove_role",
-        resource: "user_role",
-        resourceId: roleAssignmentId,
-        oldValue: JSON.stringify({ userId: id, roleId: existing.roleId, roleName: existing.roleName, tenantId: existing.tenantId }),
-      });
-    }
+      await recordPlatformAction(
+        req,
+        {
+          action: "remove_role",
+          resource: "user_role",
+          tenantId: existing.tenantId ?? null,
+          resourceId: roleAssignmentId,
+          prior: { userId: id, roleId: existing.roleId, roleName: existing.roleName, tenantId: existing.tenantId },
+        },
+        tx,
+      );
+    });
 
     // Evict role cache
     bustActorCache(targetUser.clerkId);

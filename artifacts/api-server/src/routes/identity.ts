@@ -18,6 +18,7 @@ import {
   type PlatformOperatorRequest,
 } from "../middlewares/resolveTenant";
 import { bustActorCache } from "../middlewares/rbac";
+import { recordPlatformAction } from "../lib/platformAudit";
 
 const router = Router();
 
@@ -168,10 +169,42 @@ router.put("/me/active-campaign", requireAuth, async (req: any, res: any) => {
       };
     }
 
-    await db
-      .update(usersTable)
-      .set({ activeTenantId: tenantId })
-      .where(eq(usersTable.id, user.id));
+    // The context change and its audit record commit in one transaction —
+    // a platform operator entering or leaving a campaign is an auditable
+    // platform event here too (same event as via the platform route).
+    await db.transaction(async (tx) => {
+      await tx
+        .update(usersTable)
+        .set({ activeTenantId: tenantId })
+        .where(eq(usersTable.id, user.id));
+
+      if (user.isGlobalAdmin) {
+        if (tenantId) {
+          await recordPlatformAction(
+            req,
+            {
+              action: "platform.campaign.enter",
+              resource: "tenant",
+              tenantId,
+              resourceId: tenantId,
+              details: { slug: activeTenant.slug, name: activeTenant.name },
+            },
+            tx,
+          );
+        } else if (user.activeTenantId) {
+          await recordPlatformAction(
+            req,
+            {
+              action: "platform.campaign.exit",
+              resource: "tenant",
+              tenantId: user.activeTenantId,
+              resourceId: user.activeTenantId,
+            },
+            tx,
+          );
+        }
+      }
+    });
 
     // Effective roles differ per campaign, so the cached actor snapshot is
     // stale the moment the context changes.

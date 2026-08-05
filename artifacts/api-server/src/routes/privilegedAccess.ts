@@ -21,7 +21,18 @@ function requireAuth(req: any, res: any, next: any) {
   next();
 }
 
-// Mutually-exclusive privilege groups that must NOT be held by the same user
+// Mutually-exclusive privilege groups that must NOT be held by the same user.
+//
+// SEPARATION-OF-DUTIES DECISION — the platform super admin is EXEMPT from this
+// rule. The control governs campaign staff holding simultaneous campaign
+// privileges. A platform operator holds no campaign roles by design, and when
+// they act inside a customer's campaign their authority comes from platform
+// standing (users.is_global_admin), not from any role assignment this check
+// can see — binding them here is unenforceable. Their equivalent control is
+// the platform audit trail: every action they take in any campaign is
+// recorded (lib/platformAudit.ts) and reviewable in the platform-wide
+// activity log. They still appear in the user list below for human review;
+// they are simply never flagged as a violation.
 const CONFLICTING_PRIVILEGE_GROUPS = [
   {
     name: "Tally + Finance + Audit",
@@ -49,6 +60,7 @@ router.get(
           clerkId: usersTable.clerkId,
           fullName: usersTable.fullName,
           email: usersTable.email,
+          isGlobalAdmin: usersTable.isGlobalAdmin,
           roleSlug: rolesTable.slug,
           roleName: rolesTable.name,
         })
@@ -59,11 +71,11 @@ router.get(
 
       // Group by user
       const byUser = new Map<string, {
-        userId: string; fullName: string; email: string; roles: string[];
+        userId: string; fullName: string; email: string; isGlobalAdmin: boolean; roles: string[];
       }>();
       for (const a of assignments) {
         if (!byUser.has(a.userId)) {
-          byUser.set(a.userId, { userId: a.userId, fullName: a.fullName ?? "", email: a.email ?? "", roles: [] });
+          byUser.set(a.userId, { userId: a.userId, fullName: a.fullName ?? "", email: a.email ?? "", isGlobalAdmin: a.isGlobalAdmin ?? false, roles: [] });
         }
         byUser.get(a.userId)!.roles.push(a.roleSlug ?? "");
       }
@@ -75,6 +87,9 @@ router.get(
       }> = [];
 
       for (const user of byUser.values()) {
+        // Platform super admins are exempt from flagging — see the decision
+        // recorded at CONFLICTING_PRIVILEGE_GROUPS above.
+        if (user.isGlobalAdmin) continue;
         for (const rule of CONFLICTING_PRIVILEGE_GROUPS) {
           // User must NOT hold roles from 2+ groups
           const groupsHeld = rule.groups.filter((g) =>

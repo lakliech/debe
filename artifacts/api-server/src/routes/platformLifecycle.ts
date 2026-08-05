@@ -27,6 +27,7 @@ import { requireLevel } from "../middlewares/rbac";
 import { logger } from "../lib/logger";
 import { sendEmailAsync } from "../lib/email";
 import { purgeTenant } from "../jobs/tenantPurge";
+import { recordPlatformAction } from "../lib/platformAudit";
 import { platformUrl } from "../lib/stripe";
 
 const router = Router();
@@ -102,11 +103,27 @@ router.patch(
               error: "This campaign is already scheduled for deletion. Cancel that first.",
             });
           }
-          const [updated] = await db
-            .update(tenantsTable)
-            .set({ lifecycleState: "suspended", isSuspended: true })
-            .where(eq(tenantsTable.id, id))
-            .returning();
+          // The transition and its audit record commit in one transaction.
+          const [updated] = await db.transaction(async (tx) => {
+            const [u] = await tx
+              .update(tenantsTable)
+              .set({ lifecycleState: "suspended", isSuspended: true })
+              .where(eq(tenantsTable.id, id))
+              .returning();
+
+            await recordPlatformAction(
+              req,
+              {
+                action: "platform.tenant.suspend",
+                resource: "tenant",
+                tenantId: id,
+                resourceId: id,
+                details: { slug: tenant.slug, name: tenant.name, reason: reason ?? null },
+              },
+              tx,
+            );
+            return [u];
+          });
 
           if (to) {
             sendEmailAsync({
@@ -121,31 +138,48 @@ router.patch(
         }
 
         case "reactivate": {
-          const [updated] = await db
-            .update(tenantsTable)
-            .set({
-              lifecycleState: "active",
-              isSuspended: false,
-              scheduledDeletionAt: null,
-            })
-            .where(eq(tenantsTable.id, id))
-            .returning();
+          // The transition, the request close-out and the audit record
+          // commit in one transaction.
+          const [updated] = await db.transaction(async (tx) => {
+            const [u] = await tx
+              .update(tenantsTable)
+              .set({
+                lifecycleState: "active",
+                isSuspended: false,
+                scheduledDeletionAt: null,
+              })
+              .where(eq(tenantsTable.id, id))
+              .returning();
 
-          // Close any pending deletion request — reactivation supersedes it.
-          await db
-            .update(deletionRequestsTable)
-            .set({
-              status: "rejected",
-              reviewNotes: "Campaign reactivated by the platform team.",
-              reviewedBy: await actorId(req.clerkId),
-              reviewedAt: new Date(),
-            })
-            .where(
-              and(
-                eq(deletionRequestsTable.tenantId, id),
-                eq(deletionRequestsTable.status, "pending"),
-              ),
+            // Close any pending deletion request — reactivation supersedes it.
+            await tx
+              .update(deletionRequestsTable)
+              .set({
+                status: "rejected",
+                reviewNotes: "Campaign reactivated by the platform team.",
+                reviewedBy: await actorId(req.clerkId),
+                reviewedAt: new Date(),
+              })
+              .where(
+                and(
+                  eq(deletionRequestsTable.tenantId, id),
+                  eq(deletionRequestsTable.status, "pending"),
+                ),
+              );
+
+            await recordPlatformAction(
+              req,
+              {
+                action: "platform.tenant.resume",
+                resource: "tenant",
+                tenantId: id,
+                resourceId: id,
+                details: { slug: tenant.slug, name: tenant.name },
+              },
+              tx,
             );
+            return [u];
+          });
 
           if (to) {
             sendEmailAsync({
@@ -166,31 +200,53 @@ router.patch(
               : DELETION_GRACE_DAYS;
           const deletionDate = new Date(Date.now() + days * 86_400_000);
 
-          const [updated] = await db
-            .update(tenantsTable)
-            .set({
-              lifecycleState: "deletion_scheduled",
-              scheduledDeletionAt: deletionDate,
-              // Access is cut immediately; only the data survives the grace period.
-              isSuspended: true,
-            })
-            .where(eq(tenantsTable.id, id))
-            .returning();
+          // The transition, the request approval and the audit record
+          // commit in one transaction.
+          const [updated] = await db.transaction(async (tx) => {
+            const [u] = await tx
+              .update(tenantsTable)
+              .set({
+                lifecycleState: "deletion_scheduled",
+                scheduledDeletionAt: deletionDate,
+                // Access is cut immediately; only the data survives the grace period.
+                isSuspended: true,
+              })
+              .where(eq(tenantsTable.id, id))
+              .returning();
 
-          await db
-            .update(deletionRequestsTable)
-            .set({
-              status: "approved",
-              reviewedBy: await actorId(req.clerkId),
-              reviewedAt: new Date(),
-              reviewNotes: reason ?? null,
-            })
-            .where(
-              and(
-                eq(deletionRequestsTable.tenantId, id),
-                eq(deletionRequestsTable.status, "pending"),
-              ),
+            await tx
+              .update(deletionRequestsTable)
+              .set({
+                status: "approved",
+                reviewedBy: await actorId(req.clerkId),
+                reviewedAt: new Date(),
+                reviewNotes: reason ?? null,
+              })
+              .where(
+                and(
+                  eq(deletionRequestsTable.tenantId, id),
+                  eq(deletionRequestsTable.status, "pending"),
+                ),
+              );
+
+            await recordPlatformAction(
+              req,
+              {
+                action: "platform.tenant.schedule-deletion",
+                resource: "tenant",
+                tenantId: id,
+                resourceId: id,
+                details: {
+                  slug: tenant.slug,
+                  name: tenant.name,
+                  deletionDate: deletionDate.toISOString(),
+                  reason: reason ?? null,
+                },
+              },
+              tx,
             );
+            return [u];
+          });
 
           if (to) {
             sendEmailAsync({
@@ -215,15 +271,31 @@ router.patch(
           if (tenant.lifecycleState !== "deletion_scheduled") {
             return res.status(409).json({ error: "This campaign is not scheduled for deletion." });
           }
-          const [updated] = await db
-            .update(tenantsTable)
-            .set({
-              lifecycleState: "active",
-              scheduledDeletionAt: null,
-              isSuspended: false,
-            })
-            .where(eq(tenantsTable.id, id))
-            .returning();
+          // The transition and its audit record commit in one transaction.
+          const [updated] = await db.transaction(async (tx) => {
+            const [u] = await tx
+              .update(tenantsTable)
+              .set({
+                lifecycleState: "active",
+                scheduledDeletionAt: null,
+                isSuspended: false,
+              })
+              .where(eq(tenantsTable.id, id))
+              .returning();
+
+            await recordPlatformAction(
+              req,
+              {
+                action: "platform.tenant.cancel-deletion",
+                resource: "tenant",
+                tenantId: id,
+                resourceId: id,
+                details: { slug: tenant.slug, name: tenant.name },
+              },
+              tx,
+            );
+            return [u];
+          });
 
           if (to) {
             sendEmailAsync({
@@ -284,11 +356,30 @@ router.patch("/tenants/:id/rename", requireAuth, requireLevel(0), async (req: an
       return res.json({ tenant, message: "No changes." });
     }
 
-    const [updated] = await db
-      .update(tenantsTable)
-      .set(patch)
-      .where(eq(tenantsTable.id, id))
-      .returning();
+    // The rename and its audit record commit in one transaction.
+    const [updated] = await db.transaction(async (tx) => {
+      const [u] = await tx
+        .update(tenantsTable)
+        .set(patch)
+        .where(eq(tenantsTable.id, id))
+        .returning();
+
+      await recordPlatformAction(
+        req,
+        {
+          action: "platform.tenant.rename",
+          resource: "tenant",
+          tenantId: id,
+          resourceId: id,
+          details: {
+            from: { name: tenant.name, slug: tenant.slug },
+            to: patch,
+          },
+        },
+        tx,
+      );
+      return [u];
+    });
 
     logger.info({ tenantId: id, patch }, "[lifecycle] renamed");
     res.json({
@@ -327,6 +418,17 @@ router.delete("/tenants/:id/purge", requireAuth, requireLevel(0), async (req: an
     }
 
     await purgeTenant(id, { ignoreGracePeriod: true });
+
+    // Recorded AFTER the purge with no tenant link — the row is gone; the
+    // campaign's identity survives in the details.
+    await recordPlatformAction(req, {
+      action: "platform.tenant.purge",
+      resource: "tenant",
+      tenantId: null,
+      resourceId: id,
+      details: { slug: tenant.slug, name: tenant.name },
+    });
+
     res.json({ message: `${tenant.name} and all its data have been permanently deleted.` });
   } catch (err: any) {
     logger.error({ err }, "[lifecycle] manual purge failed");
@@ -424,16 +526,37 @@ router.patch(
         }
       }
 
-      const [updated] = await db
-        .update(domainChangeRequestsTable)
-        .set({
-          status: approve ? "approved" : "rejected",
-          reviewNotes: reviewNotes ?? null,
-          reviewedBy: await actorId(req.clerkId),
-          reviewedAt: new Date(),
-        })
-        .where(eq(domainChangeRequestsTable.id, id))
-        .returning();
+      // The decision, its application and its audit record commit together.
+      const [updated] = await db.transaction(async (tx) => {
+        const [u] = await tx
+          .update(domainChangeRequestsTable)
+          .set({
+            status: approve ? "approved" : "rejected",
+            reviewNotes: reviewNotes ?? null,
+            reviewedBy: await actorId(req.clerkId),
+            reviewedAt: new Date(),
+          })
+          .where(eq(domainChangeRequestsTable.id, id))
+          .returning();
+
+        await recordPlatformAction(
+          req,
+          {
+            action: "platform.domain-request.review",
+            resource: "domain_change_request",
+            tenantId: request.tenantId,
+            resourceId: id,
+            details: {
+              kind: request.kind,
+              requestedValue: request.requestedValue,
+              decision: approve ? "approved" : "rejected",
+              reviewNotes: reviewNotes ?? null,
+            },
+          },
+          tx,
+        );
+        return [u];
+      });
 
       res.json({
         request: updated,

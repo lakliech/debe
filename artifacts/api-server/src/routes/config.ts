@@ -7,6 +7,7 @@ import { eq, and } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
 import { resolveTenant, resolveTenantPublic, resolveTenantMixed } from "../middlewares/resolveTenant";
 import { tenantFilter, assertTenant, requireTenantContext } from "../lib/withTenant";
+import { sendRouteError } from "../lib/routeError";
 import { triggerTlsProvisioning } from "../lib/tlsCert";
 import { PLANS, getEffectivePlan, minimumTierFor } from "../lib/plans";
 
@@ -95,7 +96,7 @@ router.get("/branding", resolveTenantMixed, async (req: any, res: any) => {
     }
     res.json({ isTenant: true, ...branding, updatedAt: branding.updatedAt?.toISOString() });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -158,7 +159,7 @@ router.patch("/branding", requireAuth, resolveTenant, canUpdateBranding, async (
 
     res.json({ ...result, updatedAt: result.updatedAt?.toISOString() });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -192,7 +193,7 @@ router.get("/domain", requireAuth, resolveTenant, requireTenantContext, async (r
       tlsProvisionedAt: tenant?.tlsProvisionedAt?.toISOString() ?? null,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -293,7 +294,7 @@ router.patch("/domain", requireAuth, resolveTenant, requireTenantContext, canUpd
     if (pgCode === "23505") {
       return res.status(409).json({ error: "That domain is already registered to another campaign." });
     }
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -316,7 +317,7 @@ router.post("/domain/check", requireAuth, resolveTenant, canUpdateDomain, async 
     const dnsVerified = await verifyCname(tenant.customDomain);
     res.json({ customDomain: tenant.customDomain, dnsVerified });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -344,7 +345,7 @@ router.post("/domain/cert/retry", requireAuth, resolveTenant, canUpdateDomain, a
       tlsStatus: "pending",
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 
@@ -370,7 +371,7 @@ router.get("/system", requireAuth, resolveTenant, async (req: any, res: any) => 
       auditRetentionDays: Number(map["audit_retention_days"] || "365"),
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err);
   }
 });
 

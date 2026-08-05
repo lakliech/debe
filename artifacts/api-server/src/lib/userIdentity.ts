@@ -11,7 +11,7 @@
 import { db, usersTable, userRolesTable, rolesTable } from "@workspace/db";
 import { eq, and, or, isNull } from "drizzle-orm";
 import { promoteIfAllowlisted } from "./platformBootstrap";
-import { clerkUserEmail } from "./clerkAdmin";
+import { clerkUserEmail, clerkVerifiedPrimaryEmail } from "./clerkAdmin";
 
 export interface UserRoleRow {
   roleId: string;
@@ -120,10 +120,68 @@ export async function getOrCreateLocalUser(
   const email =
     defaultData?.email ?? (await clerkUserEmail(clerkId)) ?? `${clerkId}@clerk.local`;
   const fullName = defaultData?.fullName ?? "New User";
-  const [created] = await db
-    .insert(usersTable)
-    .values({ clerkId, email, fullName, status: "active" })
-    .returning();
+
+  // Same person, new Clerk identity (re-registered, or a new sign-in method
+  // issued a fresh Clerk account for the same address): re-link the new
+  // Clerk ID to the existing local row instead of crashing on the email
+  // unique constraint. Linking is an identity decision, so only a VERIFIED
+  // primary address fetched from Clerk at this moment may drive it — never
+  // caller-supplied data and never the non-verifying email helper. Without
+  // that, a sign-in bearing an unverified matching address would inherit
+  // the existing account's roles.
+  const verifiedEmail = await clerkVerifiedPrimaryEmail(clerkId);
+  if (verifiedEmail) {
+    const byEmail = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.email, verifiedEmail))
+      .limit(1);
+    if (byEmail[0]) {
+      await db
+        .update(usersTable)
+        .set({ clerkId, updatedAt: new Date() })
+        .where(eq(usersTable.id, byEmail[0].id));
+      return getUserWithRoles(byEmail[0].id);
+    }
+  }
+
+  let created: any;
+  try {
+    [created] = await db
+      .insert(usersTable)
+      .values({ clerkId, email, fullName, status: "active" })
+      .returning();
+  } catch (err: any) {
+    // A concurrent first-sign-in request may have won the insert race —
+    // re-read rather than fail. The conflict can be on clerk_id (the same
+    // identity provisioned twice) or on email (the linking lookup above
+    // lost a race with another provisioning insert). Drizzle wraps the pg
+    // error, so the constraint detail sits on the cause, not the message.
+    const errText = `${err?.message ?? ""} ${err?.cause?.message ?? ""}`;
+    if (/duplicate key/i.test(errText)) {
+      const [winner] = await db
+        .select()
+        .from(usersTable)
+        .where(eq(usersTable.clerkId, clerkId))
+        .limit(1);
+      if (winner) return getUserWithRoles(winner.id);
+      if (verifiedEmail) {
+        const [emailWinner] = await db
+          .select()
+          .from(usersTable)
+          .where(eq(usersTable.email, verifiedEmail))
+          .limit(1);
+        if (emailWinner) {
+          await db
+            .update(usersTable)
+            .set({ clerkId, updatedAt: new Date() })
+            .where(eq(usersTable.id, emailWinner.id));
+          return getUserWithRoles(emailWinner.id);
+        }
+      }
+    }
+    throw err;
+  }
 
   // A platform operator signing in for the first time in a fresh environment
   // has no row until this moment, so the startup bootstrap could not reach

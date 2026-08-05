@@ -16,6 +16,7 @@ import { eq, sql, desc, and, gte } from "drizzle-orm";
 import { requireLevel } from "../middlewares/rbac";
 import { PLANS, getEffectivePlan, isPlanTier, type PlanTier } from "../lib/plans";
 import { stripeConfigured } from "../lib/stripe";
+import { recordPlatformAction } from "../lib/platformAudit";
 
 const router = Router();
 
@@ -263,11 +264,36 @@ router.patch("/tenants/:id/plan", requireAuth, requireLevel(0), async (req: any,
       patch.planOverrideUntil = new Date(Date.now() + m * 30 * 86_400_000);
     }
 
-    const [updated] = await db
-      .update(tenantsTable)
-      .set(patch)
-      .where(eq(tenantsTable.id, id))
-      .returning();
+    // The plan change and its audit record commit in one transaction.
+    let updated: any;
+    await db.transaction(async (tx) => {
+      [updated] = await tx
+        .update(tenantsTable)
+        .set(patch)
+        .where(eq(tenantsTable.id, id))
+        .returning();
+
+      if (!updated) return; // nothing written — falls through to the 404
+
+      await recordPlatformAction(
+        req,
+        {
+          action: "platform.tenant.plan-change",
+          resource: "tenant",
+          tenantId: id,
+          resourceId: id,
+          details: {
+            slug: updated.slug,
+            name: updated.name,
+            plan,
+            planOverrideUntil: patch.planOverrideUntil
+              ? (patch.planOverrideUntil as Date).toISOString()
+              : null,
+          },
+        },
+        tx,
+      );
+    });
 
     if (!updated) return res.status(404).json({ error: "Campaign not found" });
 
