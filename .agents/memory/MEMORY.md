@@ -10,3 +10,4 @@
 - [Dev/prod parity & privilege bootstrap](env-parity-and-privilege-bootstrap.md) — "still broken" after a verified fix usually means the user is on prod; and never allowlist on a locally-stored email.
 - [Drizzle schema sync](drizzle-schema-sync.md) — push from schema files is the path (journal drift makes migrate/generate unsafe); non-TTY push prompts fail, so apply narrow ALTERs via SQL directly.
 - [Drizzle error wrapping](drizzle-error-cause.md) — constraint details (duplicate key etc.) live on `err.cause`, never `err.message`; classifying on the wrapper message silently never matches.
+- [Geography seed joins](seed-positional-joins.md) — match constituencies by name, never position; upserts must update FK links on conflict or stale links survive reseeds.

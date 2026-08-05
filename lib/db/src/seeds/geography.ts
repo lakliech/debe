@@ -1,16 +1,13 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 import { db } from "../index";
 import { countiesTable, constituenciesTable, wardsTable } from "../schema";
+// Static import (not readFileSync) so bundlers inline the data — a runtime
+// file read resolves relative to the bundle output dir and is not there.
+import countyDataJson from "./county_data.json";
 
 interface _WardJson { name: string; pollingStations: { name: string }[] }
 interface _ConstJson { name: string; wards: _WardJson[] }
 interface _CountyJson { name: string; constituencies: _ConstJson[] }
-const _dir = dirname(fileURLToPath(import.meta.url));
-const _countyData: _CountyJson[] = JSON.parse(
-  readFileSync(join(_dir, "county_data.json"), "utf-8"),
-);
+const _countyData = countyDataJson as _CountyJson[];
 
 // All 47 counties with approximate coordinates
 export const COUNTIES = [
@@ -94,9 +91,9 @@ export const CONSTITUENCY_DATA: Record<number, { code: number; name: string }[]>
     { code: 33, name: "Wajir North" }, { code: 34, name: "Wajir East" }, { code: 35, name: "Tarbaj" },
     { code: 36, name: "Wajir West" }, { code: 37, name: "Eldas" }, { code: 38, name: "Wajir South" },
   ],
-  9: [ // Mandera
-    { code: 39, name: "Mandera North" }, { code: 40, name: "Banissa" }, { code: 41, name: "Mandera East" },
-    { code: 42, name: "Lafey" }, { code: 43, name: "Mandera West" }, { code: 44, name: "Mandera South" },
+  9: [ // Mandera — order matches county_data.json (ward codes depend on it)
+    { code: 43, name: "Mandera West" }, { code: 40, name: "Banissa" }, { code: 39, name: "Mandera North" },
+    { code: 44, name: "Mandera South" }, { code: 41, name: "Mandera East" }, { code: 42, name: "Lafey" },
   ],
   10: [ // Marsabit
     { code: 45, name: "Moyale" }, { code: 46, name: "North Horr" }, { code: 47, name: "Saku" }, { code: 48, name: "Laisamis" },
@@ -140,9 +137,9 @@ export const CONSTITUENCY_DATA: Record<number, { code: number; name: string }[]>
   20: [ // Kirinyaga
     { code: 100, name: "Mwea" }, { code: 101, name: "Gichugu" }, { code: 102, name: "Ndia" }, { code: 103, name: "Kirinyaga Central" },
   ],
-  21: [ // Murang'a
-    { code: 104, name: "Kandara" }, { code: 105, name: "Gatanga" }, { code: 106, name: "Kiharu" },
-    { code: 107, name: "Kigumo" }, { code: 108, name: "Maragwa" }, { code: 109, name: "Kangema" }, { code: 110, name: "Mathioya" },
+  21: [ // Murang'a — order matches county_data.json (ward codes depend on it)
+    { code: 109, name: "Kangema" }, { code: 110, name: "Mathioya" }, { code: 106, name: "Kiharu" },
+    { code: 107, name: "Kigumo" }, { code: 108, name: "Maragwa" }, { code: 104, name: "Kandara" }, { code: 105, name: "Gatanga" },
   ],
   22: [ // Kiambu
     { code: 111, name: "Gatundu South" }, { code: 112, name: "Gatundu North" }, { code: 113, name: "Juja" },
@@ -234,7 +231,9 @@ export const CONSTITUENCY_DATA: Record<number, { code: number; name: string }[]>
   43: [ // Homa Bay
     { code: 245, name: "Kasipul" }, { code: 246, name: "Kabondo Kasipul" }, { code: 247, name: "Karachuonyo" },
     { code: 248, name: "Rangwe" }, { code: 249, name: "Homa Bay Town" }, { code: 250, name: "Ndhiwa" },
-    { code: 251, name: "Mbita" }, { code: 252, name: "Suba" },
+    // Mbita and Suba are the pre-2013 names — IEBC renamed them Suba North
+    // and Suba South; county_data.json uses the current names.
+    { code: 251, name: "Suba North" }, { code: 252, name: "Suba South" },
   ],
   44: [ // Migori
     { code: 253, name: "Rongo" }, { code: 254, name: "Awendo" }, { code: 255, name: "Suna East" },
@@ -303,7 +302,14 @@ export async function seedGeography() {
 
   // Seed all 1,450 real wards from county_data.json
   // County index in _countyData (0-based) matches county code (1-based): _countyData[code-1]
-  // Constituency index within county matches CONSTITUENCY_DATA[code] order.
+  // Constituencies are matched to the JSON BY NAME — never by position. A
+  // positional join silently mis-links every ward (and all its polling
+  // stations) when the two files disagree on constituency order; an
+  // unmatched constituency is a data bug and must fail the seed loudly.
+  // The conflict update also repairs constituencyId/countyId so re-seeding
+  // after a geography fix actually fixes existing rows.
+  const normName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+
   let wardCount = 0;
   let wardCode = 1;
   for (const [countyCodeStr, consts] of Object.entries(CONSTITUENCY_DATA)) {
@@ -312,13 +318,27 @@ export async function seedGeography() {
     if (!countyId) continue;
 
     const jsonCounty = _countyData[countyCode - 1];
+    if (!jsonCounty) {
+      throw new Error(`county_data.json is missing county #${countyCode}`);
+    }
+
+    const jsonConstByName = new Map(
+      jsonCounty.constituencies.map((jc) => [normName(jc.name), jc]),
+    );
 
     for (let constIdx = 0; constIdx < consts.length; constIdx++) {
       const c = consts[constIdx];
       const constId = constIdMap[c.code];
       if (!constId) continue;
 
-      const jsonWards = jsonCounty?.constituencies[constIdx]?.wards ?? [];
+      const jsonConst = jsonConstByName.get(normName(c.name));
+      if (!jsonConst) {
+        throw new Error(
+          `county_data.json has no constituency matching '${c.name}' in ${jsonCounty.name} (county #${countyCode}) — fix the data instead of seeding positionally.`,
+        );
+      }
+
+      const jsonWards = jsonConst.wards ?? [];
 
       if (jsonWards.length === 0) {
         // Fallback: generate 3 generic ward names if JSON data is missing for this constituency
@@ -327,7 +347,10 @@ export async function seedGeography() {
           await db
             .insert(wardsTable)
             .values({ code: wardCode++, name: wardName, constituencyId: constId, countyId })
-            .onConflictDoUpdate({ target: wardsTable.code, set: { name: wardName } });
+            .onConflictDoUpdate({
+              target: wardsTable.code,
+              set: { name: wardName, constituencyId: constId, countyId },
+            });
           wardCount++;
         }
       } else {
@@ -335,7 +358,10 @@ export async function seedGeography() {
           await db
             .insert(wardsTable)
             .values({ code: wardCode++, name: ward.name, constituencyId: constId, countyId })
-            .onConflictDoUpdate({ target: wardsTable.code, set: { name: ward.name } });
+            .onConflictDoUpdate({
+              target: wardsTable.code,
+              set: { name: ward.name, constituencyId: constId, countyId },
+            });
           wardCount++;
         }
       }

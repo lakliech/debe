@@ -27,6 +27,7 @@ channel = "stable-25_05"
 [userenv.shared]
 CLERK_ORGS_DISABLED = "true"
 PLATFORM_ADMIN_EMAILS = "jaredkoyier@gmail.com"
+GEO_REPAIR_TOKEN = "2d7a985bf73ac358fa2794fa72907f2b558849bbb2c9939c704450919610d815"
 
 [userenv.production]
 CORS_ORIGINS = "https://debe.ke"

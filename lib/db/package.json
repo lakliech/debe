@@ -5,7 +5,9 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./schema": "./src/schema/index.ts"
+    "./schema": "./src/schema/index.ts",
+    "./seeds/geography": "./src/seeds/geography.ts",
+    "./seeds/polling-stations": "./src/seeds/polling-stations.ts"
   },
   "scripts": {
     "push": "drizzle-kit push --config ./drizzle.config.ts",

@@ -1,5 +1,6 @@
 import { db } from "../index";
 import { manifestoSectorsTable, faqItemsTable, badgeDefinitionsTable } from "../schema";
+import { and, eq, isNull } from "drizzle-orm";
 
 const SECTORS = [
   { slug: "agriculture", titleEn: "Agriculture & Food Security", titleSw: "Kilimo na Usalama wa Chakula", iconName: "Wheat", displayOrder: 1, descriptionEn: "Sustainable farming, modern irrigation, fair pricing for smallholder farmers, and food sovereignty for all Kenyans.", descriptionSw: "Kilimo endelevu, umwagiliaji wa kisasa, bei ya haki kwa wakulima wadogo, na uhuru wa chakula kwa Wakenya wote." },
@@ -47,10 +48,22 @@ const FAQ_ITEMS = [
 export async function seedManifesto() {
   console.log("Seeding manifesto sectors...");
   for (const sector of SECTORS) {
-    await db.insert(manifestoSectorsTable).values(sector).onConflictDoUpdate({
-      target: manifestoSectorsTable.slug,
-      set: { titleEn: sector.titleEn, titleSw: sector.titleSw, descriptionEn: sector.descriptionEn, descriptionSw: sector.descriptionSw, displayOrder: sector.displayOrder },
-    });
+    // manifesto_sectors has no unique constraint on slug (platform-level rows
+    // carry tenant_id NULL), so ON CONFLICT has no arbiter and errors out —
+    // select the platform row, then update or insert.
+    const [existing] = await db
+      .select({ id: manifestoSectorsTable.id })
+      .from(manifestoSectorsTable)
+      .where(and(eq(manifestoSectorsTable.slug, sector.slug), isNull(manifestoSectorsTable.tenantId)))
+      .limit(1);
+    if (existing) {
+      await db
+        .update(manifestoSectorsTable)
+        .set({ titleEn: sector.titleEn, titleSw: sector.titleSw, descriptionEn: sector.descriptionEn, descriptionSw: sector.descriptionSw, displayOrder: sector.displayOrder })
+        .where(eq(manifestoSectorsTable.id, existing.id));
+    } else {
+      await db.insert(manifestoSectorsTable).values(sector);
+    }
   }
   console.log(`✓ ${SECTORS.length} manifesto sectors seeded`);
 

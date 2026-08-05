@@ -1,19 +1,16 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 import { sql } from "drizzle-orm";
 import { db } from "../index";
 import { wardsTable, pollingCentresTable, pollingStationsTable } from "../schema";
 import { CONSTITUENCY_DATA } from "./geography";
+// Static import (not readFileSync) so bundlers inline the data — a runtime
+// file read resolves relative to the bundle output dir and is not there.
+import countyDataJson from "./county_data.json";
 
 interface _WardJson { name: string; pollingStations: { name: string }[] }
 interface _ConstJson { name: string; wards: _WardJson[] }
 interface _CountyJson { name: string; constituencies: _ConstJson[] }
 
-const _dir = dirname(fileURLToPath(import.meta.url));
-const _countyData: _CountyJson[] = JSON.parse(
-  readFileSync(join(_dir, "county_data.json"), "utf-8"),
-);
+const _countyData = countyDataJson as _CountyJson[];
 
 function chunks<T>(arr: T[], size: number): T[][] {
   const result: T[][] = [];
@@ -84,12 +81,30 @@ export async function seedAllPollingStations() {
 
   let wardCode = 1;
 
+  // Match constituencies to the JSON BY NAME — never by position. This walk
+  // must reproduce seedGeography()'s wardCode sequence exactly; a positional
+  // join silently mis-links stations when the two files disagree on order.
+  const normName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+
   for (const [countyCodeStr, consts] of Object.entries(CONSTITUENCY_DATA)) {
     const countyCode = Number(countyCodeStr);
     const jsonCounty = _countyData[countyCode - 1];
+    if (!jsonCounty) {
+      throw new Error(`county_data.json is missing county #${countyCode}`);
+    }
+
+    const jsonConstByName = new Map(
+      jsonCounty.constituencies.map((jc) => [normName(jc.name), jc]),
+    );
 
     for (let constIdx = 0; constIdx < consts.length; constIdx++) {
-      const jsonWards = jsonCounty?.constituencies[constIdx]?.wards ?? [];
+      const jsonConst = jsonConstByName.get(normName(consts[constIdx].name));
+      if (!jsonConst) {
+        throw new Error(
+          `county_data.json has no constituency matching '${consts[constIdx].name}' in ${jsonCounty.name} (county #${countyCode}) — fix the data instead of seeding positionally.`,
+        );
+      }
+      const jsonWards = jsonConst.wards ?? [];
 
       if (jsonWards.length === 0) {
         // seedGeography() created 3 fallback wards here; skip them
@@ -138,6 +153,18 @@ export async function seedAllPollingStations() {
   }
   console.log(`    ${newCentres} new polling centres inserted (${centreByWardId.size} total)`);
 
+  // Centres created before a geography fix may carry stale denormalized
+  // county/constituency links — always re-sync them from their ward.
+  await db.execute(sql`
+    UPDATE polling_centres pc
+    SET constituency_id = w.constituency_id,
+        county_id = w.county_id
+    FROM wards w
+    WHERE w.id = pc.ward_id
+      AND (pc.constituency_id IS DISTINCT FROM w.constituency_id
+           OR pc.county_id IS DISTINCT FROM w.county_id)
+  `);
+
   // ── 5. Upsert all stations in batches of 500 ─────────────────────────────
   type StationRow = {
     code: string;
@@ -171,7 +198,15 @@ export async function seedAllPollingStations() {
       .values(batch)
       .onConflictDoUpdate({
         target: pollingStationsTable.code,
-        set: { name: sql`excluded.name` },
+        // Update every link column too — re-seeding after a geography fix
+        // must repair existing rows, not just rename them.
+        set: {
+          name: sql`excluded.name`,
+          centreId: sql`excluded.centre_id`,
+          wardId: sql`excluded.ward_id`,
+          constituencyId: sql`excluded.constituency_id`,
+          countyId: sql`excluded.county_id`,
+        },
       });
     upserted += batch.length;
   }
