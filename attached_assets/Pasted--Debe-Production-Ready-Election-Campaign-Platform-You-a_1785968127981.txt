@@ -1,0 +1,33 @@
+# Debe — Production-Ready Election Campaign Platform
+
+You are working on **Debe**, a multitenant SaaS platform for managing election campaigns in Kenya. The stack is:
+- **Backend:** Node.js + Express + TypeScript + Drizzle ORM + PostgreSQL
+- **Auth:** Clerk (identity) + app-owned `user_roles` (membership)
+- **Storage:** Google Cloud Storage (presigned URLs)
+- **Payments:** M-Pesa (Daraja API) + Stripe (subscriptions)
+- **Deployment:** Replit (targeting production)
+
+## Architecture Overview
+
+- **Multitenant:** Each campaign is a `tenant`. All tables have `tenantId` except shared geography tables (`pollingStationsTable`, `countiesTable`, etc.)
+- **Tenant resolution:** `resolveTenant.ts` loads user memberships; `resolveTenantPublic.ts` uses `X-Tenant-Slug` header for public routes
+- **Role hierarchy:** `platform_admin` (level 100) → `super_admin` (90) → `campaign_manager` (80) → `finance_officer` (70) → `field_officer` (60) → `polling_agent` (50) → `volunteer` (40) → `supporter` (30)
+- **Agent assignments:** Stored in `campaignStationProfilesTable` (per-tenant), NOT `pollingStationsTable` (shared geography)
+
+---
+
+## CRITICAL FIXES (Do These First)
+
+### 1. Fix Auto-Validation Agent Assignment Check
+**File:** `artifacts/api-server/src/routes/electionResults.ts`  
+**Function:** `runAutoValidation()`  
+**Bug:** Rule 6 checks `pollingStationsTable.primaryAgentId` / `backupAgentId`, but agent assignments live in `campaignStationProfilesTable`. This causes EVERY submission to fail validation.  
+**Fix:** Query `campaignStationProfilesTable` instead:
+```typescript
+const [profile] = await db.select({ primaryAgentId: campaignStationProfilesTable.primaryAgentId, backupAgentId: campaignStationProfilesTable.backupAgentId })
+  .from(campaignStationProfilesTable)
+  .where(and(
+    eq(campaignStationProfilesTable.stationId, submission.pollingStationId),
+    tenantFilter(campaignStationProfilesTable, tenantId)
+  ));
+const validAgents = [profile?.primaryAgentId, profile?.backupAgentId].filter(Boolean);

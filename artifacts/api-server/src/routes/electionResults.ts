@@ -28,6 +28,7 @@ import { requireRoles } from "../middlewares/rbac";
 import { validate } from "../lib/validate";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 import { tenantFilter, assertTenant } from "../lib/withTenant";
+import { TALLY_ELIGIBLE_STATUSES } from "../lib/resultStatus";
 
 // ─── VALIDATION SCHEMAS ───────────────────────────────────────────────────────
 
@@ -381,15 +382,27 @@ router.post("/submissions/agent-submit", requireAuth, canSubmitResults, async (r
     // Auto-validation — pass tenantId so cross-tenant submissions are never consulted
     const { valid, flags } = await runAutoValidation(submissionId, t.id);
     const newStatus = valid ? "auto_validated" : "exception";
-    const [final] = await db.update(resultSubmissionsTable).set({ status: newStatus })
-      .where(and(eq(resultSubmissionsTable.id, submissionId), tenantFilter(resultSubmissionsTable, t.id))).returning();
 
-    await db.insert(submissionVerificationStepsTable).values({
-      submissionId,
-      fromStatus: "submitted",
-      toStatus: newStatus,
-      action: valid ? "approved" : "queried",
-      notes: valid ? "Auto-validation passed (agent PWA)" : `Auto-validation flags: ${flags.join("; ")}`,
+    // Status, per-vote flag sync, and audit step commit together. The votes
+    // become tally-eligible exactly when the status does (auto_validated),
+    // and drop out on exception — see TALLY_ELIGIBLE_STATUSES.
+    const [final] = await db.transaction(async (tx) => {
+      const [f] = await tx.update(resultSubmissionsTable).set({ status: newStatus })
+        .where(and(eq(resultSubmissionsTable.id, submissionId), tenantFilter(resultSubmissionsTable, t.id))).returning();
+
+      await tx.update(submissionCandidateVotesTable)
+        .set({ isVerified: valid })
+        .where(eq(submissionCandidateVotesTable.submissionId, submissionId));
+
+      await tx.insert(submissionVerificationStepsTable).values({
+        submissionId,
+        fromStatus: "submitted",
+        toStatus: newStatus,
+        action: valid ? "approved" : "queried",
+        notes: valid ? "Auto-validation passed (agent PWA)" : `Auto-validation flags: ${flags.join("; ")}`,
+      });
+
+      return [f];
     });
 
     res.status(201).json({ submission: final, autoValidation: { valid, flags } });
@@ -518,17 +531,26 @@ router.post("/submissions/:id/submit", requireAuth, canSubmitResults, async (req
     const { valid, flags } = await runAutoValidation(req.params.id, t.id);
     const newStatus = valid ? "auto_validated" : "exception";
 
-    const [updated] = await db.update(resultSubmissionsTable).set({
-      status: newStatus,
-    }).where(and(eq(resultSubmissionsTable.id, req.params.id), tenantFilter(resultSubmissionsTable, t.id))).returning();
+    // Status, per-vote flag sync, and audit step commit together — votes
+    // become tally-eligible exactly when the status does (auto_validated).
+    const [updated] = await db.transaction(async (tx) => {
+      const [u] = await tx.update(resultSubmissionsTable).set({
+        status: newStatus,
+      }).where(and(eq(resultSubmissionsTable.id, req.params.id), tenantFilter(resultSubmissionsTable, t.id))).returning();
 
-    // Record step
-    await db.insert(submissionVerificationStepsTable).values({
-      submissionId: req.params.id,
-      fromStatus: "submitted",
-      toStatus: newStatus,
-      action: valid ? "approved" : "queried",
-      notes: valid ? "Auto-validation passed" : `Auto-validation flags: ${flags.join("; ")}`,
+      await tx.update(submissionCandidateVotesTable)
+        .set({ isVerified: valid })
+        .where(eq(submissionCandidateVotesTable.submissionId, req.params.id));
+
+      await tx.insert(submissionVerificationStepsTable).values({
+        submissionId: req.params.id,
+        fromStatus: "submitted",
+        toStatus: newStatus,
+        action: valid ? "approved" : "queried",
+        notes: valid ? "Auto-validation passed" : `Auto-validation flags: ${flags.join("; ")}`,
+      });
+
+      return [u];
     });
 
     res.json({ submission: updated, autoValidation: { valid, flags } });
@@ -642,7 +664,7 @@ router.post("/submissions/:id/verify", requireAuth, canVerifyResults, async (req
         .where(and(eq(resultSubmissionsTable.id, req.params.id), tenantFilter(resultSubmissionsTable, t.id))).returning();
 
       await tx.update(submissionCandidateVotesTable)
-        .set({ isVerified: toStatus === "verified" })
+        .set({ isVerified: TALLY_ELIGIBLE_STATUSES.includes(toStatus) })
         .where(eq(submissionCandidateVotesTable.submissionId, req.params.id));
 
       await tx.insert(submissionVerificationStepsTable).values({

@@ -1,6 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { runPlatformBootstrap } from "./lib/platformBootstrap";
+import { backfillTallyEligibilityFlags } from "./lib/resultStatus";
 import { db } from "@workspace/db";
 import { pollingStationsTable } from "@workspace/db";
 import { sql, like, count } from "drizzle-orm";
@@ -104,6 +105,14 @@ async function main() {
     // locks the owner out of their own product with no in-app way back in.
     void runPlatformBootstrap()
       .then(() => runDemoStationCleanupIfNeeded())
+      .then(async () => {
+        // Idempotent: syncs candidate-vote tally flags with their parent
+        // submission's status — repairs rows written before the lockstep
+        // sync existed (e.g. restored/imported databases). The IS DISTINCT
+        // FROM guard means steady-state boots write zero rows.
+        await backfillTallyEligibilityFlags(db);
+        logger.info("Startup housekeeping: tally eligibility flags in sync.");
+      })
       .catch((bootErr) => {
         logger.error({ err: bootErr }, "Startup housekeeping failed (non-fatal).");
       });
