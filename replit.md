@@ -131,6 +131,7 @@ eas build --platform android --profile production
 
 - Brand: electric blue `#1D9BF0`, black sidebar, bold all-caps headers
 - Tagline: "IT'S TIME. BE PART OF THE CHANGE."
+- Git: commit and push to `origin` (`github.com/lakliech/debe`, branch `main`) automatically after every completed change — never wait to be asked
 
 ## Gotchas
 
