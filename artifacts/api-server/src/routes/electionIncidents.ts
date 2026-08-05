@@ -2,6 +2,7 @@
  * Election Incidents API
  * Uses electionIncidentReportsTable (NOT the old incidentsTable)
  */
+import { logger } from "../lib/logger";
 import { Router } from "express";
 import { z } from "zod";
 import { getAuth } from "@clerk/express";
@@ -99,7 +100,8 @@ router.get("/", requireAuth, canViewIncidents, async (req: any, res: any) => {
     ]);
     res.json({ data: rows, total: Number(total), page: pageNum, pageSize });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -121,7 +123,8 @@ router.post("/", requireAuth, canReportIncidents, async (req: any, res: any) => 
     }).returning();
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -134,7 +137,8 @@ router.get("/:id", requireAuth, canViewIncidents, async (req: any, res: any) => 
     if (!row) return res.status(404).json({ error: "Incident not found" });
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -159,7 +163,8 @@ router.patch("/:id", requireAuth, canManageIncidents, async (req: any, res: any)
     if (!row) return res.status(404).json({ error: "Incident not found" });
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -178,7 +183,8 @@ router.post("/:id/escalate", requireAuth, canManageIncidents, async (req: any, r
     }).where(and(eq(electionIncidentReportsTable.id, req.params.id), tenantFilter(electionIncidentReportsTable, t.id))).returning();
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 

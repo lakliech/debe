@@ -9,6 +9,7 @@
  * but are surfaced separately as pipeline.
  */
 
+import { logger } from "../lib/logger";
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
 import { db, tenantsTable, brandingTable, userRolesTable, emailLogsTable } from "@workspace/db";
@@ -17,8 +18,17 @@ import { requireLevel } from "../middlewares/rbac";
 import { PLANS, getEffectivePlan, isPlanTier, type PlanTier } from "../lib/plans";
 import { stripeConfigured } from "../lib/stripe";
 import { recordPlatformAction } from "../lib/platformAudit";
+import { z } from "zod";
+import { validate } from "../lib/validate";
 
 const router = Router();
+
+const billingTenantsQuerySchema = z.object({
+  filter: z.enum(["all", "paying", "trial", "at-risk", "free"]).default("all"),
+});
+const billingEmailsQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
 
 function requireAuth(req: any, res: any, next: any) {
   const auth = getAuth(req);
@@ -171,7 +181,8 @@ router.get("/billing/summary", requireAuth, requireLevel(0), async (_req: any, r
       atRisk: atRisk.slice(0, 20),
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -180,7 +191,9 @@ router.get("/billing/summary", requireAuth, requireLevel(0), async (_req: any, r
 router.get("/billing/tenants", requireAuth, requireLevel(0), async (req: any, res: any) => {
   try {
     const rows = await buildRows();
-    const filter = String(req.query.filter ?? "all");
+    const q = validate(billingTenantsQuerySchema, req.query, res);
+    if (!q) return;
+    const filter = q.filter;
 
     const filtered =
       filter === "paying"
@@ -195,7 +208,8 @@ router.get("/billing/tenants", requireAuth, requireLevel(0), async (req: any, re
 
     res.json({ tenants: filtered, total: filtered.length });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -204,7 +218,9 @@ router.get("/billing/tenants", requireAuth, requireLevel(0), async (req: any, re
 // is actually going out without opening the provider dashboard.
 router.get("/billing/emails", requireAuth, requireLevel(0), async (req: any, res: any) => {
   try {
-    const limit = Math.min(Number(req.query.limit ?? 50), 200);
+    const q = validate(billingEmailsQuerySchema, req.query, res);
+    if (!q) return;
+    const limit = q.limit;
     const rows = await db
       .select({
         id: emailLogsTable.id,
@@ -238,7 +254,8 @@ router.get("/billing/emails", requireAuth, requireLevel(0), async (req: any, res
 
     res.json({ emails: rows, last7Days: counts ?? { sent: 0, failed: 0, skipped: 0 } });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -305,7 +322,8 @@ router.patch("/tenants/:id/plan", requireAuth, requireLevel(0), async (req: any,
           : `Granted ${PLANS[plan].label} until ${new Date(patch.planOverrideUntil as Date).toLocaleDateString("en-KE")}.`,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 

@@ -1,6 +1,7 @@
 /**
  * Polling Agents Management API
  */
+import { logger } from "../lib/logger";
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
 import { z } from "zod";
@@ -103,6 +104,18 @@ const electionDaySchema = z.object({
 
 const router = Router();
 
+const agentsQuerySchema = z.object({
+  pollingStationId: z.string().uuid().optional(),
+  countyId: z.string().uuid().optional(),
+  status: z.string().trim().max(100).optional(),
+  search: z.string().trim().max(200).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+const replacementsQuerySchema = z.object({
+  agentId: z.string().uuid().optional(),
+});
+
 function requireAuth(req: any, res: any, next: any) {
   const auth = getAuth(req);
   if (!auth?.userId) return res.status(401).json({ error: "Unauthorized" });
@@ -138,9 +151,11 @@ const canManageSupervisor = requireRoles([
 router.get("/", requireAuth, canViewAgents, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
-    const { pollingStationId, countyId, status, search, page = "1", limit = "20" } = req.query;
-    const pageNum = parseInt(page) || 1;
-    const pageSize = Math.min(parseInt(limit) || 20, 100);
+    const q = validate(agentsQuerySchema, req.query, res);
+    if (!q) return;
+    const { pollingStationId, status, search } = q;
+    const pageNum = q.page;
+    const pageSize = q.limit;
     const offset = (pageNum - 1) * pageSize;
 
     const conditions: any[] = [tenantFilter(pollingAgentsTable, t.id)];
@@ -159,7 +174,8 @@ router.get("/", requireAuth, canViewAgents, async (req: any, res: any) => {
     ]);
     res.json({ data: rows, total: Number(total), page: pageNum, pageSize });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -191,7 +207,8 @@ router.post("/", requireAuth, canManageAgents, async (req: any, res: any) => {
     } as any).returning();
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -210,7 +227,8 @@ router.get("/me", requireAuth, async (req: any, res: any) => {
 
     res.json(agent);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -223,7 +241,8 @@ router.get("/courses", requireAuth, async (req: any, res: any) => {
       .orderBy(agentTrainingCoursesTable.createdAt);
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -252,7 +271,8 @@ router.get("/sync-status", requireAuth, canManageSupervisor, async (req: any, re
       .orderBy(desc(agentSyncStatusTable.updatedAt));
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -260,7 +280,9 @@ router.get("/sync-status", requireAuth, canManageSupervisor, async (req: any, re
 router.get("/replacements", requireAuth, canViewAgents, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
-    const { agentId } = req.query;
+    const q = validate(replacementsQuerySchema, req.query, res);
+    if (!q) return;
+    const { agentId } = q;
     const conditions: any[] = [tenantFilter(agentReplacementsTable, t.id)];
     if (agentId) conditions.push(eq(agentReplacementsTable.replacementAgentId, agentId as string));
     const rows = await db.select().from(agentReplacementsTable)
@@ -268,7 +290,8 @@ router.get("/replacements", requireAuth, canViewAgents, async (req: any, res: an
       .orderBy(desc(agentReplacementsTable.createdAt));
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -291,7 +314,8 @@ router.get("/:id", requireAuth, canViewAgents, async (req: any, res: any) => {
 
     res.json({ ...agent, enrollments, allowances, electionDay });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -326,7 +350,8 @@ router.patch("/:id", requireAuth, canManageAgents, async (req: any, res: any) =>
     if (!row) return res.status(404).json({ error: "Agent not found" });
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -341,7 +366,8 @@ router.post("/:id/code-of-conduct", requireAuth, canManageAgents, async (req: an
     if (!row) return res.status(404).json({ error: "Agent not found" });
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -371,7 +397,8 @@ router.post("/courses", requireAuth, canManageAgents, async (req: any, res: any)
 
     res.status(201).json(course);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -389,7 +416,8 @@ router.get("/:id/training", requireAuth, canViewAgents, async (req: any, res: an
       .orderBy(desc(agentTrainingEnrollmentsTable.createdAt));
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -424,7 +452,8 @@ router.post("/:id/training/:courseId/enroll", requireAuth, canManageAgents, asyn
     }).returning();
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -485,7 +514,8 @@ router.post("/:id/training/:courseId/quiz", requireAuth, async (req: any, res: a
 
     res.status(201).json({ attempt, score, passed });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -504,7 +534,8 @@ router.get("/:id/allowance", requireAuth, canViewAgents, async (req: any, res: a
       .orderBy(desc(agentAllowancesTable.createdAt));
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -540,7 +571,8 @@ router.post("/:id/allowance", requireAuth, canManageAgents, async (req: any, res
     }
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -569,7 +601,8 @@ router.post("/:id/allowance/approve", requireAuth, canApprovePayments, async (re
     if (!row) return res.status(404).json({ error: "Allowance not found" });
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -590,7 +623,8 @@ router.post("/replacements", requireAuth, canManageAgents, async (req: any, res:
     } as any).returning();
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -609,7 +643,8 @@ router.patch("/replacements/:rid/approve", requireAuth, canApprovePayments, asyn
     if (!row) return res.status(404).json({ error: "Replacement request not found" });
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -650,7 +685,8 @@ router.post("/:id/sync-heartbeat", requireAuth, async (req: any, res: any) => {
     }).returning();
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -669,7 +705,8 @@ router.get("/:id/election-day", requireAuth, canViewAgents, async (req: any, res
       .orderBy(desc(agentElectionDayTable.createdAt));
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -716,7 +753,8 @@ router.patch("/:id/election-day", requireAuth, canManageSupervisor, async (req: 
     }
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 

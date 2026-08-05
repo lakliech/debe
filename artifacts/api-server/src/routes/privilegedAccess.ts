@@ -4,6 +4,7 @@
  * simultaneously alter verified results + approve payments + erase audit records.
  * Exposes a review screen for admins.
  */
+import { logger } from "../lib/logger";
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
 import { db } from "@workspace/db";
@@ -114,7 +115,8 @@ router.get(
         checkedAt: new Date().toISOString(),
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      logger.error({ err }, "request failed");
+      res.status(500).json({ error: "Something went wrong. Please try again." });
     }
   }
 );

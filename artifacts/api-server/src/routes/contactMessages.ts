@@ -2,6 +2,7 @@
  * Contact Messages — admin management routes (auth required).
  * Public submission lives in publicPortal.ts → POST /api/public/contact
  */
+import { logger } from "../lib/logger";
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
 import { db, contactMessagesTable, usersTable } from "@workspace/db";
@@ -47,7 +48,8 @@ router.get("/counts", requireAuth, resolveTenant, canView, async (req: any, res:
     for (const r of rows) counts[r.status] = Number(r.count);
     res.json(counts);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -87,7 +89,8 @@ router.get("/", requireAuth, resolveTenant, canView, async (req: any, res: any) 
 
     res.json({ data, total: Number(total), page: pageNum, limit: pageSize });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -114,7 +117,8 @@ router.get("/:id", requireAuth, resolveTenant, canView, async (req: any, res: an
 
     res.json(msg);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -157,7 +161,8 @@ router.patch("/:id", requireAuth, resolveTenant, canManage, async (req: any, res
     if (!updated) return res.status(404).json({ error: "Message not found" });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 

@@ -1,3 +1,4 @@
+import { logger } from "../lib/logger";
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
 import { db } from "@workspace/db";
@@ -43,7 +44,8 @@ router.get("/courses", requireAuth, async (req: any, res: any) => {
       .orderBy(trainingCoursesTable.title);
     res.json(courses);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -58,7 +60,8 @@ router.post("/courses", requireAuth, canManageCourses, async (req: any, res: any
       .returning();
     res.status(201).json(course);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -103,7 +106,8 @@ router.get("/courses/:id", requireAuth, async (req: any, res: any) => {
 
     res.json({ ...course, modules: modules.map((m) => ({ ...m, quiz: quizzes[m.id] || [] })), enrollmentCount: enrollmentCount?.total ?? 0 });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -129,7 +133,8 @@ router.patch("/courses/:id", requireAuth, canManageCourses, async (req: any, res
     if (!updated) return res.status(404).json({ error: "Course not found" });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -148,7 +153,8 @@ router.post("/courses/:id/modules", requireAuth, canManageCourses, async (req: a
       .returning();
     res.status(201).json(module);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -192,7 +198,8 @@ router.post("/courses/:id/enroll", requireAuth, async (req: any, res: any) => {
       .returning();
     res.status(201).json(enrollment);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -218,7 +225,8 @@ router.get("/enrollments/:id", requireAuth, async (req: any, res: any) => {
 
     res.json({ ...enrollment.enrollment, progress });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -285,7 +293,8 @@ router.post("/enrollments/:id/complete-module", requireAuth, async (req: any, re
 
     res.json({ progress, allCompleted: allDone });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -312,7 +321,8 @@ router.get("/enrollments/:id/certificate", requireAuth, async (req: any, res: an
       volunteerId: certRow.enrollment.volunteerId,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 

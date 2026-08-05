@@ -2,6 +2,7 @@
  * Public portal routes — no authentication required.
  * Serves content for the campaign's public-facing website.
  */
+import { logger } from "../lib/logger";
 import { Readable } from "node:stream";
 import { Router } from "express";
 import { db } from "@workspace/db";
@@ -30,10 +31,35 @@ import { eq, and, desc, asc, count, sql } from "drizzle-orm";
 import { aspirantsTable, contactMessagesTable } from "@workspace/db";
 import { tenantFilter, assertTenant } from '../lib/withTenant';
 import { ObjectStorageService } from "../lib/objectStorage";
+import { z } from "zod";
+import { validate } from "../lib/validate";
 
 const objectStorageService = new ObjectStorageService();
 
 const router = Router();
+
+const eventsQuerySchema = z.object({
+  countyId: z.string().uuid().optional(),
+  upcoming: z.string().trim().max(20).optional(),
+});
+const newsQuerySchema = z.object({
+  category: z.string().trim().max(200).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+});
+const faqQuerySchema = z.object({
+  category: z.string().trim().max(200).optional(),
+});
+const aspirantsQuerySchema = z.object({
+  position: z.string().trim().max(200).optional(),
+  county: z.string().trim().max(200).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(48).default(24),
+});
+const transparencySubmissionsQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  electionId: z.string().uuid().optional(),
+});
 
 // GET /api/public/stats — public portal stats card
 router.get("/stats", async (req: any, res: any) => {
@@ -55,7 +81,8 @@ router.get("/stats", async (req: any, res: any) => {
       tagline: branding?.tagline ?? null,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -71,7 +98,8 @@ router.get("/manifesto/sectors", async (req: any, res: any) => {
       .orderBy(asc(manifestoSectorsTable.displayOrder));
     res.json(sectors);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -105,7 +133,8 @@ router.get("/manifesto/sectors/:slug", async (req: any, res: any) => {
 
     res.json({ sector, items, recentSubmissions: submissions });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -144,7 +173,8 @@ router.get("/county-priorities/:countyCode", async (req: any, res: any) => {
 
     res.json({ county, priorities });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -153,7 +183,9 @@ router.get("/events", async (req: any, res: any) => {
   try {
     const tenantId = req.tenant?.id;
     if (!tenantId) return res.json([]);
-    const { countyId, upcoming } = req.query;
+    const q = validate(eventsQuerySchema, req.query, res);
+    if (!q) return;
+    const { countyId } = q;
     const events = await db
       .select()
       .from(eventsTable)
@@ -166,7 +198,8 @@ router.get("/events", async (req: any, res: any) => {
       .limit(20);
     res.json(events);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -175,8 +208,10 @@ router.get("/news", async (req: any, res: any) => {
   try {
     const tenantId = req.tenant?.id;
     if (!tenantId) return res.json([]);
-    const { category, page = "1" } = req.query;
-    const pageNum = parseInt(page as string) || 1;
+    const q = validate(newsQuerySchema, req.query, res);
+    if (!q) return;
+    const { category } = q;
+    const pageNum = q.page;
     const articles = await db
       .select({
         id: newsArticlesTable.id,
@@ -200,7 +235,8 @@ router.get("/news", async (req: any, res: any) => {
       .offset((pageNum - 1) * 12);
     res.json(articles);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -217,7 +253,8 @@ router.get("/news/:slug", async (req: any, res: any) => {
     if (!article) return res.status(404).json({ error: "Article not found" });
     res.json(article);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -226,7 +263,9 @@ router.get("/faq", async (req: any, res: any) => {
   try {
     const tenantId = req.tenant?.id;
     if (!tenantId) return res.json([]);
-    const { category } = req.query;
+    const q = validate(faqQuerySchema, req.query, res);
+    if (!q) return;
+    const { category } = q;
     const items = await db
       .select()
       .from(faqItemsTable)
@@ -238,7 +277,8 @@ router.get("/faq", async (req: any, res: any) => {
       .orderBy(asc(faqItemsTable.displayOrder));
     res.json(items);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -255,7 +295,8 @@ router.get("/fact-check", async (req: any, res: any) => {
       .limit(20);
     res.json(items);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -298,7 +339,8 @@ router.post("/volunteer-register", publicSubmitLimiter, async (req: any, res: an
 
     res.status(201).json({ message: "Volunteer registration received. A coordinator will contact you within 48 hours.", volunteer });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -335,7 +377,8 @@ router.post("/supporter-register", publicSubmitLimiter, async (req: any, res: an
 
     res.status(201).json({ message: "Thank you for joining the movement!", supporter });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -428,7 +471,8 @@ router.post("/aspirants", publicSubmitLimiter, async (req: any, res: any) => {
       aspirant,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -436,9 +480,11 @@ router.post("/aspirants", publicSubmitLimiter, async (req: any, res: any) => {
 router.get("/aspirants", async (req: any, res: any) => {
   try {
     const tenantId = req.tenant?.id;
-    const { position, county, page = "1", limit = "24" } = req.query;
-    const pageNum = Math.max(1, parseInt(page as string) || 1);
-    const pageSize = Math.min(48, parseInt(limit as string) || 24);
+    const q = validate(aspirantsQuerySchema, req.query, res);
+    if (!q) return;
+    const { position, county } = q;
+    const pageNum = q.page;
+    const pageSize = q.limit;
     const offset = (pageNum - 1) * pageSize;
 
     if (!tenantId) return res.json({ data: [], total: 0, page: pageNum, pageSize });
@@ -475,7 +521,8 @@ router.get("/aspirants", async (req: any, res: any) => {
 
     res.json({ data, total: Number(total), page: pageNum, limit: pageSize });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -496,7 +543,8 @@ router.post("/contact", publicSubmitLimiter, async (req: any, res: any) => {
 
     res.status(201).json({ message: "Message received. Our team will get back to you within 2–3 business days.", contactId: contact.id });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -524,7 +572,8 @@ router.post("/policy-submit", publicSubmitLimiter, async (req: any, res: any) =>
 
     res.status(201).json({ message: "Thank you for your policy submission!", submissionId: submission.id });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -545,10 +594,12 @@ router.get("/transparency/submissions", async (req: any, res: any) => {
     const tenantId = req.tenant?.id;
     if (!tenantId) return res.json({ data: [] });
 
-    const page = Math.max(1, parseInt(String(req.query.page ?? "1")) || 1);
-    const limit = Math.min(parseInt(String(req.query.limit ?? "50")) || 50, 100);
+    const q = validate(transparencySubmissionsQuerySchema, req.query, res);
+    if (!q) return;
+    const page = q.page;
+    const limit = q.limit;
     const offset = (page - 1) * limit;
-    const electionIdFilter = req.query.electionId as string | undefined;
+    const electionIdFilter = q.electionId;
 
     const conditions: any[] = [
       tenantFilter(resultSubmissionsTable, tenantId),
@@ -588,7 +639,8 @@ router.get("/transparency/submissions", async (req: any, res: any) => {
 
     res.json({ data: rows, page, limit });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -628,7 +680,8 @@ router.get("/transparency/submissions/:id/votes", async (req: any, res: any) => 
 
     res.json(votes);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -678,7 +731,8 @@ router.get("/transparency/submissions/:id/images", async (req: any, res: any) =>
 
     res.json(images);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 

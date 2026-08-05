@@ -316,7 +316,8 @@ router.patch(
           });
       }
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      logger.error({ err }, "request failed");
+      res.status(500).json({ error: "Something went wrong. Please try again." });
     }
   },
 );
@@ -389,7 +390,8 @@ router.patch("/tenants/:id/rename", requireAuth, requireLevel(0), async (req: an
         : "Campaign renamed.",
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -432,7 +434,8 @@ router.delete("/tenants/:id/purge", requireAuth, requireLevel(0), async (req: an
     res.json({ message: `${tenant.name} and all its data have been permanently deleted.` });
   } catch (err: any) {
     logger.error({ err }, "[lifecycle] manual purge failed");
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -475,7 +478,8 @@ router.get("/requests", requireAuth, requireLevel(0), async (_req: any, res: any
 
     res.json({ domainRequests: domain, deletionRequests: deletion });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -565,7 +569,8 @@ router.patch(
           : "Request rejected.",
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      logger.error({ err }, "request failed");
+      res.status(500).json({ error: "Something went wrong. Please try again." });
     }
   },
 );

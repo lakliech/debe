@@ -19,6 +19,20 @@ import { tenantFilter, assertTenant } from '../lib/withTenant';
 
 const router = Router();
 
+const eventsListQuerySchema = z.object({
+  status: z.string().trim().max(100).optional(),
+  countyId: z.string().uuid().optional(),
+  search: z.string().trim().max(200).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+});
+const registrationsQuerySchema = z.object({
+  checkedIn: z.string().trim().max(20).optional(),
+  search: z.string().trim().max(200).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+
 function requireAuth(req: any, res: any, next: any) {
   const auth = getAuth(req);
   if (!auth?.userId) return res.status(401).json({ error: "Unauthorized" });
@@ -146,8 +160,10 @@ const MediaAccreditationSchema = z.object({
 router.get("/", requireAuth, canViewEvents, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
-    const { status, countyId, search, page = "1", limit = "20" } = req.query;
-    const pageNum = parseInt(page) || 1; const pageSize = Math.min(parseInt(limit) || 20, 50);
+    const q = validate(eventsListQuerySchema, req.query, res);
+    if (!q) return;
+    const { status, countyId, search } = q;
+    const pageNum = q.page; const pageSize = q.limit;
     const conds: any[] = [tenantFilter(eventsTable, t.id)];
     if (status) conds.push(eq(eventsTable.status, status));
     if (countyId) conds.push(eq(eventsTable.countyId, countyId));
@@ -273,8 +289,10 @@ router.get("/:id/registrations", requireAuth, canCheckIn, async (req: any, res: 
   try {
     const t = assertTenant(req);
     if (!await verifyEventTenant(req.params.id, t.id)) return res.status(404).json({ error: "Event not found" });
-    const { checkedIn, search, page = "1", limit = "50" } = req.query;
-    const pageNum = parseInt(page) || 1; const pageSize = Math.min(parseInt(limit) || 50, 200);
+    const q = validate(registrationsQuerySchema, req.query, res);
+    if (!q) return;
+    const { checkedIn, search } = q;
+    const pageNum = q.page; const pageSize = q.limit;
     const conds: any[] = [eq(eventRegistrationsTable.eventId, req.params.id)];
     if (checkedIn === "true") conds.push(eq(eventRegistrationsTable.checkedIn, true));
     if (checkedIn === "false") conds.push(eq(eventRegistrationsTable.checkedIn, false));

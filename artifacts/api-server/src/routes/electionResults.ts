@@ -4,6 +4,7 @@
  *   polling_centre_queried → constituency_verification → constituency_queried →
  *   county_verification → county_queried → national_verification → legal_review → verified
  */
+import { logger } from "../lib/logger";
 import { Readable } from "stream";
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
@@ -130,6 +131,9 @@ async function runAutoValidation(submissionId: string, tenantId: string): Promis
     .where(and(eq(resultSubmissionsTable.id, submissionId), tenantFilter(resultSubmissionsTable, tenantId))).limit(1);
   if (!submission) return { valid: false, flags: ["Submission not found"] };
 
+  // Child tables carry no tenantId column of their own — their tenant
+  // boundary is the submissionId, which the query above already proved
+  // belongs to this tenant. Never query them by any other caller input.
   const votes = await db.select().from(submissionCandidateVotesTable)
     .where(eq(submissionCandidateVotesTable.submissionId, submissionId));
 
@@ -155,11 +159,15 @@ async function runAutoValidation(submissionId: string, tenantId: string): Promis
     flags.push("totalVotesCast exceeds registeredVoters");
   }
 
-  // Rule 4: candidateId exists in election
+  // Rule 4: candidateId exists in election — scoped to this tenant, since
+  // candidatesTable is tenant-owned (a UUID from another campaign must never
+  // validate here)
   for (const v of votes) {
     if (v.candidateId) {
       const [cand] = await db.select({ id: candidatesTable.id, electionId: candidatesTable.electionId })
-        .from(candidatesTable).where(eq(candidatesTable.id, v.candidateId)).limit(1);
+        .from(candidatesTable)
+        .where(and(eq(candidatesTable.id, v.candidateId), tenantFilter(candidatesTable, tenantId)))
+        .limit(1);
       if (!cand || cand.electionId !== submission.electionId) {
         flags.push(`Candidate ${v.candidateId} not found in election`);
       }
@@ -230,7 +238,8 @@ router.post("/photo-upload-url", requireAuth, canSubmitResults, async (req: any,
     const objectPath = objectStorageService.normalizeObjectEntityPath(uploadUrl);
     res.json({ uploadUrl, objectPath });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -280,7 +289,8 @@ router.get("/submissions", requireAuth, canViewResults, async (req: any, res: an
     ]);
     res.json({ data: rows, total: Number(total), page: pageNum, pageSize });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -378,7 +388,8 @@ router.post("/submissions/agent-submit", requireAuth, canSubmitResults, async (r
 
     res.status(201).json({ submission: final, autoValidation: { valid, flags } });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -447,7 +458,8 @@ router.post("/submissions", requireAuth, canSubmitResults, async (req: any, res:
 
     res.status(201).json(submission);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -474,7 +486,8 @@ router.get("/submissions/:id", requireAuth, canViewResults, async (req: any, res
 
     res.json({ ...submission, candidateVotes: votes, images, verificationSteps: steps, corrections });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -514,7 +527,8 @@ router.post("/submissions/:id/submit", requireAuth, canSubmitResults, async (req
 
     res.json({ submission: updated, autoValidation: { valid, flags } });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -544,7 +558,8 @@ router.post("/submissions/:id/images", requireAuth, canSubmitResults, async (req
     }).returning();
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -593,7 +608,8 @@ router.get("/submissions/:id/images/:imageId/file", requireAuth, canViewResults,
       res.status(404).json({ error: "Object not found in storage" });
       return;
     }
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -638,7 +654,8 @@ router.post("/submissions/:id/verify", requireAuth, canVerifyResults, async (req
 
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -666,7 +683,8 @@ router.post("/submissions/:id/correct", requireAuth, canVerifyResults, async (re
     }).returning();
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -683,7 +701,8 @@ router.get("/submissions/:id/corrections", requireAuth, canViewResults, async (r
       .orderBy(desc(submissionCorrectionsTable.createdAt));
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -700,7 +719,8 @@ router.get("/submissions/:id/ocr", requireAuth, canViewResults, async (req: any,
       .orderBy(desc(submissionOcrSuggestionsTable.createdAt));
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -728,7 +748,8 @@ router.post("/submissions/:id/ocr/review", requireAuth, canVerifyResults, async 
     if (!row) return res.status(404).json({ error: "OCR suggestion not found" });
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 

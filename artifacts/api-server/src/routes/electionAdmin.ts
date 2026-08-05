@@ -1,6 +1,7 @@
 /**
  * Election Admin API: Elections & Candidates management
  */
+import { logger } from "../lib/logger";
 import { Router } from "express";
 import { z } from "zod";
 import { getAuth } from "@clerk/express";
@@ -79,7 +80,8 @@ router.get("/elections", requireAuth, canManageElections, async (req: any, res: 
       .orderBy(desc(electionsTable.createdAt));
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -97,7 +99,8 @@ router.post("/elections", requireAuth, canManageElections, async (req: any, res:
     }).returning();
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -111,7 +114,8 @@ router.get("/elections/active", requireAuth, async (req: any, res: any) => {
       .orderBy(desc(electionsTable.createdAt));
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -134,7 +138,8 @@ router.patch("/elections/:id", requireAuth, canManageElections, async (req: any,
     if (!row) return res.status(404).json({ error: "Election not found" });
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -152,7 +157,8 @@ router.get("/elections/:id/candidates", requireAuth, async (req: any, res: any) 
       .orderBy(candidatesTable.displayOrder);
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -175,7 +181,8 @@ router.post("/elections/:id/candidates", requireAuth, canManageElections, async 
     }).returning();
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -195,7 +202,8 @@ router.patch("/elections/:id/candidates/:cid", requireAuth, canManageElections, 
     if (!row) return res.status(404).json({ error: "Candidate not found" });
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -212,7 +220,8 @@ router.delete("/elections/:id/candidates/:cid", requireAuth, canManageElections,
     if (!row) return res.status(404).json({ error: "Candidate not found" });
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 

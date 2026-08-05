@@ -1,3 +1,4 @@
+import { logger } from "../lib/logger";
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
 import { db } from "@workspace/db";
@@ -60,7 +61,8 @@ router.get("/summary", requireAuth, async (req: any, res: any) => {
       userGrowthPercent: null,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -105,7 +107,8 @@ router.get("/recent-activity", requireAuth, async (req: any, res: any) => {
       .limit(limit);
     res.json(items);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -130,7 +133,8 @@ router.get("/role-breakdown", requireAuth, async (req: any, res: any) => {
 
     res.json(breakdown);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 

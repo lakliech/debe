@@ -100,7 +100,8 @@ router.get("/check-slug", requireAuth, async (req: any, res: any) => {
     }
     res.json({ slug, available: true, reason: null });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -135,7 +136,8 @@ router.get("/status", requireAuth, async (req: any, res: any) => {
       campaigns,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -291,14 +293,26 @@ router.post("/", requireAuth, async (req: any, res: any) => {
       message: `${tenant.name} is ready. Your ${TRIAL_DAYS}-day Pro trial has started.`,
     });
   } catch (err: any) {
-    // The slugTaken() pre-check above races with concurrent registrations —
-    // two callers can both pass it before either inserts. The tenants.slug
-    // unique constraint is the real arbiter, so translate its violation into
-    // the same clean 409 the pre-check returns. Drizzle wraps pg errors: the
-    // SQLSTATE and constraint name live on err.cause, never the wrapper.
+    // Every pre-check above races with concurrent requests — the database
+    // unique constraints are the real arbiters. Translate their violations
+    // into the same clean 409s instead of unhandled 500s. Drizzle wraps pg
+    // errors: the SQLSTATE and constraint name live on err.cause, never the
+    // wrapper message.
     const cause = (err as any)?.cause ?? err;
-    if (cause?.code === "23505" && String(cause?.constraint ?? "").includes("slug")) {
-      return res.status(409).json({ error: "That web address is already taken." });
+    if (cause?.code === "23505") {
+      const constraint = String(cause?.constraint ?? "");
+      // Two campaigns racing for the same web address.
+      if (constraint.includes("slug")) {
+        return res.status(409).json({ error: "That web address is already taken." });
+      }
+      // Same person double-submitting (double-click, retry on a slow
+      // network): users.clerk_id / users.email / user_roles uniqueness.
+      if (constraint.includes("user")) {
+        return res.status(409).json({
+          error:
+            "You already belong to a campaign. Contact support if you need to run more than one.",
+        });
+      }
     }
     logger.error({ err }, "[register] failed");
 

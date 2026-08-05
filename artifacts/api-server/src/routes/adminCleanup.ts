@@ -6,6 +6,7 @@
  *
  * NOT mounted through tenant/auth middleware — runs as a super-admin operation.
  */
+import { logger } from "../lib/logger";
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { pollingStationsTable } from "@workspace/db";
@@ -95,7 +96,8 @@ router.post("/cleanup-demo-stations", async (req: any, res: any) => {
     });
   } catch (err: any) {
     console.error("[admin/cleanup-demo-stations]", err);
-    return res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    return res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 

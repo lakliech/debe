@@ -27,7 +27,27 @@ app.set("trust proxy", 1);
 // ── Secure headers (Helmet) ────────────────────────────────────────────────
 app.use(
   helmet({
-    contentSecurityPolicy: false, // disabled for Clerk iframe; tighten in production
+    // Clerk-compatible CSP. Clerk components load scripts and iframes from
+    // *.clerk.accounts.dev (or the /__clerk_proxy path on this host), use
+    // Cloudflare challenge frames, and rely on inline styles — all allowed
+    // explicitly rather than disabling CSP outright.
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: [
+          "'self'",
+          "'unsafe-inline'",
+          "https://*.clerk.accounts.dev",
+          "https://challenges.cloudflare.com",
+        ],
+        connectSrc: ["'self'", "https://*.clerk.accounts.dev", "https://clerk-telemetry.com", "wss:"],
+        frameSrc: ["'self'", "https://*.clerk.accounts.dev", "https://challenges.cloudflare.com"],
+        imgSrc: ["'self'", "data:", "blob:", "https://img.clerk.com"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        workerSrc: ["'self'", "blob:"],
+        formAction: ["'self'"],
+      },
+    },
     crossOriginEmbedderPolicy: false,
   }),
 );
@@ -84,9 +104,13 @@ app.use(
 app.use(CLERK_PROXY_PATH, clerkProxyMiddleware());
 
 // Build an explicit origin allowlist from environment.
-// CORS_ORIGINS can override with a comma-separated list of trusted origins.
-// Defaults to the Replit preview domain and localhost variants.
+// CORS_ORIGINS can override with a comma-separated list of trusted origins
+// (add custom campaign domains there). Defaults cover the Replit preview
+// domain, the portal base domain and its campaign subdomains; localhost
+// variants are a development convenience and are NEVER allowed in production.
 const rawAllowedOrigins = process.env.CORS_ORIGINS;
+const isProduction = process.env.NODE_ENV === "production";
+const portalBaseDomain = (process.env.PORTAL_DOMAIN ?? "ushindi.app").toLowerCase();
 const allowedOrigins: string[] = rawAllowedOrigins
   ? rawAllowedOrigins.split(",").map((o) => o.trim()).filter(Boolean)
   : [
@@ -94,8 +118,8 @@ const allowedOrigins: string[] = rawAllowedOrigins
       ...(process.env.REPLIT_DEV_DOMAIN
         ? [`https://${process.env.REPLIT_DEV_DOMAIN}`]
         : []),
-      "http://localhost:5173",
-      "http://localhost:3000",
+      `https://${portalBaseDomain}`,
+      ...(isProduction ? [] : ["http://localhost:5173", "http://localhost:3000"]),
     ];
 
 app.use(
@@ -105,6 +129,17 @@ app.use(
       // Allow server-to-server / same-origin requests (no Origin header)
       if (!requestOrigin) return callback(null, true);
       if (allowedOrigins.includes(requestOrigin)) return callback(null, true);
+      // Campaign portals live on subdomains of the portal base domain
+      // (https://<slug>.<base>) — allow that family over HTTPS without
+      // enumerating every tenant.
+      try {
+        const { protocol, hostname } = new URL(requestOrigin);
+        if (protocol === "https:" && hostname.endsWith(`.${portalBaseDomain}`)) {
+          return callback(null, true);
+        }
+      } catch {
+        // Malformed Origin header — fall through to reject.
+      }
       callback(new Error(`CORS: origin '${requestOrigin}' not allowed`));
     },
   }),
@@ -136,16 +171,20 @@ app.use(
   })),
 );
 
-// ── Subdomain / custom-domain → X-Tenant-Slug injection ──────────────────
-// When the reverse proxy / edge maps <slug>.domain.tld to this server it
-// should set X-Tenant-Slug directly.  This middleware is a dev-time / last-
-// resort fallback.
+// ── Subdomain / custom-domain → X-Tenant-Slug resolution ─────────────────
+// The tenant slug for PUBLIC endpoints is derived from the request's host —
+// server-trusted — never blindly from a client-set X-Tenant-Slug header.
 //
 // Resolution order:
-//  1. If X-Tenant-Slug is already set (by an upstream proxy) → pass through.
-//  2. If the hostname is a KNOWN platform domain → extract the leading label
-//     as the tenant slug (subdomain pattern).
-//  3. Otherwise → DB lookup against tenants.custom_domain.
+//  1. Hostname is a KNOWN platform domain → extract the leading label as
+//     the tenant slug (subdomain pattern).
+//  2. Otherwise → DB lookup against tenants.custom_domain.
+//  3. If the host yields a slug and a client header disagrees → the header
+//     is DISCARDED (host wins; spoof attempt neutralised). If the host
+//     yields no slug (apex domain, localhost, base Replit host) → a client
+//     header is accepted as the only tenant source for public endpoints.
+//     Authenticated routes never read this header — they resolve tenant
+//     from app-owned membership.
 //
 // Known platform domain examples (slug extraction):
 //   amina.ushindi.app             → slug: amina
@@ -196,37 +235,39 @@ function _extractPlatformSlug(hostname: string, parts: string[]): string | null 
 }
 
 app.use(async (req: Request, _res: Response, next: NextFunction) => {
-  if (req.headers["x-tenant-slug"]) return next(); // already set upstream
-
-  const host =
-    (req.headers["x-forwarded-host"] as string | undefined) ??
-    req.headers["host"] ??
-    "";
-  const hostname = host.split(":")[0].toLowerCase(); // strip port, normalise case
+  // req.hostname honours `trust proxy = 1`: Express reads X-Forwarded-Host
+  // only when the immediate peer is the trusted adjacent proxy (Replit's
+  // edge); an untrusted direct client's forwarded-host header is ignored and
+  // the real Host is used. Never read those headers raw here — that would
+  // re-open client spoofing of the tenant context.
+  const hostname = (req.hostname ?? "").toLowerCase();
   const parts = hostname.split(".");
 
-  // 1. Known platform subdomain → extract slug directly (no DB hit)
-  const platformSlug = _extractPlatformSlug(hostname, parts);
-  if (platformSlug) {
-    req.headers["x-tenant-slug"] = platformSlug;
-    return next();
-  }
-
-  // 2. Unknown hostname → custom-domain DB lookup.
-  //    Only attempt for real-looking domains (contains a dot, not localhost).
-  if (hostname.includes(".") && hostname !== "localhost") {
+  // Derive the tenant from the HOST — server-trusted — never from a bare
+  // client header: 1. platform subdomain (no DB hit), 2. custom-domain table.
+  let hostSlug = _extractPlatformSlug(hostname, parts);
+  if (!hostSlug && hostname.includes(".") && hostname !== "localhost") {
     try {
       const [tenant] = await _tenantDb
         .select({ slug: _tenantsTable.slug })
         .from(_tenantsTable)
         .where(_eq(_tenantsTable.customDomain, hostname))
         .limit(1);
-      if (tenant) {
-        req.headers["x-tenant-slug"] = tenant.slug;
-      }
+      if (tenant) hostSlug = tenant.slug;
     } catch {
       // Non-fatal — continue without tenant context
     }
+  }
+
+  // The host-derived slug is AUTHORITATIVE. A client-supplied header only
+  // fills the gap when the host carries no tenant (apex domain, localhost
+  // dev, base Replit host) — where it is the public portal's only tenant
+  // source. When the host does identify a tenant, any conflicting header is
+  // a spoof attempt and is overwritten, not honoured. Authenticated routes
+  // never read this header (they resolve tenant from app-owned membership),
+  // so overwriting is invisible to them.
+  if (hostSlug) {
+    req.headers["x-tenant-slug"] = hostSlug;
   }
 
   next();

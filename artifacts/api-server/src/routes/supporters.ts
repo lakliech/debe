@@ -1,3 +1,4 @@
+import { logger } from "../lib/logger";
 import { Router } from "express";
 import { z } from "zod";
 import { getAuth } from "@clerk/express";
@@ -126,7 +127,8 @@ router.get("/", requireAuth, resolveTenant, canManageSupporters, async (req: any
 
     res.json({ data, total: Number(total), page: pageNum, limit: pageSize });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -142,7 +144,8 @@ router.get("/:id", requireAuth, resolveTenant, canManageSupporters, async (req: 
     if (!supporter) return res.status(404).json({ error: "Supporter not found" });
     res.json(supporter);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -160,7 +163,8 @@ router.patch("/:id", requireAuth, resolveTenant, canManageSupporters, async (req
     if (!updated) return res.status(404).json({ error: "Supporter not found" });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -175,7 +179,8 @@ router.delete("/:id", requireAuth, resolveTenant, canExportSupporters, async (re
     if (!deleted) return res.status(404).json({ error: "Supporter not found" });
     res.json({ deleted: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -191,7 +196,8 @@ router.post("/:id/opt-out", requireAuth, resolveTenant, canManageSupporters, asy
     if (!updated) return res.status(404).json({ error: "Supporter not found" });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -215,7 +221,8 @@ router.get("/:id/consents", requireAuth, resolveTenant, canViewConsents, async (
       .orderBy(desc(consentRecordsTable.createdAt));
     res.json(consents);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -244,7 +251,8 @@ router.post("/:id/consents", requireAuth, resolveTenant, canManageSupporters, as
     }).returning();
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -275,7 +283,8 @@ router.post("/:id/consents/withdraw", requireAuth, resolveTenant, canManageSuppo
 
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -297,7 +306,8 @@ router.get("/:id/access-logs", requireAuth, resolveTenant, canViewConsents, asyn
       .limit(200);
     res.json(logs);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 

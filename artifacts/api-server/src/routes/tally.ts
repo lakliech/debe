@@ -2,6 +2,7 @@
  * Tally API: compute & serve aggregated election results
  * Only 'verified' submissions are counted.
  */
+import { logger } from "../lib/logger";
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
 import { db } from "@workspace/db";
@@ -16,8 +17,16 @@ import {
 import { eq, desc, and, sql, count, sum, countDistinct, inArray } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
 import { tenantFilter, assertTenant } from '../lib/withTenant';
+import { z } from "zod";
+import { validate } from "../lib/validate";
 
 const router = Router();
+
+const snapshotQuerySchema = z.object({
+  electionId: z.string().uuid(),
+  level: z.enum(["national", "county", "constituency", "ward", "station"]).optional(),
+  entityId: z.string().trim().max(200).optional(),
+});
 
 function requireAuth(req: any, res: any, next: any) {
   const auth = getAuth(req);
@@ -38,8 +47,9 @@ const canManageElections = requireRoles([
 router.get("/snapshot", requireAuth, canViewResults, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
-    const { electionId, level, entityId } = req.query;
-    if (!electionId) return res.status(400).json({ error: "electionId required" });
+    const q = validate(snapshotQuerySchema, req.query, res);
+    if (!q) return;
+    const { electionId, level, entityId } = q;
 
     const conditions: any[] = [tenantFilter(tallySnapshotsTable, t.id), eq(tallySnapshotsTable.electionId, electionId)];
     if (level) conditions.push(eq(tallySnapshotsTable.level, level));
@@ -50,7 +60,8 @@ router.get("/snapshot", requireAuth, canViewResults, async (req: any, res: any) 
       .orderBy(desc(tallySnapshotsTable.computedAt));
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -61,92 +72,95 @@ router.post("/compute", requireAuth, canManageElections, async (req: any, res: a
     const { electionId, level, entityId } = req.body;
     if (!electionId) return res.status(400).json({ error: "electionId required" });
 
-    // Aggregate: sum voteCount for verified submissions
-    const aggregated = await db
-      .select({
-        candidateId: submissionCandidateVotesTable.candidateId,
-        candidateName: submissionCandidateVotesTable.candidateName,
-        partyAbbreviation: submissionCandidateVotesTable.partyAbbreviation,
-        votes: sum(submissionCandidateVotesTable.voteCount),
-      })
-      .from(submissionCandidateVotesTable)
-      .innerJoin(
-        resultSubmissionsTable,
-        eq(submissionCandidateVotesTable.submissionId, resultSubmissionsTable.id),
-      )
-      .where(and(
-        tenantFilter(resultSubmissionsTable, t.id),
-        eq(resultSubmissionsTable.electionId, electionId),
-        eq(resultSubmissionsTable.status, "verified"),
-        eq(submissionCandidateVotesTable.isVerified, true),
-      ))
-      .groupBy(
-        submissionCandidateVotesTable.candidateId,
-        submissionCandidateVotesTable.candidateName,
-        submissionCandidateVotesTable.partyAbbreviation,
-      );
+    // One transaction: reads see a single consistent snapshot (a submission
+    // verified mid-compute can't skew the counts) and the snapshot rows
+    // either all persist or none do — a crash mid-loop can never leave a
+    // partial set of candidates.
+    const snapshots = await db.transaction(async (tx) => {
+      // Aggregate: sum voteCount for verified submissions
+      const aggregated = await tx
+        .select({
+          candidateId: submissionCandidateVotesTable.candidateId,
+          candidateName: submissionCandidateVotesTable.candidateName,
+          partyAbbreviation: submissionCandidateVotesTable.partyAbbreviation,
+          votes: sum(submissionCandidateVotesTable.voteCount),
+        })
+        .from(submissionCandidateVotesTable)
+        .innerJoin(
+          resultSubmissionsTable,
+          eq(submissionCandidateVotesTable.submissionId, resultSubmissionsTable.id),
+        )
+        .where(and(
+          tenantFilter(resultSubmissionsTable, t.id),
+          eq(resultSubmissionsTable.electionId, electionId),
+          eq(resultSubmissionsTable.status, "verified"),
+          eq(submissionCandidateVotesTable.isVerified, true),
+        ))
+        .groupBy(
+          submissionCandidateVotesTable.candidateId,
+          submissionCandidateVotesTable.candidateName,
+          submissionCandidateVotesTable.partyAbbreviation,
+        );
 
-    // Station counts — scoped to stations with submissions from this tenant
-    const stationCounts = await db
-      .select({ total: countDistinct(resultSubmissionsTable.pollingStationId) })
-      .from(resultSubmissionsTable)
-      .where(and(tenantFilter(resultSubmissionsTable, t.id), eq(resultSubmissionsTable.electionId, electionId)));
+      const totalStations = await tx
+        .select({ total: countDistinct(resultSubmissionsTable.pollingStationId) })
+        .from(resultSubmissionsTable)
+        .where(and(tenantFilter(resultSubmissionsTable, t.id), eq(resultSubmissionsTable.electionId, electionId)));
 
-    const totalStations = await db
-      .select({ total: countDistinct(resultSubmissionsTable.pollingStationId) })
-      .from(resultSubmissionsTable)
-      .where(and(tenantFilter(resultSubmissionsTable, t.id), eq(resultSubmissionsTable.electionId, electionId)));
+      const stationsReporting = await tx
+        .select({ total: count(resultSubmissionsTable.id) })
+        .from(resultSubmissionsTable)
+        .where(and(
+          tenantFilter(resultSubmissionsTable, t.id),
+          eq(resultSubmissionsTable.electionId, electionId),
+        ));
 
-    const stationsReporting = await db
-      .select({ total: count(resultSubmissionsTable.id) })
-      .from(resultSubmissionsTable)
-      .where(and(
-        tenantFilter(resultSubmissionsTable, t.id),
-        eq(resultSubmissionsTable.electionId, electionId),
-      ));
+      const stationsVerified = await tx
+        .select({ total: count(resultSubmissionsTable.id) })
+        .from(resultSubmissionsTable)
+        .where(and(
+          tenantFilter(resultSubmissionsTable, t.id),
+          eq(resultSubmissionsTable.electionId, electionId),
+          eq(resultSubmissionsTable.status, "verified"),
+        ));
 
-    const stationsVerified = await db
-      .select({ total: count(resultSubmissionsTable.id) })
-      .from(resultSubmissionsTable)
-      .where(and(
-        tenantFilter(resultSubmissionsTable, t.id),
-        eq(resultSubmissionsTable.electionId, electionId),
-        eq(resultSubmissionsTable.status, "verified"),
-      ));
+      const totalValidVotesResult = aggregated.reduce((s, r) => s + Number(r.votes ?? 0), 0);
 
-    const totalValidVotesResult = aggregated.reduce((s, r) => s + Number(r.votes ?? 0), 0);
+      const computedAt = new Date();
+      const written = [];
 
-    const computedAt = new Date();
-    const snapshots = [];
+      for (const row of aggregated) {
+        const snapshotData = {
+          tenantId: t.id,
+          electionId,
+          level: level ?? "national",
+          entityId: entityId ?? null,
+          entityName: entityId ? undefined : "National",
+          candidateId: row.candidateId ?? undefined,
+          candidateName: row.candidateName,
+          partyAbbreviation: row.partyAbbreviation ?? undefined,
+          votes: Number(row.votes ?? 0),
+          validVotes: totalValidVotesResult,
+          registeredVoters: 0,
+          totalStations: Number(totalStations[0]?.total ?? 0),
+          stationsReporting: Number(stationsReporting[0]?.total ?? 0),
+          stationsVerified: Number(stationsVerified[0]?.total ?? 0),
+          stationsPending: 0,
+          stationsDisputed: 0,
+          computedAt,
+        };
 
-    for (const row of aggregated) {
-      const snapshotData = {
-        tenantId: t.id,
-        electionId,
-        level: level ?? "national",
-        entityId: entityId ?? null,
-        entityName: entityId ? undefined : "National",
-        candidateId: row.candidateId ?? undefined,
-        candidateName: row.candidateName,
-        partyAbbreviation: row.partyAbbreviation ?? undefined,
-        votes: Number(row.votes ?? 0),
-        validVotes: totalValidVotesResult,
-        registeredVoters: 0,
-        totalStations: Number(totalStations[0]?.total ?? 0),
-        stationsReporting: Number(stationsReporting[0]?.total ?? 0),
-        stationsVerified: Number(stationsVerified[0]?.total ?? 0),
-        stationsPending: 0,
-        stationsDisputed: 0,
-        computedAt,
-      };
+        const [snapshot] = await tx.insert(tallySnapshotsTable).values(snapshotData).returning();
+        written.push(snapshot);
+      }
 
-      const [snapshot] = await db.insert(tallySnapshotsTable).values(snapshotData).returning();
-      snapshots.push(snapshot);
-    }
+      return written;
+    });
 
     res.json({ computed: snapshots.length, snapshots });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -234,7 +248,8 @@ router.get("/national/:electionId", requireAuth, canViewResults, async (req: any
       stationCounts: { total: totalN, reporting: reportingN, verified: verifiedN },
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -308,7 +323,8 @@ router.get("/county/:electionId/:countyId", requireAuth, canViewResults, async (
       stations: { received: countyReceived, verified: Number(countyVerified), outstanding: Math.max(0, ids.length - countyReceived), disputed: 0 },
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -386,7 +402,8 @@ router.get("/constituency/:electionId/:constituencyId", requireAuth, canViewResu
       stations: { received: constReceived, verified: Number(constVerified), outstanding: Math.max(0, ids.length - constReceived), disputed: 0 },
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -487,7 +504,8 @@ router.get("/ward/:electionId/:wardId", requireAuth, canViewResults, async (req:
       stations: { received: wardReceived, verified: Number(wardVerified), outstanding: Math.max(0, ids.length - wardReceived), disputed: 0 },
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -514,7 +532,8 @@ router.get("/station/:electionId/:stationId", requireAuth, canViewResults, async
 
     res.json({ electionId, stationId, level: "station", submission, candidates: votes });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -572,7 +591,8 @@ router.get("/progress/:electionId", requireAuth, canViewResults, async (req: any
 
     res.json({ electionId, byCounty: progress });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 

@@ -2,6 +2,7 @@
  * Coordinator dashboards — ward, constituency, county, national.
  * Filtered views of volunteer KPIs, coverage, and gap alerts.
  */
+import { logger } from "../lib/logger";
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
 import { db } from "@workspace/db";
@@ -16,8 +17,22 @@ import {
 import { eq, and, desc, count, sql } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
 import { tenantFilter, assertTenant } from '../lib/withTenant';
+import { z } from "zod";
+import { validate } from "../lib/validate";
 
 const router = Router();
+
+const dashboardQuerySchema = z.object({
+  scope: z.enum(["national", "county", "constituency", "ward"]).default("national"),
+  id: z.string().uuid().optional(),
+});
+const coordinatorVolunteersQuerySchema = z.object({
+  countyId: z.string().uuid().optional(),
+  constituencyId: z.string().uuid().optional(),
+  wardId: z.string().uuid().optional(),
+  status: z.string().trim().max(100).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+});
 
 function requireAuth(req: any, res: any, next: any) {
   const auth = getAuth(req);
@@ -42,7 +57,9 @@ const canViewCoordinator = requireRoles([
 router.get("/dashboard", requireAuth, canViewCoordinator, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
-    const { scope = "national", id } = req.query;
+    const q = validate(dashboardQuerySchema, req.query, res);
+    if (!q) return;
+    const { scope, id } = q;
 
     const whereClause = (table: any) => {
       const conditions: any[] = [tenantFilter(table, t.id)];
@@ -105,7 +122,8 @@ router.get("/dashboard", requireAuth, canViewCoordinator, async (req: any, res: 
       recentVolunteers,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -149,7 +167,8 @@ router.get("/coverage", requireAuth, canViewCoordinator, async (req: any, res: a
 
     res.json(coverage);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -189,7 +208,8 @@ router.get("/gap-alerts", requireAuth, canViewCoordinator, async (req: any, res:
       stalePendingCount: Number(stalePending[0]?.total ?? 0),
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -198,8 +218,10 @@ router.get("/gap-alerts", requireAuth, canViewCoordinator, async (req: any, res:
 router.get("/volunteers", requireAuth, canViewCoordinator, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
-    const { countyId, constituencyId, wardId, status, page = "1" } = req.query;
-    const pageNum = parseInt(page as string) || 1;
+    const q = validate(coordinatorVolunteersQuerySchema, req.query, res);
+    if (!q) return;
+    const { countyId, constituencyId, wardId, status } = q;
+    const pageNum = q.page;
     const limit = 20;
     const offset = (pageNum - 1) * limit;
 
@@ -240,7 +262,8 @@ router.get("/volunteers", requireAuth, canViewCoordinator, async (req: any, res:
 
     res.json({ data: rows, total: totalRow?.total ?? 0, page: pageNum });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 

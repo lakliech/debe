@@ -2,6 +2,7 @@
  * Aspirants — admin management routes (auth + coordinator-level required).
  * Public self-registration lives in publicPortal.ts → POST /api/public/aspirants
  */
+import { logger } from "../lib/logger";
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
 import { db, aspirantsTable, usersTable } from "@workspace/db";
@@ -50,7 +51,8 @@ router.get("/stats", requireAuth, resolveTenant, async (req: any, res: any) => {
     }
     res.json({ total, byStatus });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -86,7 +88,8 @@ router.get("/", requireAuth, resolveTenant, async (req: any, res: any) => {
 
     res.json({ data, total, page: pageNum, limit: pageSize });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -102,7 +105,8 @@ router.get("/:id", requireAuth, resolveTenant, async (req: any, res: any) => {
     if (!row) return res.status(404).json({ error: "Not found" });
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -137,7 +141,8 @@ router.patch("/:id", requireAuth, resolveTenant, canReview, async (req: any, res
     if (!updated) return res.status(404).json({ error: "Not found" });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 

@@ -9,8 +9,29 @@ import {
   pollingStationsTable,
 } from "@workspace/db";
 import { eq, and, or, ilike, sql } from "drizzle-orm";
+import { z } from "zod";
+import { validate } from "../lib/validate";
 
 const router = Router();
+
+const constituenciesQuerySchema = z.object({
+  countyId: z.string().uuid().optional(),
+});
+const wardsQuerySchema = z.object({
+  constituencyId: z.string().uuid().optional(),
+  countyId: z.string().uuid().optional(),
+});
+const pollingCentresQuerySchema = z.object({
+  wardId: z.string().uuid().optional(),
+  constituencyId: z.string().uuid().optional(),
+});
+const pollingStationsQuerySchema = z.object({
+  centreId: z.string().uuid().optional(),
+  wardId: z.string().uuid().optional(),
+  constituencyId: z.string().uuid().optional(),
+  countyId: z.string().uuid().optional(),
+  search: z.string().trim().max(200).optional(),
+});
 
 function requireAuth(req: any, res: any, next: any) {
   const auth = getAuth(req);
@@ -116,7 +137,9 @@ router.get("/counties/:id", requireAuth, async (req: any, res: any) => {
 
 // GET /api/geography/constituencies
 router.get("/constituencies", requireAuth, async (req: any, res: any) => {
-  const { countyId } = req.query as any;
+  const q = validate(constituenciesQuerySchema, req.query, res);
+  if (!q) return;
+  const { countyId } = q;
   const whereConditions = countyId ? eq(constituenciesTable.countyId, countyId) : undefined;
 
   const constituencies = await db
@@ -149,7 +172,9 @@ router.get("/constituencies", requireAuth, async (req: any, res: any) => {
 
 // GET /api/geography/wards
 router.get("/wards", requireAuth, async (req: any, res: any) => {
-  const { constituencyId, countyId } = req.query as any;
+  const q = validate(wardsQuerySchema, req.query, res);
+  if (!q) return;
+  const { constituencyId, countyId } = q;
   const conditions = [];
   if (constituencyId) conditions.push(eq(wardsTable.constituencyId, constituencyId));
   if (countyId) conditions.push(eq(wardsTable.countyId, countyId));
@@ -179,7 +204,9 @@ router.get("/wards", requireAuth, async (req: any, res: any) => {
 
 // GET /api/geography/polling-centres
 router.get("/polling-centres", requireAuth, async (req: any, res: any) => {
-  const { wardId, constituencyId } = req.query as any;
+  const q = validate(pollingCentresQuerySchema, req.query, res);
+  if (!q) return;
+  const { wardId, constituencyId } = q;
   const conditions = [];
   if (wardId) conditions.push(eq(pollingCentresTable.wardId, wardId));
   if (constituencyId) conditions.push(eq(pollingCentresTable.constituencyId, constituencyId));
@@ -218,7 +245,9 @@ router.get("/polling-centres", requireAuth, async (req: any, res: any) => {
 
 // GET /api/geography/polling-stations
 router.get("/polling-stations", requireAuth, async (req: any, res: any) => {
-  const { centreId, wardId, constituencyId, countyId, search } = req.query as any;
+  const q = validate(pollingStationsQuerySchema, req.query, res);
+  if (!q) return;
+  const { centreId, wardId, constituencyId, countyId, search } = q;
   const conditions = [];
   if (centreId) conditions.push(eq(pollingStationsTable.centreId, centreId));
   if (wardId) conditions.push(eq(pollingStationsTable.wardId, wardId));

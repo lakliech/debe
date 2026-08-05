@@ -3,6 +3,7 @@
  * DPIA register, Vendor register, Breach register, Consent audit,
  * Retention policies, Data Subject Requests.
  */
+import { logger } from "../lib/logger";
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
 import { z } from "zod";
@@ -26,6 +27,32 @@ import { tenantFilter, assertTenant } from '../lib/withTenant';
 
 const uuidField = z.string().uuid();
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD date");
+
+const dataRequestsQuerySchema = z.object({
+  status: z.string().trim().max(100).optional(),
+  type: z.string().trim().max(100).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+const dpiaQuerySchema = z.object({
+  status: z.string().trim().max(100).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+const vendorsQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+const breachesQuerySchema = z.object({
+  status: z.string().trim().max(100).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+const consentAuditQuerySchema = z.object({
+  email: z.string().trim().max(320).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
 
 const createDataRequestSchema = z.object({
   requestType: z.enum(["access", "erasure", "rectification", "restriction", "portability", "objection"]),
@@ -140,9 +167,11 @@ const canManageCompliance = requireRoles([
 router.get("/data-requests", requireAuth, canViewCompliance, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
-    const { status, type, page = "1", limit = "20" } = req.query;
-    const pageNum = parseInt(page) || 1;
-    const pageSize = Math.min(parseInt(limit) || 20, 100);
+    const q = validate(dataRequestsQuerySchema, req.query, res);
+    if (!q) return;
+    const { status, type } = q;
+    const pageNum = q.page;
+    const pageSize = q.limit;
     const conditions: any[] = [tenantFilter(dataSubjectRequestsTable, t.id)];
     if (status) conditions.push(eq(dataSubjectRequestsTable.status, status));
     if (type) conditions.push(eq(dataSubjectRequestsTable.requestType, type));
@@ -155,7 +184,8 @@ router.get("/data-requests", requireAuth, canViewCompliance, async (req: any, re
     ]);
     res.json({ data: rows, total: Number(total), page: pageNum, pageSize });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -181,7 +211,8 @@ router.post("/data-requests", requireAuth, canManageCompliance, async (req: any,
     }).returning();
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -204,7 +235,8 @@ router.patch("/data-requests/:id", requireAuth, canManageCompliance, async (req:
     if (!row) return res.status(404).json({ error: "Request not found" });
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -213,9 +245,11 @@ router.patch("/data-requests/:id", requireAuth, canManageCompliance, async (req:
 router.get("/dpia", requireAuth, canViewCompliance, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
-    const { page = "1", limit = "20", status } = req.query;
-    const pageNum = parseInt(page) || 1;
-    const pageSize = Math.min(parseInt(limit) || 20, 100);
+    const q = validate(dpiaQuerySchema, req.query, res);
+    if (!q) return;
+    const { status } = q;
+    const pageNum = q.page;
+    const pageSize = q.limit;
     const conditions: any[] = [tenantFilter(dpiaRegisterTable, t.id)];
     if (status) conditions.push(eq(dpiaRegisterTable.status, status));
     const where = and(...conditions);
@@ -227,7 +261,8 @@ router.get("/dpia", requireAuth, canViewCompliance, async (req: any, res: any) =
     ]);
     res.json({ data: rows, total: Number(total), page: pageNum, pageSize });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -242,7 +277,8 @@ router.post("/dpia", requireAuth, canManageCompliance, async (req: any, res: any
     } as any).returning();
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -260,7 +296,8 @@ router.patch("/dpia/:id", requireAuth, canManageCompliance, async (req: any, res
     if (!row) return res.status(404).json({ error: "DPIA not found" });
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -269,9 +306,10 @@ router.patch("/dpia/:id", requireAuth, canManageCompliance, async (req: any, res
 router.get("/vendors", requireAuth, canViewCompliance, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
-    const { page = "1", limit = "20" } = req.query;
-    const pageNum = parseInt(page) || 1;
-    const pageSize = Math.min(parseInt(limit) || 20, 100);
+    const q = validate(vendorsQuerySchema, req.query, res);
+    if (!q) return;
+    const pageNum = q.page;
+    const pageSize = q.limit;
     const [rows, [{ total }]] = await Promise.all([
       db.select().from(vendorRegisterTable)
         .where(and(tenantFilter(vendorRegisterTable, t.id), eq(vendorRegisterTable.isActive, true)))
@@ -282,7 +320,8 @@ router.get("/vendors", requireAuth, canViewCompliance, async (req: any, res: any
     ]);
     res.json({ data: rows, total: Number(total), page: pageNum, pageSize });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -304,7 +343,8 @@ router.post("/vendors", requireAuth, canManageCompliance, async (req: any, res: 
     } as any).returning();
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -333,7 +373,8 @@ router.patch("/vendors/:id", requireAuth, canManageCompliance, async (req: any, 
     if (!row) return res.status(404).json({ error: "Vendor not found" });
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -342,9 +383,11 @@ router.patch("/vendors/:id", requireAuth, canManageCompliance, async (req: any, 
 router.get("/breaches", requireAuth, canViewCompliance, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
-    const { page = "1", limit = "20", status } = req.query;
-    const pageNum = parseInt(page) || 1;
-    const pageSize = Math.min(parseInt(limit) || 20, 100);
+    const q = validate(breachesQuerySchema, req.query, res);
+    if (!q) return;
+    const { status } = q;
+    const pageNum = q.page;
+    const pageSize = q.limit;
     const conditions: any[] = [tenantFilter(dataBreachRegisterTable, t.id)];
     if (status) conditions.push(eq(dataBreachRegisterTable.status, status));
     const where = and(...conditions);
@@ -356,7 +399,8 @@ router.get("/breaches", requireAuth, canViewCompliance, async (req: any, res: an
     ]);
     res.json({ data: rows, total: Number(total), page: pageNum, pageSize });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -377,7 +421,8 @@ router.post("/breaches", requireAuth, canManageCompliance, async (req: any, res:
     } as any).returning();
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -399,7 +444,8 @@ router.patch("/breaches/:id", requireAuth, canManageCompliance, async (req: any,
     if (!row) return res.status(404).json({ error: "Breach record not found" });
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -413,7 +459,8 @@ router.get("/processing-records", requireAuth, canViewCompliance, async (req: an
       .orderBy(dataProcessingRecordsTable.processName);
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -428,7 +475,8 @@ router.post("/processing-records", requireAuth, canManageCompliance, async (req:
     } as any).returning();
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -437,18 +485,21 @@ router.post("/processing-records", requireAuth, canManageCompliance, async (req:
 router.get("/consent-audit", requireAuth, canViewCompliance, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
-    const { email, page = "1", limit = "20" } = req.query;
-    const pageNum = parseInt(page) || 1;
-    const pageSize = Math.min(parseInt(limit) || 20, 100);
+    const q = validate(consentAuditQuerySchema, req.query, res);
+    if (!q) return;
+    const { email } = q;
+    const pageNum = q.page;
+    const pageSize = q.limit;
     const conditions: any[] = [tenantFilter(consentAuditTable, t.id)];
-    if (email) conditions.push(eq(consentAuditTable.subjectEmail, email as string));
+    if (email) conditions.push(eq(consentAuditTable.subjectEmail, email));
     const where = and(...conditions);
     const rows = await db.select().from(consentAuditTable).where(where)
       .orderBy(desc(consentAuditTable.createdAt))
       .limit(pageSize).offset((pageNum - 1) * pageSize);
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -462,7 +513,8 @@ router.get("/retention-policies", requireAuth, canViewCompliance, async (req: an
       .orderBy(dataRetentionPoliciesTable.dataCategory);
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -480,7 +532,8 @@ router.post("/retention-policies", requireAuth, canManageCompliance, async (req:
     } as any).returning();
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -502,7 +555,8 @@ router.patch("/retention-policies/:id", requireAuth, canManageCompliance, async 
     if (!row) return res.status(404).json({ error: "Policy not found" });
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -527,7 +581,8 @@ router.get("/dashboard", requireAuth, canViewCompliance, async (req: any, res: a
       retentionPolicies: { active: Number(retentionCount[0].total) },
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 

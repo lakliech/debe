@@ -2,6 +2,7 @@
  * Digital Content Library API
  * Asset catalogue, versioning, download tracking, role-based access
  */
+import { logger } from "../lib/logger";
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
 import { db } from "@workspace/db";
@@ -66,7 +67,8 @@ router.get("/assets", requireAuth, canViewLibrary, async (req: any, res: any) =>
     const actorRoles: string[] = (req as any).actorRoles ?? [];
     res.json({ data: rows.map(r => redactAsset(r, actorRoles)), total: Number(total), page: pageNum, pageSize });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -81,7 +83,8 @@ router.post("/assets", requireAuth, canManageLibrary, async (req: any, res: any)
     await db.insert(assetVersionsTable).values({ assetId: asset.id, version: 1, objectPath: asset.objectPath, uploadedBy: actorId });
     res.status(201).json(asset);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -101,7 +104,8 @@ router.get("/assets/:id", requireAuth, canViewLibrary, async (req: any, res: any
       : versions.map(({ objectPath: _o, ...v }) => ({ ...v, objectPath: null }));
     res.json({ ...redactAsset(asset, actorRoles), versions: safeVersions, downloadCount: Number(dlCount) });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -162,7 +166,8 @@ router.patch("/assets/:id", requireAuth, canViewLibrary, async (req: any, res: a
       .returning();
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -177,7 +182,8 @@ router.post("/assets/:id/approve", requireAuth, canApproveAssets, async (req: an
     if (!updated) return res.status(404).json({ error: "Not found" });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -191,7 +197,8 @@ router.post("/assets/:id/reject", requireAuth, canApproveAssets, async (req: any
     if (!updated) return res.status(404).json({ error: "Not found" });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -216,7 +223,8 @@ router.post("/assets/:id/versions", requireAuth, canManageLibrary, async (req: a
       .where(and(eq(contentAssetsTable.id, req.params.id), tenantFilter(contentAssetsTable, t.id)));
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -239,7 +247,8 @@ router.post("/assets/:id/download", requireAuth, canViewLibrary, async (req: any
     // Return the GCS object path — client fetches via /api/storage/objects/{path}
     res.json({ objectPath: asset.objectPath, title: asset.title });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -256,7 +265,8 @@ router.get("/assets/:id/history", requireAuth, canViewLibrary, async (req: any, 
       .orderBy(desc(downloadRecordsTable.createdAt)).limit(100);
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 

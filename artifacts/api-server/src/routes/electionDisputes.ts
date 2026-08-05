@@ -1,6 +1,7 @@
 /**
  * Election Disputes API
  */
+import { logger } from "../lib/logger";
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
 import { db } from "@workspace/db";
@@ -61,7 +62,8 @@ router.get("/", requireAuth, canManageDisputes, async (req: any, res: any) => {
     ]);
     res.json({ data: rows, total: Number(total), page: pageNum, pageSize });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -93,7 +95,8 @@ router.post("/", requireAuth, canManageDisputes, async (req: any, res: any) => {
     }).returning();
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -116,7 +119,8 @@ router.get("/:id", requireAuth, canManageDisputes, async (req: any, res: any) =>
 
     res.json({ ...dispute, evidence, communications: comms });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -148,7 +152,8 @@ router.patch("/:id", requireAuth, canManageDisputes, async (req: any, res: any) 
     if (!row) return res.status(404).json({ error: "Dispute not found" });
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -168,7 +173,8 @@ router.post("/:id/evidence", requireAuth, canManageDisputes, async (req: any, re
     }).returning();
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -188,7 +194,8 @@ router.post("/:id/communications", requireAuth, canManageDisputes, async (req: a
     }).returning();
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -226,7 +233,8 @@ router.get("/:id/evidence-bundle", requireAuth, canManageDisputes, async (req: a
       exportedAt: new Date().toISOString(),
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -315,7 +323,8 @@ router.post("/auto-detect", requireAuth, canManageElections, async (req: any, re
 
     res.json({ detected: detected.length, disputes: detected });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 

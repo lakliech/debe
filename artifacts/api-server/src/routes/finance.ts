@@ -21,6 +21,33 @@ import { tenantFilter, assertTenant } from "../lib/withTenant";
 const router = Router();
 const mpesa = createMpesaAdapter();
 
+const mpesaTransactionsQuerySchema = z.object({
+  status: z.string().trim().max(100).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+const contributionsQuerySchema = z.object({
+  channel: z.string().trim().max(100).optional(),
+  verificationStatus: z.string().trim().max(100).optional(),
+  complianceFlag: z.string().trim().max(100).optional(),
+  ledger: z.string().trim().max(100).optional(),
+  search: z.string().trim().max(200).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+const alertsQuerySchema = z.object({
+  status: z.string().trim().max(100).optional(),
+});
+const budgetLinesQuerySchema = z.object({
+  categoryId: z.string().uuid().optional(),
+  fiscalPeriod: z.string().trim().max(100).optional(),
+});
+const expenditureRequestsQuerySchema = z.object({
+  status: z.string().trim().max(100).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+});
+
 function requireAuth(req: any, res: any, next: any) {
   const auth = getAuth(req);
   if (!auth?.userId) return res.status(401).json({ error: "Unauthorized" });
@@ -223,9 +250,11 @@ router.post("/mpesa/callback", async (req: any, res: any) => {
 router.get("/mpesa/transactions", requireAuth, canViewFinance, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
-    const { status, page = "1", limit = "20" } = req.query;
-    const pageNum = parseInt(page) || 1;
-    const pageSize = Math.min(parseInt(limit) || 20, 100);
+    const q = validate(mpesaTransactionsQuerySchema, req.query, res);
+    if (!q) return;
+    const { status } = q;
+    const pageNum = q.page;
+    const pageSize = q.limit;
     const offset = (pageNum - 1) * pageSize;
 
     const conditions: any[] = [tenantFilter(mpesaTransactionsTable, t.id)];
@@ -303,9 +332,11 @@ router.post("/contributions", requireAuth, canManageFinance, async (req: any, re
 router.get("/contributions", requireAuth, canViewFinance, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
-    const { channel, verificationStatus, complianceFlag, ledger, search, page = "1", limit = "20" } = req.query;
-    const pageNum = parseInt(page) || 1;
-    const pageSize = Math.min(parseInt(limit) || 20, 100);
+    const q = validate(contributionsQuerySchema, req.query, res);
+    if (!q) return;
+    const { channel, verificationStatus, complianceFlag, ledger, search } = q;
+    const pageNum = q.page;
+    const pageSize = q.limit;
     const offset = (pageNum - 1) * pageSize;
 
     const conditions: any[] = [tenantFilter(contributionsTable, t.id)];
@@ -402,7 +433,9 @@ router.get("/dashboard", requireAuth, canViewFinance, async (req: any, res: any)
 router.get("/alerts", requireAuth, canViewFinance, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
-    const { status } = req.query;
+    const q = validate(alertsQuerySchema, req.query, res);
+    if (!q) return;
+    const { status } = q;
     const conditions: any[] = [tenantFilter(donorAlertsTable, t.id)];
     if (status) conditions.push(eq(donorAlertsTable.status, status));
     const rows = await db.select().from(donorAlertsTable).where(and(...conditions)).orderBy(desc(donorAlertsTable.createdAt)).limit(50);
@@ -463,7 +496,9 @@ router.post("/budget-categories", requireAuth, canManageFinance, async (req: any
 router.get("/budget-lines", requireAuth, canViewFinance, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
-    const { categoryId, fiscalPeriod } = req.query;
+    const q = validate(budgetLinesQuerySchema, req.query, res);
+    if (!q) return;
+    const { categoryId, fiscalPeriod } = q;
     const conditions: any[] = [tenantFilter(budgetLinesTable, t.id)];
     if (categoryId) conditions.push(eq(budgetLinesTable.categoryId, categoryId));
     if (fiscalPeriod) conditions.push(eq(budgetLinesTable.fiscalPeriod, fiscalPeriod));
@@ -495,8 +530,10 @@ router.post("/budget-lines", requireAuth, canManageFinance, async (req: any, res
 router.get("/expenditure-requests", requireAuth, canViewFinance, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
-    const { status, page = "1", limit = "20" } = req.query;
-    const pageNum = parseInt(page) || 1; const pageSize = Math.min(parseInt(limit) || 20, 50);
+    const q = validate(expenditureRequestsQuerySchema, req.query, res);
+    if (!q) return;
+    const { status } = q;
+    const pageNum = q.page; const pageSize = q.limit;
     const conditions: any[] = [tenantFilter(expenditureRequestsTable, t.id)];
     if (status) conditions.push(eq(expenditureRequestsTable.status, status));
     const where = and(...conditions);

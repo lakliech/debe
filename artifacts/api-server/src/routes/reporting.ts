@@ -3,6 +3,7 @@
  * Every export is logged to the export_audit_log table.
  * Role-restricted: only authorised roles may download sensitive reports.
  */
+import { logger } from "../lib/logger";
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
 import { z } from "zod";
@@ -376,7 +377,8 @@ router.post("/export", requireAuth, resolveActor, canExport, async (req: any, re
       sendCSV(res, `${filename}.csv`, toCSV(rows));
     }
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -397,7 +399,8 @@ router.get("/export-log", requireAuth, resolveActor, canExport, async (req: any,
     ]);
     res.json({ data: rows, total: Number(total), page: pageNum, pageSize });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 

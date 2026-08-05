@@ -1,6 +1,7 @@
 /**
  * Command Centre API: Election-night dashboard & task management
  */
+import { logger } from "../lib/logger";
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
 import { db } from "@workspace/db";
@@ -153,7 +154,8 @@ router.get("/dashboard/:electionId", requireAuth, canViewCC, async (req: any, re
       legalEscalations,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -264,7 +266,8 @@ router.get("/county-dashboard/:electionId/:countyId", requireAuth, canViewCC, as
       legalEscalations,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -294,7 +297,8 @@ router.get("/tasks", requireAuth, canViewCC, async (req: any, res: any) => {
     ]);
     res.json({ data: rows, total: Number(total), page: pageNum, pageSize });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -312,7 +316,8 @@ router.post("/tasks", requireAuth, canManageCC, async (req: any, res: any) => {
     }).returning();
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -328,7 +333,8 @@ router.patch("/tasks/:id", requireAuth, canManageCC, async (req: any, res: any) 
     if (!row) return res.status(404).json({ error: "Task not found" });
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 

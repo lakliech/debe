@@ -8,6 +8,7 @@
  * All 24,594 real stations are visible to any authenticated campaign user —
  * a campaign does not need to have deployed agents to view or profile a station.
  */
+import { logger } from "../lib/logger";
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
 import { db } from "@workspace/db";
@@ -25,8 +26,24 @@ import { eq, desc, and, or, ilike, count, inArray, isNotNull, notInArray, sql } 
 import { requireRoles } from "../middlewares/rbac";
 import { resolveTenant } from "../middlewares/resolveTenant";
 import { tenantFilter, assertTenant } from '../lib/withTenant';
+import { z } from "zod";
+import { validate } from "../lib/validate";
 
 const router = Router();
+
+const stationsQuerySchema = z.object({
+  countyId: z.string().uuid().optional(),
+  constituencyId: z.string().uuid().optional(),
+  wardId: z.string().uuid().optional(),
+  search: z.string().trim().max(200).optional(),
+  unassigned: z.string().trim().max(20).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+const coverageGapsQuerySchema = z.object({
+  countyId: z.string().uuid().optional(),
+  constituencyId: z.string().uuid().optional(),
+});
 
 function requireAuth(req: any, res: any, next: any) {
   const auth = getAuth(req);
@@ -58,9 +75,11 @@ const canManageStations = requireRoles([
 router.get("/stations", requireAuth, resolveTenant, canViewStations, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
-    const { countyId, constituencyId, wardId, search, unassigned, page = "1", limit = "20" } = req.query;
-    const pageNum = Math.max(1, parseInt(page as string) || 1);
-    const pageSize = Math.min(parseInt(limit as string) || 20, 100);
+    const q = validate(stationsQuerySchema, req.query, res);
+    if (!q) return;
+    const { countyId, constituencyId, wardId, search, unassigned } = q;
+    const pageNum = q.page;
+    const pageSize = q.limit;
     const offset = (pageNum - 1) * pageSize;
 
     const conditions: any[] = [];
@@ -168,7 +187,8 @@ router.get("/stations", requireAuth, resolveTenant, canViewStations, async (req:
       counties,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -244,7 +264,8 @@ router.get("/stations/:id", requireAuth, resolveTenant, canViewStations, async (
       reportingStatus: campaignProfile?.reportingStatus ?? "not_reported",
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -284,7 +305,8 @@ router.patch("/stations/:id", requireAuth, resolveTenant, canManageStations, asy
       .returning();
     res.json(profile);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -328,7 +350,8 @@ router.post("/stations/import", requireAuth, resolveTenant, canManageStations, a
     }
     res.json({ results });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -365,7 +388,8 @@ router.post("/stations/bulk-status", requireAuth, resolveTenant, canManageStatio
 
     res.json({ updated });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -379,7 +403,9 @@ router.post("/stations/bulk-status", requireAuth, resolveTenant, canManageStatio
 router.get("/coverage-gaps", requireAuth, resolveTenant, canViewStations, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
-    const { countyId, constituencyId } = req.query;
+    const q = validate(coverageGapsQuerySchema, req.query, res);
+    if (!q) return;
+    const { countyId, constituencyId } = q;
 
     const conditions: any[] = [];
     if (countyId) conditions.push(eq(pollingStationsTable.countyId, countyId as string));
@@ -457,7 +483,8 @@ router.get("/coverage-gaps", requireAuth, resolveTenant, canViewStations, async 
       counties,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 

@@ -242,7 +242,8 @@ router.get("/overview", requireAuth, requireLevel(2), async (req: any, res: any)
       pendingDeletionRequest: pendingDeletion ?? null,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -253,7 +254,8 @@ router.get("/onboarding", requireAuth, async (req: any, res: any) => {
     if (!tenantId) return;
     res.json(await buildOnboarding(tenantId));
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -274,7 +276,8 @@ router.post("/onboarding/dismiss", requireAuth, requireLevel(2), async (req: any
 
     res.json(await buildOnboarding(tenantId));
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -292,7 +295,8 @@ router.get("/domain-requests", requireAuth, requireLevel(2), async (req: any, re
       .limit(20);
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -363,7 +367,8 @@ router.post("/domain-requests", requireAuth, requireLevel(1), async (req: any, r
       message: "Request submitted. The platform team will review it shortly.",
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -381,7 +386,8 @@ router.get("/deletion-request", requireAuth, requireLevel(1), async (req: any, r
       .limit(1);
     res.json(row ?? null);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -430,7 +436,8 @@ router.post("/deletion-request", requireAuth, requireLevel(1), async (req: any, 
         "Deletion request submitted. The platform team will contact you before anything is removed.",
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -455,7 +462,8 @@ router.delete("/deletion-request", requireAuth, requireLevel(1), async (req: any
     }
     res.json({ message: "Deletion request withdrawn." });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 

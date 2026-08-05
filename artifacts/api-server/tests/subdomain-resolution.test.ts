@@ -18,7 +18,9 @@
  *  6. Bare Replit dev host abc123.replit.dev (only 3 labels) → 200 neutral
  *  7. Replit dev sub-subdomain amina.abc123.replit.dev (4 labels) → tenant resolved
  *  8. Custom domain matching tenants.custom_domain → tenant resolved via DB lookup
- *  9. Explicit X-Tenant-Slug overrides Host header (upstream proxy wins)
+ *  9. X-Tenant-Slug spoofing — host-derived slug is authoritative; a conflicting
+ *     client header is overwritten; the header is honoured only when the host
+ *     carries no tenant (apex domain)
  *
  * Run: pnpm --filter @workspace/api-server exec vitest run tests/subdomain-resolution.test.ts
  */
@@ -303,18 +305,34 @@ describe("X-Forwarded-Host: <slug>.ushindi.app — proxy header is honoured", ()
 // 3. Explicit X-Tenant-Slug overrides the Host header
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe("X-Tenant-Slug header — upstream proxy wins over Host-derived slug", () => {
-  it("uses X-Tenant-Slug when both it and a platform Host are present", async () => {
-    _mockTenant   = TENANT_AMINA;
-    _mockBranding = BRANDING_AMINA;
+describe("X-Tenant-Slug header — host-derived slug wins (spoof-proof)", () => {
+  it("overwrites a client header that contradicts the host's tenant", async () => {
+    _mockTenant = null; // every lookup 404s — the error names the slug actually queried
 
-    // Host says 'other.ushindi.app' but upstream has already set X-Tenant-Slug
+    // Client claims tenant 'amina' while browsing 'other.ushindi.app'.
     const res = await request(app)
       .get("/api/config/branding")
       .set("X-Tenant-Slug", "amina")
       .set("Host", "other.ushindi.app");
 
-    // The app middleware short-circuits when X-Tenant-Slug is already set
+    // The host-derived slug is authoritative: the lookup ran for 'other',
+    // not the client-supplied 'amina' — a spoofed header is discarded.
+    expect(res.status).toBe(404);
+    expect(res.body.error).toContain("other");
+    expect(res.body.error).not.toContain("amina");
+  });
+
+  it("accepts the client header when the host carries no tenant", async () => {
+    _mockTenant   = TENANT_AMINA;
+    _mockBranding = BRANDING_AMINA;
+
+    // Apex host has no subdomain slug — the header is the only tenant
+    // source for the public portal and is honoured.
+    const res = await request(app)
+      .get("/api/config/branding")
+      .set("X-Tenant-Slug", "amina")
+      .set("Host", "ushindi.app");
+
     expect(res.status).toBe(200);
     expect(res.body.campaignName).toBe("Amina 2027 Campaign");
   });

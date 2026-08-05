@@ -12,6 +12,7 @@
  *   PATCH  /api/platform/tenants/:id/suspend — toggle suspension
  */
 
+import { logger } from "../lib/logger";
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
 import { db } from "@workspace/db";
@@ -36,8 +37,26 @@ import { bustActorCache } from "../middlewares/rbac";
 import { requireLevel } from "../middlewares/rbac";
 import { grantCampaignAdminByEmail } from "../lib/grantCampaignAdmin";
 import { recordPlatformAction } from "../lib/platformAudit";
+import { z } from "zod";
+import { validate } from "../lib/validate";
 
 const router = Router();
+
+const activityQuerySchema = z.object({
+  userId: z.string().uuid().optional(),
+  tenantId: z.string().uuid().optional(),
+  action: z.string().trim().max(200).optional(),
+  email: z.string().trim().max(320).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
+const platformUsersQuerySchema = z.object({
+  q: z.string().trim().max(200).optional(),
+  tenantId: z.string().uuid().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
 
 // ── Auth helper ───────────────────────────────────────────────────────────────
 function requireAuth(req: any, res: any, next: any) {
@@ -84,7 +103,8 @@ router.get("/tenants", requireAuth, requireLevel(0), async (req: any, res: any) 
     const tenants = await listTenantsWithCounts();
     res.json(tenants);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -120,7 +140,8 @@ router.get("/active-campaign", requireAuth, requireLevel(0), async (req: any, re
 
     res.json({ activeCampaign: tenant ?? null });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -213,7 +234,8 @@ router.put("/active-campaign", requireAuth, requireLevel(0), async (req: any, re
 
     res.json({ activeCampaign });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -298,7 +320,8 @@ router.post("/tenants", requireAuth, requireLevel(0), async (req: any, res: any)
           : "Tenant created. No admin email provided — invite from the tenant detail page.",
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -353,7 +376,8 @@ router.get("/tenants/:id", requireAuth, requireLevel(0), async (req: any, res: a
 
     res.json({ ...row, branding: branding ?? null });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -394,7 +418,8 @@ router.patch("/tenants/:id/suspend", requireAuth, requireLevel(0), async (req: a
 
     res.json(tenant);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -436,7 +461,8 @@ router.post("/tenants/:id/invite", requireAuth, requireLevel(0), async (req: any
 
     res.json({ message: `${adminEmail} now has campaign administrator access.` });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -447,9 +473,11 @@ router.post("/tenants/:id/invite", requireAuth, requireLevel(0), async (req: any
 // campaign's records, and no campaign role slug can satisfy that gate.
 router.get("/activity", requireAuth, requireLevel(0), async (req: any, res: any) => {
   try {
-    const { userId, tenantId, action, email, limit = "50", offset = "0" } = req.query as any;
-    const lim = Math.min(Math.max(Number(limit) || 50, 1), 200);
-    const off = Math.max(Number(offset) || 0, 0);
+    const query = validate(activityQuerySchema, req.query, res);
+    if (!query) return;
+    const { userId, tenantId, action, email } = query;
+    const lim = query.limit;
+    const off = query.offset;
 
     const conditions: any[] = [];
     if (userId) conditions.push(eq(auditLogsTable.userId, userId));
@@ -484,7 +512,8 @@ router.get("/activity", requireAuth, requireLevel(0), async (req: any, res: any)
 
     res.json(rows.map((r) => ({ ...r, createdAt: r.createdAt?.toISOString() ?? null })));
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -589,7 +618,8 @@ router.get("/ops", requireAuth, requireLevel(0), async (req: any, res: any) => {
 
     res.json({ tenants: result, updatedAt: new Date().toISOString() });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -685,7 +715,8 @@ router.get("/ops/:tenantId", requireAuth, requireLevel(0), async (req: any, res:
 
     res.json({ countyBreakdown, silentStations });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -755,10 +786,12 @@ async function getPlatformUserDetail(userId: string) {
 // Query params: q (search string), tenantId (filter), page, limit
 router.get("/users", requireAuth, requireLevel(0), async (req: any, res: any) => {
   try {
-    const q = (req.query.q as string | undefined)?.trim() ?? "";
-    const filterTenantId = req.query.tenantId as string | undefined;
-    const page = Math.max(1, parseInt(req.query.page as string ?? "1", 10));
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string ?? "50", 10)));
+    const query = validate(platformUsersQuerySchema, req.query, res);
+    if (!query) return;
+    const q = query.q ?? "";
+    const filterTenantId = query.tenantId;
+    const page = query.page;
+    const limit = query.limit;
     const offset = (page - 1) * limit;
 
     // Build WHERE conditions on the users table
@@ -847,7 +880,8 @@ router.get("/users", requireAuth, requireLevel(0), async (req: any, res: any) =>
     const result = users.map((u) => ({ ...u, tenants: membershipMap[u.id] ?? [] }));
     res.json({ users: result, page, limit });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -858,7 +892,8 @@ router.get("/users/:id", requireAuth, requireLevel(0), async (req: any, res: any
     if (!user) return res.status(404).json({ error: "User not found" });
     res.json(user);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -924,7 +959,8 @@ router.post("/users/:id/roles", requireAuth, requireLevel(0), async (req: any, r
     const updated = await getPlatformUserDetail(req.params.id);
     res.status(201).json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -979,7 +1015,8 @@ router.delete("/users/:id/roles/:roleAssignmentId", requireAuth, requireLevel(0)
 
     res.status(204).end();
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -990,7 +1027,8 @@ router.get("/roles", requireAuth, requireLevel(0), async (_req: any, res: any) =
     const roles = await db.select().from(rolesTable).orderBy(rolesTable.level, rolesTable.name);
     res.json(roles);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 

@@ -8,6 +8,7 @@
  * forced the system to invent a campaign for anyone who did not have one.
  */
 
+import { logger } from "../lib/logger";
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
 import { db, usersTable, userRolesTable, tenantsTable } from "@workspace/db";
@@ -212,7 +213,8 @@ router.put("/me/active-campaign", requireAuth, async (req: any, res: any) => {
 
     res.json({ activeTenant });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 

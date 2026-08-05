@@ -2,6 +2,7 @@
  * Rapid Response / Misinformation Tracking API
  * Claim intake, fact-checker assignment, legal review, correction publishing
  */
+import { logger } from "../lib/logger";
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
 import { db } from "@workspace/db";
@@ -52,7 +53,8 @@ router.get("/claims", requireAuth, canViewRR, async (req: any, res: any) => {
     ]);
     res.json({ data: rows, total: Number(total), page: pageNum, pageSize });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -65,7 +67,8 @@ router.post("/claims", requireAuth, canManageRR, async (req: any, res: any) => {
     const [claim] = await db.insert(misinformationClaimsTable).values({ ...req.body, tenantId: t.id, intakeBy: actorId, status: "intake" }).returning();
     res.status(201).json(claim);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -81,7 +84,8 @@ router.get("/claims/:id", requireAuth, canViewRR, async (req: any, res: any) => 
     ]);
     res.json({ ...claim, factChecks, corrections });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -93,7 +97,8 @@ router.patch("/claims/:id", requireAuth, canManageRR, async (req: any, res: any)
     if (!updated) return res.status(404).json({ error: "Not found" });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -108,7 +113,8 @@ router.post("/claims/:id/assign", requireAuth, canManageRR, async (req: any, res
     if (!updated) return res.status(404).json({ error: "Claim not found" });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -136,7 +142,8 @@ router.post("/claims/:id/fact-checks", requireAuth, canFactCheck, async (req: an
     }
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -155,7 +162,8 @@ router.patch("/claims/:id/fact-checks/:fcId", requireAuth, canFactCheck, async (
     if (!updated) return res.status(404).json({ error: "Fact check not found" });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -176,7 +184,8 @@ router.post("/claims/:id/legal-review", requireAuth, canLegalReview, async (req:
     if (!updated) return res.status(404).json({ error: "Claim not found" });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -191,7 +200,8 @@ router.post("/claims/:id/approve", requireAuth, canPublish, async (req: any, res
     if (!updated) return res.status(404).json({ error: "Claim not found" });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -215,7 +225,8 @@ router.post("/claims/:id/corrections", requireAuth, canPublish, async (req: any,
       .where(and(eq(misinformationClaimsTable.id, req.params.id), tenantFilter(misinformationClaimsTable, t.id)));
     res.status(201).json(correction);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -229,7 +240,8 @@ router.post("/claims/:id/archive", requireAuth, canManageRR, async (req: any, re
     if (!updated) return res.status(404).json({ error: "Claim not found" });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 

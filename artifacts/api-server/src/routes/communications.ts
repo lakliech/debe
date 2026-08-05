@@ -2,6 +2,7 @@
  * Communications Command Centre API
  * Templates, Audience Segments, Scheduled Messages, Spokespeople, Statements
  */
+import { logger } from "../lib/logger";
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
 import { db } from "@workspace/db";
@@ -13,8 +14,30 @@ import {
 import { eq, desc, and, ilike, count, gte, or } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
 import { tenantFilter, assertTenant } from '../lib/withTenant';
+import { z } from "zod";
+import { validate } from "../lib/validate";
 
 const router = Router();
+
+const templatesQuerySchema = z.object({
+  channel: z.string().trim().max(100).optional(),
+  category: z.string().trim().max(100).optional(),
+  status: z.string().trim().max(100).optional(),
+  search: z.string().trim().max(200).optional(),
+});
+const messagesQuerySchema = z.object({
+  status: z.string().trim().max(100).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+});
+const deliveriesQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+const statementsQuerySchema = z.object({
+  status: z.string().trim().max(100).optional(),
+  category: z.string().trim().max(100).optional(),
+});
 
 function requireAuth(req: any, res: any, next: any) {
   const auth = getAuth(req);
@@ -39,7 +62,9 @@ const canEmergencySuspend = requireRoles(["campaign-exec-director","national-cam
 router.get("/templates", requireAuth, canViewComms, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
-    const { channel, category, status, search } = req.query;
+    const q = validate(templatesQuerySchema, req.query, res);
+    if (!q) return;
+    const { channel, category, status, search } = q;
     const conds: any[] = [tenantFilter(messageTemplatesTable, t.id)];
     if (channel) conds.push(eq(messageTemplatesTable.channel, channel));
     if (category) conds.push(eq(messageTemplatesTable.category, category));
@@ -49,7 +74,8 @@ router.get("/templates", requireAuth, canViewComms, async (req: any, res: any) =
     const rows = await db.select().from(messageTemplatesTable).where(where).orderBy(desc(messageTemplatesTable.createdAt));
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -61,7 +87,8 @@ router.post("/templates", requireAuth, canManageComms, async (req: any, res: any
     const [row] = await db.insert(messageTemplatesTable).values({ ...req.body, tenantId: t.id, createdBy: actorId, status: "draft" }).returning();
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -72,7 +99,8 @@ router.get("/templates/:id", requireAuth, canViewComms, async (req: any, res: an
     if (!row) return res.status(404).json({ error: "Template not found" });
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -86,7 +114,8 @@ router.patch("/templates/:id", requireAuth, canManageComms, async (req: any, res
     const [updated] = await db.update(messageTemplatesTable).set(req.body).where(and(eq(messageTemplatesTable.id, id), tenantFilter(messageTemplatesTable, t.id))).returning();
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -101,7 +130,8 @@ router.post("/templates/:id/submit", requireAuth, canManageComms, async (req: an
     if (!updated) return res.status(400).json({ error: "Only draft templates can be submitted" });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -117,7 +147,8 @@ router.post("/templates/:id/approve", requireAuth, canApproveComms, async (req: 
     if (!updated) return res.status(400).json({ error: "Template not in pending_approval status" });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -133,7 +164,8 @@ router.post("/templates/:id/suspend", requireAuth, canEmergencySuspend, async (r
     if (!updated) return res.status(404).json({ error: "Template not found" });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -145,7 +177,8 @@ router.get("/segments", requireAuth, canViewComms, async (req: any, res: any) =>
     const rows = await db.select().from(audienceSegmentsTable).where(tenantFilter(audienceSegmentsTable, t.id)).orderBy(desc(audienceSegmentsTable.createdAt));
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -175,7 +208,8 @@ router.post("/segments", requireAuth, canManageComms, async (req: any, res: any)
     }).returning();
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -186,7 +220,8 @@ router.get("/segments/:id", requireAuth, canViewComms, async (req: any, res: any
     if (!row) return res.status(404).json({ error: "Segment not found" });
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -195,8 +230,10 @@ router.get("/segments/:id", requireAuth, canViewComms, async (req: any, res: any
 router.get("/messages", requireAuth, canViewComms, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
-    const { status, page = "1", limit = "20" } = req.query;
-    const pageNum = parseInt(page) || 1; const pageSize = Math.min(parseInt(limit) || 20, 50);
+    const q = validate(messagesQuerySchema, req.query, res);
+    if (!q) return;
+    const { status } = q;
+    const pageNum = q.page; const pageSize = q.limit;
     const msgConds: any[] = [tenantFilter(scheduledMessagesTable, t.id)];
     if (status) msgConds.push(eq(scheduledMessagesTable.status, status));
     const where = and(...msgConds);
@@ -206,7 +243,8 @@ router.get("/messages", requireAuth, canViewComms, async (req: any, res: any) =>
     ]);
     res.json({ data: rows, total: Number(total), page: pageNum, pageSize });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -222,7 +260,8 @@ router.post("/messages", requireAuth, canManageComms, async (req: any, res: any)
     const [row] = await db.insert(scheduledMessagesTable).values({ ...req.body, tenantId: t.id, createdBy: actorId, status: "pending" }).returning();
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -237,7 +276,8 @@ router.post("/messages/:id/approve", requireAuth, canApproveComms, async (req: a
     if (!updated) return res.status(400).json({ error: "Message not in pending status" });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -253,7 +293,8 @@ router.post("/messages/:id/emergency-suspend", requireAuth, canEmergencySuspend,
     if (!updated) return res.status(404).json({ error: "Message not found" });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -265,8 +306,9 @@ router.get("/messages/:id/deliveries", requireAuth, canViewComms, async (req: an
     const [parentMsg] = await db.select({ id: scheduledMessagesTable.id }).from(scheduledMessagesTable)
       .where(and(eq(scheduledMessagesTable.id, req.params.id), tenantFilter(scheduledMessagesTable, t.id))).limit(1);
     if (!parentMsg) return res.status(404).json({ error: "Message not found" });
-    const { page = "1", limit = "50" } = req.query;
-    const pageNum = parseInt(page) || 1; const pageSize = Math.min(parseInt(limit) || 50, 200);
+    const q = validate(deliveriesQuerySchema, req.query, res);
+    if (!q) return;
+    const pageNum = q.page; const pageSize = q.limit;
     const [rows, [{ total }]] = await Promise.all([
       db.select().from(messageDeliveriesTable).where(eq(messageDeliveriesTable.scheduledMessageId, req.params.id))
         .orderBy(desc(messageDeliveriesTable.createdAt)).limit(pageSize).offset((pageNum - 1) * pageSize),
@@ -274,7 +316,8 @@ router.get("/messages/:id/deliveries", requireAuth, canViewComms, async (req: an
     ]);
     res.json({ data: rows, total: Number(total), page: pageNum, pageSize });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -286,7 +329,8 @@ router.get("/spokespeople", requireAuth, canViewComms, async (req: any, res: any
     const rows = await db.select().from(spokespersonDirectoryTable).where(and(tenantFilter(spokespersonDirectoryTable, t.id), eq(spokespersonDirectoryTable.isActive, true))).orderBy(spokespersonDirectoryTable.priority);
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -296,7 +340,8 @@ router.post("/spokespeople", requireAuth, canManageComms, async (req: any, res: 
     const [row] = await db.insert(spokespersonDirectoryTable).values({ ...req.body, tenantId: t.id }).returning();
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -307,7 +352,8 @@ router.patch("/spokespeople/:id", requireAuth, canManageComms, async (req: any, 
     if (!row) return res.status(404).json({ error: "Not found" });
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -316,7 +362,9 @@ router.patch("/spokespeople/:id", requireAuth, canManageComms, async (req: any, 
 router.get("/statements", requireAuth, canViewComms, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
-    const { status, category } = req.query;
+    const q = validate(statementsQuerySchema, req.query, res);
+    if (!q) return;
+    const { status, category } = q;
     const conds: any[] = [tenantFilter(statementsTable, t.id)];
     if (status) conds.push(eq(statementsTable.status, status));
     if (category) conds.push(eq(statementsTable.category, category));
@@ -324,7 +372,8 @@ router.get("/statements", requireAuth, canViewComms, async (req: any, res: any) 
     const rows = await db.select().from(statementsTable).where(where).orderBy(desc(statementsTable.createdAt));
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -339,7 +388,8 @@ router.post("/statements", requireAuth, canManageComms, async (req: any, res: an
     await db.insert(statementVersionsTable).values({ statementId: statement.id, version: 1, bodyEn, bodySw, bodyLocal, localLanguageName, authorId: actorId });
     res.status(201).json(statement);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -351,7 +401,8 @@ router.get("/statements/:id", requireAuth, canViewComms, async (req: any, res: a
     const versions = await db.select().from(statementVersionsTable).where(eq(statementVersionsTable.statementId, req.params.id)).orderBy(desc(statementVersionsTable.version));
     res.json({ ...statement, versions });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -371,7 +422,8 @@ router.post("/statements/:id/versions", requireAuth, canManageComms, async (req:
     const [row] = await db.insert(statementVersionsTable).values({ ...req.body, statementId: req.params.id, version: newVersion, authorId: actorId }).returning();
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -386,7 +438,8 @@ router.post("/statements/:id/publish", requireAuth, canApproveComms, async (req:
     if (!row) return res.status(404).json({ error: "Not found" });
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -400,7 +453,8 @@ router.post("/statements/:id/retract", requireAuth, canApproveComms, async (req:
     if (!row) return res.status(404).json({ error: "Not found" });
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 

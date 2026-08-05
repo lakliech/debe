@@ -1,3 +1,4 @@
+import { logger } from "../lib/logger";
 import { Router } from "express";
 import { z } from "zod";
 import { getAuth } from "@clerk/express";
@@ -18,8 +19,19 @@ import { eq, desc, and, ilike, or, count, sql } from "drizzle-orm";
 import { requireRoles, requireLevel } from "../middlewares/rbac";
 import { resolveTenant } from "../middlewares/resolveTenant";
 import { tenantFilter, assertTenant } from "../lib/withTenant";
+import { validate } from "../lib/validate";
 
 const router = Router();
+
+const volunteersListQuerySchema = z.object({
+  status: z.string().trim().max(100).optional(),
+  countyId: z.string().uuid().optional(),
+  constituencyId: z.string().uuid().optional(),
+  wardId: z.string().uuid().optional(),
+  search: z.string().trim().max(200).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
 
 function requireAuth(req: any, res: any, next: any) {
   const auth = getAuth(req);
@@ -83,13 +95,12 @@ const BadgeAwardSchema = z.object({
 router.get("/", requireAuth, resolveTenant, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
-    const {
-      status, countyId, constituencyId, wardId, search,
-      page = "1", limit = "20",
-    } = req.query;
+    const q = validate(volunteersListQuerySchema, req.query, res);
+    if (!q) return;
+    const { status, countyId, constituencyId, wardId, search } = q;
 
-    const pageNum = parseInt(page) || 1;
-    const limitNum = Math.min(parseInt(limit) || 20, 100);
+    const pageNum = q.page;
+    const limitNum = q.limit;
     const offset = (pageNum - 1) * limitNum;
 
     const conditions: any[] = [tenantFilter(volunteersTable, t.id)];
@@ -136,7 +147,8 @@ router.get("/", requireAuth, resolveTenant, async (req: any, res: any) => {
 
     res.json({ data: rows, total: totalRow?.total ?? 0, page: pageNum, limit: limitNum });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -152,7 +164,8 @@ router.get("/:id", requireAuth, resolveTenant, async (req: any, res: any) => {
     if (!volunteer) return res.status(404).json({ error: "Volunteer not found" });
     res.json(volunteer);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -170,7 +183,8 @@ router.patch("/:id", requireAuth, resolveTenant, canManageVolunteers, async (req
     if (!updated) return res.status(404).json({ error: "Volunteer not found" });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -186,7 +200,8 @@ router.post("/:id/approve", requireAuth, resolveTenant, canApproveVolunteers, as
     if (!updated) return res.status(404).json({ error: "Volunteer not found" });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -204,7 +219,8 @@ router.post("/:id/suspend", requireAuth, resolveTenant, canManageVolunteers, asy
     if (!updated) return res.status(404).json({ error: "Volunteer not found" });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -226,7 +242,8 @@ router.get("/:id/attendance", requireAuth, resolveTenant, async (req: any, res: 
       .orderBy(desc(volunteerAttendanceTable.checkInAt));
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -248,7 +265,8 @@ router.post("/:id/attendance", requireAuth, resolveTenant, canManageVolunteers, 
       .returning();
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -270,7 +288,8 @@ router.get("/:id/badges", requireAuth, resolveTenant, async (req: any, res: any)
       .orderBy(desc(badgeAwardsTable.awardedAt));
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -292,7 +311,8 @@ router.post("/:id/badges", requireAuth, resolveTenant, canManageVolunteers, asyn
       .returning();
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -314,7 +334,8 @@ router.get("/:id/training", requireAuth, resolveTenant, async (req: any, res: an
       .orderBy(desc(trainingEnrollmentsTable.createdAt));
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -336,7 +357,8 @@ router.get("/stats", requireAuth, resolveTenant, async (req: any, res: any) => {
     }
     res.json({ total, byStatus });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -352,7 +374,8 @@ router.post("/:id/verify", requireAuth, resolveTenant, canApproveVolunteers, asy
     if (!updated) return res.status(404).json({ error: "Volunteer not found" });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -368,7 +391,8 @@ router.post("/:id/reject", requireAuth, resolveTenant, canApproveVolunteers, asy
     if (!updated) return res.status(404).json({ error: "Volunteer not found" });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -384,7 +408,8 @@ router.post("/:id/reactivate", requireAuth, resolveTenant, canApproveVolunteers,
     if (!updated) return res.status(404).json({ error: "Volunteer not found" });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -409,7 +434,8 @@ router.get("/:id/tasks", requireAuth, resolveTenant, async (req: any, res: any) 
       .orderBy(desc(taskAssignmentsTable.createdAt));
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -441,7 +467,8 @@ router.patch("/:id/tasks/:assignmentId", requireAuth, resolveTenant, canManageVo
     if (!updated) return res.status(404).json({ error: "Assignment not found" });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
