@@ -27,7 +27,7 @@ import {
   candidatesTable,
 } from "@workspace/db";
 import { pollingStationsTable } from "@workspace/db";
-import { eq, and, desc, asc, count, sql } from "drizzle-orm";
+import { eq, and, desc, asc, count, sql, inArray } from "drizzle-orm";
 import { aspirantsTable, contactMessagesTable } from "@workspace/db";
 import { tenantFilter, assertTenant } from '../lib/withTenant';
 import { ObjectStorageService } from "../lib/objectStorage";
@@ -190,7 +190,10 @@ router.get("/events", async (req: any, res: any) => {
       .select()
       .from(eventsTable)
       .where(and(
-        eq(eventsTable.status, "published"),
+        // Events are public once announced: the management lifecycle is
+        // draft → pending_approval → approved, with registration open for
+        // approved/active. Draft, pending, completed, and cancelled stay hidden.
+        inArray(eventsTable.status, ["approved", "active"]),
         tenantFilter(eventsTable, tenantId),
         countyId ? eq(eventsTable.countyId, countyId) : undefined
       ))
