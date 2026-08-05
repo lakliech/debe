@@ -68,6 +68,40 @@ export async function getUserWithRoles(id: string, tenantId?: string | null) {
   return { ...user[0], roles };
 }
 
+/**
+ * Fetch a user with ONLY their platform-level roles (tenant_id IS NULL).
+ *
+ * Used by the identity endpoint when no campaign is in context: the caller
+ * cannot act inside any campaign right now, so the endpoint must not
+ * advertise campaign roles the guards would refuse. What they can legitimately
+ * exercise without a campaign context is exactly their platform standing.
+ */
+export async function getUserWithPlatformRoles(id: string) {
+  const user = await db
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.id, id))
+    .limit(1);
+  if (!user[0]) return null;
+
+  const roles = await db
+    .select({
+      roleId: rolesTable.id,
+      roleName: rolesTable.name,
+      roleSlug: rolesTable.slug,
+      roleLevel: rolesTable.level,
+      tenantId: userRolesTable.tenantId,
+      countyId: userRolesTable.countyId,
+      constituencyId: userRolesTable.constituencyId,
+      wardId: userRolesTable.wardId,
+    })
+    .from(userRolesTable)
+    .innerJoin(rolesTable, eq(userRolesTable.roleId, rolesTable.id))
+    .where(and(eq(userRolesTable.userId, id), isNull(userRolesTable.tenantId)));
+
+  return { ...user[0], roles };
+}
+
 /** JIT-provision a local user row for a Clerk ID the first time we see it. */
 export async function getOrCreateLocalUser(
   clerkId: string,

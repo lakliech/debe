@@ -1,20 +1,20 @@
 /**
- * Tenant isolation tests — multi-org JWT edge cases.
+ * Tenant isolation tests — membership-based resolution edge cases.
  *
  * Security property under test:
- *   An authenticated caller's tenant is ALWAYS resolved from the JWT's orgId.
- *   The X-Tenant-Slug header and ?tenant= query param are valid only for
- *   unauthenticated (public) routes. An authenticated caller who omits orgId
- *   (e.g. a multi-org consultant who has not activated an org), or who sends
- *   an X-Tenant-Slug for a different campaign alongside their JWT, must never
- *   get access to that other campaign's data.
+ *   An authenticated caller's tenant is ALWAYS resolved from their app-owned
+ *   membership (user_roles) plus the campaign they explicitly entered — never
+ *   from the X-Tenant-Slug header, the ?tenant= query param, a JWT org id, or
+ *   the legacy SEED_CLERK_ORG_ID env var. Those are valid only for
+ *   unauthenticated (public) routes. An authenticated caller with no matching
+ *   membership must never get access to another campaign's data.
  *
  * How the tests distinguish which resolution path was taken:
  *   resolveTenant  (authenticated) returns:
- *     403 "No active organisation …"               ← orgId absent from JWT
- *     403 "Organisation '…' is not registered …"   ← orgId present, no DB row
+ *     403 "You don't belong to a campaign yet …"   ← no memberships
  *     403 "This campaign account has been …"        ← tenant suspended
- *     next()                                        ← happy path (200 from handler)
+ *     200 neutral branding                          ← several memberships, none entered
+ *     200 tenant branding                           ← happy path
  *
  *   resolveTenantPublic (unauthenticated) returns:
  *     404 "Campaign '…' not found."                 ← slug not in DB
@@ -25,9 +25,8 @@
  *   was used — a security bug. These tests prove that never happens.
  *
  * Route under test: GET /api/config/branding (resolveTenantMixed)
- *   - Authenticated → delegates to resolveTenant (JWT-only)
+ *   - Authenticated → delegates to resolveTenant (membership-only)
  *   - Unauthenticated → delegates to resolveTenantPublic (header/param)
- *   - On successful tenant resolution with no branding row → 200 neutral JSON
  *
  * Run: pnpm --filter @workspace/api-server exec vitest run tests/tenant-isolation.test.ts
  */
@@ -37,17 +36,20 @@ import request from "supertest";
 
 // ─── Mutable state ─────────────────────────────────────────────────────────────
 let _mockUserId: string | null = null;
-/**
- * orgId to inject into the mock Clerk JWT.
- *   undefined  → property absent from JWT (simulates Clerk returning no orgId)
- *   null       → property present and explicitly null
- *   string     → active org
- */
-let _mockOrgId: string | null | undefined = undefined;
+/** Extra JWT claims to inject (e.g. orgId — to prove it is now ignored). */
+let _mockAuthExtras: Record<string, unknown> = {};
+/** Local users row for the caller. */
+let _mockUserRow: {
+  id: string;
+  isGlobalAdmin: boolean;
+  activeTenantId: string | null;
+} | null = null;
+/** Campaign ids the caller belongs to via user_roles. */
+let _mockMembershipTenantIds: string[] = [];
 /**
  * Tenant row returned for ALL tenantsTable queries.
  * The real WHERE clause is not honoured by the mock — callers must ensure
- * the row they set matches the orgId/slug being queried by the middleware.
+ * the row they set matches the tenant the middleware should resolve.
  */
 let _mockTenant: Record<string, unknown> | null = null;
 
@@ -56,11 +58,7 @@ vi.mock("@clerk/express", () => ({
   clerkMiddleware: () => (_req: any, _res: any, next: any) => next(),
   getAuth: (_req: any) => {
     if (!_mockUserId) return {};
-    const auth: Record<string, unknown> = { userId: _mockUserId };
-    // Inject orgId only when it has been explicitly set (including null).
-    // Leave it absent when _mockOrgId is undefined.
-    if (_mockOrgId !== undefined) auth.orgId = _mockOrgId;
-    return auth;
+    return { userId: _mockUserId, ..._mockAuthExtras };
   },
 }));
 
@@ -100,14 +98,16 @@ vi.mock("@workspace/db", () => {
           return Promise.resolve(_mockTenant ? [_mockTenant] : []);
         }
         if (_table === "users") {
-          return Promise.resolve(_mockUserId ? [{ id: "user-uuid-mock" }] : []);
+          return Promise.resolve(_mockUserRow ? [_mockUserRow] : []);
         }
         return Promise.resolve([]);
       },
       then(resolve: any, reject: any) {
         // Support awaiting the builder directly (no .limit())
         if (_table === "user_roles") {
-          return Promise.resolve([]).then(resolve, reject);
+          return Promise.resolve(
+            _mockMembershipTenantIds.map((tenantId) => ({ tenantId })),
+          ).then(resolve, reject);
         }
         return Promise.resolve([]).then(resolve, reject);
       },
@@ -117,6 +117,7 @@ vi.mock("@workspace/db", () => {
 
   const db = {
     select: (_fields?: unknown) => makeQueryBuilder(),
+    selectDistinct: (_fields?: unknown) => makeQueryBuilder(),
     insert: () => ({ values: () => ({ returning: () => Promise.resolve([]) }) }),
     update: () => ({ set: () => ({ where: () => ({ returning: () => Promise.resolve([]) }) }) }),
     delete: () => ({ where: () => Promise.resolve() }),
@@ -180,7 +181,6 @@ const { default: app } = await import("../src/app");
 // ─── Sample tenant fixtures ────────────────────────────────────────────────────
 const TENANT_A = {
   id: "tenant-a-uuid",
-  clerkOrgId: "org_campaign_a",
   slug: "campaign-a",
   name: "Campaign A",
   plan: "standard",
@@ -192,7 +192,6 @@ const TENANT_A = {
 
 const TENANT_B = {
   id: "tenant-b-uuid",
-  clerkOrgId: "org_campaign_b",
   slug: "campaign-b",
   name: "Campaign B",
   plan: "standard",
@@ -202,101 +201,99 @@ const TENANT_B = {
   updatedAt: new Date(),
 };
 
+const MEMBER = { id: "user-uuid-member", isGlobalAdmin: false, activeTenantId: null };
+
 beforeEach(() => {
   _mockUserId = null;
-  _mockOrgId  = undefined;
+  _mockAuthExtras = {};
+  _mockUserRow = null;
+  _mockMembershipTenantIds = [];
   _mockTenant = null;
-  // Ensure the dev seed fallback does not interfere with isolation tests
+  // The legacy seed-org bypass is removed; keep the var unset unless a test
+  // explicitly proves it no longer grants access.
   delete process.env.SEED_CLERK_ORG_ID;
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 1. AUTHENTICATED PATH — X-Tenant-Slug / ?tenant= must be ignored
+// 1. AUTHENTICATED PATH — membership only; headers, params and JWT orgs ignored
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe("Authenticated requests ignore X-Tenant-Slug (resolveTenantMixed → resolveTenant)", () => {
-  it("authenticated user with no orgId gets 403 'No active organisation' even when X-Tenant-Slug is present", async () => {
-    _mockUserId = "user-multi-org";
-    _mockOrgId  = null; // JWT has userId but no orgId
-    _mockTenant = TENANT_A; // slug would have resolved fine via public path
+describe("Authenticated requests resolve tenant from membership only", () => {
+  it("member of no campaign gets 403 'don't belong' even when X-Tenant-Slug is present", async () => {
+    _mockUserId = "user-no-campaign";
+    _mockUserRow = MEMBER;
+    _mockMembershipTenantIds = [];
+    _mockTenant = TENANT_A; // slug would have resolved fine via the public path
 
     const res = await request(app)
       .get("/api/config/branding")
       .set("X-Tenant-Slug", "campaign-a");
 
-    // 403 from the JWT path, not 404 from the public slug path.
+    // 403 from the membership path, not 404 from the public slug path.
     // Receiving 404 here would be a security bug (header spoofing).
     expect(res.status).toBe(403);
-    expect(res.body.error).toMatch(/No active organisation/i);
+    expect(res.body.error).toMatch(/don't belong to a campaign/i);
   });
 
-  it("authenticated user whose JWT orgId has no matching tenant gets 403, not 404", async () => {
-    // Simulates a multi-org consultant whose JWT names an org not registered
-    // on this platform, while also sending an X-Tenant-Slug for a campaign
-    // that IS registered.
-    _mockUserId = "user-multi-org";
-    _mockOrgId  = "org_not_on_this_platform"; // JWT org has no DB row
-    _mockTenant = null; // no tenant in mock DB
-
-    const res = await request(app)
-      .get("/api/config/branding")
-      .set("X-Tenant-Slug", "campaign-a"); // attacker tries to smuggle a different tenant
-
-    // JWT path taken → 403 "not registered".
-    // Receiving 404 ("not found") would mean the slug header was used — security bug.
-    expect(res.status).toBe(403);
-    expect(res.body.error).toMatch(/not registered as a tenant/i);
-  });
-
-  it("authenticated user's JWT orgId wins over X-Tenant-Slug for a different campaign", async () => {
-    // JWT says "org_campaign_b". Header says "campaign-a".
-    // Mock returns TENANT_B (matches JWT org). Correct behaviour: 200.
-    // If header were honoured: mock would still return TENANT_B (which has
-    // slug "campaign-b" not "campaign-a"), but the test proves the HTTP
-    // request succeeds via the JWT org path regardless of the header's value.
-    _mockUserId = "user-multi-org";
-    _mockOrgId  = "org_campaign_b";
-    _mockTenant = TENANT_B; // matches JWT org
-
-    const res = await request(app)
-      .get("/api/config/branding")
-      .set("X-Tenant-Slug", "campaign-a"); // different campaign slug — must be ignored
-
-    // resolveTenant resolved TENANT_B via JWT; handler returns neutral branding.
-    expect(res.status).toBe(200);
-  });
-
-  it("authenticated user with orgId absent from JWT (not just null) is also rejected", async () => {
-    // _mockOrgId = undefined means the property is not present on the auth object,
-    // which happens when Clerk does not include org_id in the JWT at all.
-    _mockUserId = "user-no-org-in-jwt";
-    _mockOrgId  = undefined; // orgId key absent from JWT — not the same as null
+  it("single membership resolves that campaign; X-Tenant-Slug is ignored", async () => {
+    _mockUserId = "user-member-a";
+    _mockUserRow = MEMBER;
+    _mockMembershipTenantIds = ["tenant-a-uuid"];
     _mockTenant = TENANT_A;
 
     const res = await request(app)
       .get("/api/config/branding")
-      .set("X-Tenant-Slug", "campaign-a");
+      .set("X-Tenant-Slug", "campaign-b"); // different campaign — must be ignored
 
-    expect(res.status).toBe(403);
-    expect(res.body.error).toMatch(/No active organisation/i);
+    expect(res.status).toBe(200);
   });
 
-  it("authenticated user with suspended tenant gets 403 'suspended' regardless of X-Tenant-Slug", async () => {
+  it("a JWT org id is ignored — membership is the only tenant source", async () => {
+    // Regression guard: tokens once carried the tenant via orgId. A token
+    // naming an org must now mean NOTHING — only user_roles decides.
+    _mockUserId = "user-member-a";
+    _mockAuthExtras = { orgId: "org_attacker_controlled" };
+    _mockUserRow = MEMBER;
+    _mockMembershipTenantIds = ["tenant-a-uuid"];
+    _mockTenant = TENANT_A;
+
+    const res = await request(app).get("/api/config/branding");
+
+    // Resolved via membership (200), not rejected for an unregistered org.
+    expect(res.status).toBe(200);
+  });
+
+  it("a JWT org id does not help a caller with no memberships", async () => {
+    _mockUserId = "user-no-campaign";
+    _mockAuthExtras = { orgId: "org_campaign_a" };
+    _mockUserRow = MEMBER;
+    _mockMembershipTenantIds = [];
+    _mockTenant = TENANT_A;
+
+    const res = await request(app).get("/api/config/branding");
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/don't belong to a campaign/i);
+  });
+
+  it("member of a suspended campaign gets 403 'suspended'", async () => {
     _mockUserId = "user-suspended-campaign";
-    _mockOrgId  = "org_suspended";
-    _mockTenant = { ...TENANT_A, clerkOrgId: "org_suspended", isSuspended: true };
+    _mockUserRow = MEMBER;
+    _mockMembershipTenantIds = ["tenant-a-uuid"];
+    _mockTenant = { ...TENANT_A, isSuspended: true };
 
     const res = await request(app)
       .get("/api/config/branding")
-      .set("X-Tenant-Slug", "some-other-campaign"); // irrelevant — JWT path used
+      .set("X-Tenant-Slug", "some-other-campaign"); // irrelevant — membership path used
 
     expect(res.status).toBe(403);
     expect(res.body.error).toMatch(/suspended/i);
   });
 
   it("?tenant= query param is ignored for authenticated requests", async () => {
-    _mockUserId = "user-multi-org";
-    _mockOrgId  = null; // no active org in JWT
+    _mockUserId = "user-no-campaign";
+    _mockUserRow = MEMBER;
+    _mockMembershipTenantIds = [];
     _mockTenant = TENANT_A;
 
     const res = await request(app)
@@ -304,7 +301,60 @@ describe("Authenticated requests ignore X-Tenant-Slug (resolveTenantMixed → re
       .query({ tenant: "campaign-a" }); // query param — must be ignored
 
     expect(res.status).toBe(403);
-    expect(res.body.error).toMatch(/No active organisation/i);
+    expect(res.body.error).toMatch(/don't belong to a campaign/i);
+  });
+
+  it("member of several campaigns who has entered none gets NEUTRAL branding — no arbitrary pick", async () => {
+    _mockUserId = "user-multi-campaign";
+    _mockUserRow = MEMBER; // activeTenantId null
+    _mockMembershipTenantIds = ["tenant-a-uuid", "tenant-b-uuid"];
+    _mockTenant = TENANT_A; // must NOT be picked automatically
+
+    const res = await request(app).get("/api/config/branding");
+
+    // No tenant context → neutral defaults, not tenant A's data.
+    expect(res.status).toBe(200);
+    expect(res.body.isTenant).toBe(false);
+    expect(res.body.candidateName).toBe("Your Candidate");
+  });
+
+  it("SEED_CLERK_ORG_ID no longer grants access (legacy bypass removed)", async () => {
+    // The dev-only fallback used to resolve a tenant for any authenticated
+    // caller with no org. Setting it must now make no difference whatsoever.
+    process.env.SEED_CLERK_ORG_ID = "org_campaign_a";
+    _mockUserId = "user-no-campaign";
+    _mockUserRow = MEMBER;
+    _mockMembershipTenantIds = [];
+    _mockTenant = TENANT_A;
+
+    const res = await request(app).get("/api/config/branding");
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/don't belong to a campaign/i);
+  });
+
+  it("platform operator with an entered campaign resolves it without any membership", async () => {
+    _mockUserId = "user-operator";
+    _mockUserRow = { id: "user-uuid-operator", isGlobalAdmin: true, activeTenantId: "tenant-a-uuid" };
+    _mockMembershipTenantIds = []; // operators hold no memberships, ever
+    _mockTenant = TENANT_A;
+
+    const res = await request(app).get("/api/config/branding");
+
+    expect(res.status).toBe(200);
+  });
+
+  it("platform operator with no entered campaign gets neutral branding, not a guessed tenant", async () => {
+    _mockUserId = "user-operator";
+    _mockUserRow = { id: "user-uuid-operator", isGlobalAdmin: true, activeTenantId: null };
+    _mockMembershipTenantIds = [];
+    _mockTenant = TENANT_A; // must NOT be attached for them
+
+    const res = await request(app).get("/api/config/branding");
+
+    expect(res.status).toBe(200);
+    expect(res.body.isTenant).toBe(false);
+    expect(res.body.candidateName).toBe("Your Candidate");
   });
 });
 
@@ -369,37 +419,5 @@ describe("Unauthenticated requests use X-Tenant-Slug (resolveTenantMixed → res
     // the handler returns the neutral defaults.
     expect(res.status).toBe(200);
     expect(res.body.candidateName).toBe("Your Candidate");
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// 3. SEED_CLERK_ORG_ID FALLBACK — dev-only safety valve
-// ═══════════════════════════════════════════════════════════════════════════════
-
-describe("SEED_CLERK_ORG_ID fallback behaviour", () => {
-  it("authenticated user with no orgId falls back to SEED_CLERK_ORG_ID when set", async () => {
-    _mockUserId = "user-no-org";
-    _mockOrgId  = null;
-    _mockTenant = TENANT_A;
-    process.env.SEED_CLERK_ORG_ID = "org_campaign_a"; // dev seed org matches mock
-
-    const res = await request(app).get("/api/config/branding");
-
-    // Falls back to seed org → tenant resolved → 200
-    expect(res.status).toBe(200);
-  });
-
-  it("JWT orgId takes priority over SEED_CLERK_ORG_ID", async () => {
-    // JWT has an explicit orgId; SEED_CLERK_ORG_ID set to something else.
-    // JWT must win.
-    _mockUserId = "user-with-org";
-    _mockOrgId  = "org_campaign_b";   // JWT says B
-    _mockTenant = TENANT_B;           // mock returns B
-    process.env.SEED_CLERK_ORG_ID = "org_campaign_a"; // seed says A — must be ignored
-
-    const res = await request(app).get("/api/config/branding");
-
-    // JWT org (B) resolved via mock → 200, not blocked by seed mismatch
-    expect(res.status).toBe(200);
   });
 });

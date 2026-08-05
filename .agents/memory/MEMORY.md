@@ -8,3 +8,4 @@
 - [RBAC level scale](rbac-level-scale.md) — lower = more privileged; the client must read levels off the API, never keep its own slug→level table.
 - [Identity is not tenant context](identity-vs-tenant-context.md) — never infer a campaign for an operator; "lost privileges" is usually a context bug, not RBAC.
 - [Dev/prod parity & privilege bootstrap](env-parity-and-privilege-bootstrap.md) — "still broken" after a verified fix usually means the user is on prod; and never allowlist on a locally-stored email.
+- [Drizzle schema sync](drizzle-schema-sync.md) — push from schema files is the path (journal drift makes migrate/generate unsafe); non-TTY push prompts fail, so apply narrow ALTERs via SQL directly.

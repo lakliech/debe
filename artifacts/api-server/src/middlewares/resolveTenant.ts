@@ -4,53 +4,137 @@
  * Identity (who you are) and context (which campaign you are working in) are
  * two different things. This middleware only establishes *context*.
  *
- * Resolution order:
- *   1. req.auth.orgId from the Clerk JWT — the authoritative source for
- *      campaign staff, who are members of exactly one campaign org.
- *   2. SEED_CLERK_ORG_ID env-var (lets the legacy single-org setup keep working)
- *   3. For platform operators (global admins) only: users.active_tenant_id —
- *      the campaign they have explicitly entered from the platform surface.
+ * Campaign context is owned by THIS APP, not by the identity provider. Clerk
+ * proves who the caller is; the user_roles table says which campaigns they
+ * belong to. (Clerk Organisations previously played that role, but the feature
+ * is not enabled on this instance, so no token will ever carry an org id.)
  *
- * Platform operators deliberately have NO default campaign. If they have not
- * entered one, the request continues with req.tenant undefined and
- * req.isPlatformOperator true; campaign-scoped routes then reject it via
- * requireTenantContext rather than the middleware inventing a tenant. Picking
- * a tenant for them (e.g. "the oldest one") makes their effective privileges
- * depend on unrelated DB state, which silently changes what they can do.
+ * There are exactly two routes into a campaign:
+ *
+ *   1. MEMBERSHIP — campaign users. Context comes from their user_roles rows:
+ *      - exactly one membership → that campaign, automatically
+ *      - several memberships   → the one they explicitly entered
+ *        (users.active_tenant_id); if they have not entered one, the request
+ *        proceeds WITHOUT a tenant and requireTenantContext answers 409
+ *      - no memberships        → 403; there is no campaign to resolve
+ *
+ *   2. PLATFORM STANDING — global admins. They belong to no campaign and
+ *      their access never consults membership. They get whichever campaign
+ *      they explicitly entered, or no context at all. Picking a campaign for
+ *      them would make their privileges depend on unrelated DB state.
  *
  * Returns:
  *   401 — no Clerk session at all (requireAuth should have caught this first)
- *   403 — org not in JWT and the caller is not a platform operator
- *   403 — org ID found but no tenant row exists for it (unregistered org)
- *   403 — tenant exists but is suspended
+ *   403 — the caller belongs to no campaign
+ *   403 — the resolved campaign is suspended
  */
 
 import { getAuth } from "@clerk/express";
-import { db, tenantsTable, usersTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, tenantsTable, usersTable, userRolesTable } from "@workspace/db";
+import { eq, and, isNotNull } from "drizzle-orm";
 import type { Request, Response, NextFunction } from "express";
 import type { Tenant } from "@workspace/db";
 
+/** HTTP methods that mutate state — blocked on the read-only demo tenant. */
+const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+export interface TenantedRequest extends Request {
+  tenant: Tenant;
+}
+
 /**
- * Look up the platform-operator facts for a Clerk user in one query:
- * whether they are a global admin, and which campaign (if any) they have
- * explicitly entered.
+ * Set on requests from a global admin operating outside any campaign.
+ * `tenant` is present only when they have explicitly entered a campaign.
  */
-async function loadOperator(
-  clerkUserId: string,
-): Promise<{ isGlobalAdmin: boolean; activeTenantId: string | null }> {
+export interface PlatformOperatorRequest extends Request {
+  isPlatformOperator?: boolean;
+  tenant?: Tenant;
+}
+
+interface CallerContext {
+  /** Local users.id — null when the Clerk account has no local row yet. */
+  userId: string | null;
+  isGlobalAdmin: boolean;
+  activeTenantId: string | null;
+  /** Distinct campaign ids the caller belongs to via user_roles. */
+  membershipTenantIds: string[];
+}
+
+/**
+ * Load everything the middleware needs to know about the caller in two
+ * queries: their user row (standing + entered campaign) and, for
+ * non-operators, their campaign memberships.
+ *
+ * Membership is deliberately NOT loaded for global admins: platform authority
+ * must never depend on, or be polluted by, belonging somewhere.
+ */
+async function loadCallerContext(clerkUserId: string): Promise<CallerContext> {
   const [row] = await db
     .select({
+      id: usersTable.id,
       isGlobalAdmin: usersTable.isGlobalAdmin,
       activeTenantId: usersTable.activeTenantId,
     })
     .from(usersTable)
     .where(eq(usersTable.clerkId, clerkUserId))
     .limit(1);
+
+  if (!row) {
+    return { userId: null, isGlobalAdmin: false, activeTenantId: null, membershipTenantIds: [] };
+  }
+
+  if (row.isGlobalAdmin) {
+    return {
+      userId: row.id,
+      isGlobalAdmin: true,
+      activeTenantId: row.activeTenantId ?? null,
+      membershipTenantIds: [],
+    };
+  }
+
+  const membershipRows = await db
+    .select({ tenantId: userRolesTable.tenantId })
+    .from(userRolesTable)
+    .where(
+      and(eq(userRolesTable.userId, row.id), isNotNull(userRolesTable.tenantId)),
+    );
+
+  const membershipTenantIds = [
+    ...new Set(
+      membershipRows
+        .map((r) => r.tenantId)
+        .filter((id): id is string => typeof id === "string"),
+    ),
+  ];
+
   return {
-    isGlobalAdmin: !!row?.isGlobalAdmin,
-    activeTenantId: row?.activeTenantId ?? null,
+    userId: row.id,
+    isGlobalAdmin: false,
+    activeTenantId: row.activeTenantId ?? null,
+    membershipTenantIds,
   };
+}
+
+/**
+ * The campaign id a member is currently working in, or null when they must
+ * choose one first. An entered campaign that is no longer among the caller's
+ * memberships (role revoked, campaign purged) is ignored rather than trusted.
+ */
+function memberTenantId(ctx: CallerContext): string | null {
+  if (ctx.activeTenantId && ctx.membershipTenantIds.includes(ctx.activeTenantId)) {
+    return ctx.activeTenantId;
+  }
+  if (ctx.membershipTenantIds.length === 1) return ctx.membershipTenantIds[0];
+  return null;
+}
+
+async function loadTenantById(tenantId: string): Promise<Tenant | undefined> {
+  const [tenant] = await db
+    .select()
+    .from(tenantsTable)
+    .where(eq(tenantsTable.id, tenantId))
+    .limit(1);
+  return tenant;
 }
 
 /**
@@ -65,31 +149,40 @@ async function attachEnteredCampaign(
   (req as PlatformOperatorRequest).isPlatformOperator = true;
   if (!activeTenantId) return;
 
-  const [tenant] = await db
-    .select()
-    .from(tenantsTable)
-    .where(eq(tenantsTable.id, activeTenantId))
-    .limit(1);
-
+  const tenant = await loadTenantById(activeTenantId);
   if (tenant && !tenant.isSuspended) {
     (req as TenantedRequest).tenant = tenant;
   }
 }
 
-/** HTTP methods that mutate state — blocked on the read-only demo tenant. */
-const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+/** Attach the member's campaign, enforcing suspension and the demo guard. */
+async function attachMemberCampaign(
+  req: Request,
+  res: Response,
+  tenantId: string,
+): Promise<boolean> {
+  const tenant = await loadTenantById(tenantId);
+  if (!tenant) return false; // stale membership — treat as "no context"
 
-export interface TenantedRequest extends Request {
-  tenant: Tenant;
-}
+  if (tenant.isSuspended) {
+    res.status(403).json({ error: "This campaign account has been suspended." });
+    return true;
+  }
 
-/**
- * Set on requests from a global admin operating outside any campaign org.
- * `tenant` is present only when they have explicitly entered a campaign.
- */
-export interface PlatformOperatorRequest extends Request {
-  isPlatformOperator?: boolean;
-  tenant?: Tenant;
+  (req as TenantedRequest).tenant = tenant;
+
+  // Demo guard — block all mutating requests on the shared read-only demo
+  // tenant. Enforced here so it applies universally: via withTenant(), via
+  // withTenantMixed() for authenticated paths, and in routers (e.g. /config)
+  // that call resolveTenant inline per-route rather than through the helpers.
+  if (tenant.slug === "demo" && MUTATING_METHODS.has(req.method)) {
+    res.status(403).json({
+      error: "Read-only demo — sign up for a real campaign to make changes.",
+    });
+    return true;
+  }
+
+  return false;
 }
 
 export async function resolveTenant(
@@ -103,62 +196,32 @@ export async function resolveTenant(
     return;
   }
 
-  // Prefer the active org from the JWT; fall back to the seed env-var.
-  const clerkOrgId: string | null =
-    (auth as any).orgId ?? process.env.SEED_CLERK_ORG_ID ?? null;
+  const ctx = await loadCallerContext(auth.userId);
 
-  if (!clerkOrgId) {
-    // Platform operators have no campaign org by design. They get whichever
-    // campaign they explicitly entered — or no context at all.
-    const operator = await loadOperator(auth.userId);
-    if (operator.isGlobalAdmin) {
-      await attachEnteredCampaign(req, operator.activeTenantId);
-      return next();
-    }
+  // Platform operators have no campaign by design. They get whichever
+  // campaign they explicitly entered — or no context at all.
+  if (ctx.isGlobalAdmin) {
+    await attachEnteredCampaign(req, ctx.activeTenantId);
+    return next();
+  }
+
+  if (ctx.membershipTenantIds.length === 0) {
     res.status(403).json({
-      error: "No active organisation in session. Please activate a campaign organisation.",
+      error:
+        "You don't belong to a campaign yet. Register your campaign or ask your campaign administrator for access.",
     });
     return;
   }
 
-  const [tenant] = await db
-    .select()
-    .from(tenantsTable)
-    .where(eq(tenantsTable.clerkOrgId, clerkOrgId))
-    .limit(1);
-
-  if (!tenant) {
-    // A platform operator whose Clerk org isn't registered as a campaign is
-    // still an operator — they fall back to the campaign they entered, if any.
-    const operator = await loadOperator(auth.userId);
-    if (operator.isGlobalAdmin) {
-      await attachEnteredCampaign(req, operator.activeTenantId);
-      return next();
-    }
-    res.status(403).json({
-      error: `Organisation '${clerkOrgId}' is not registered as a tenant.`,
-    });
-    return;
+  const tenantId = memberTenantId(ctx);
+  if (!tenantId) {
+    // Member of several campaigns who has not entered one — an explicit
+    // "choose a campaign" state, answered by requireTenantContext downstream.
+    return next();
   }
 
-  if (tenant.isSuspended) {
-    res.status(403).json({ error: "This campaign account has been suspended." });
-    return;
-  }
-
-  (req as TenantedRequest).tenant = tenant;
-
-  // Demo guard — block all mutating requests on the shared read-only demo tenant.
-  // Enforced here (inside resolveTenant) so it applies universally: via withTenant(),
-  // via withTenantMixed() for authenticated paths, and in routers (e.g. /config) that
-  // call resolveTenant inline per-route rather than through the helper wrappers.
-  if (tenant.slug === "demo" && MUTATING_METHODS.has(req.method)) {
-    res.status(403).json({
-      error: "Read-only demo — sign up for a real campaign to make changes.",
-    });
-    return;
-  }
-
+  const handled = await attachMemberCampaign(req, res, tenantId);
+  if (handled) return;
   next();
 }
 
@@ -167,9 +230,9 @@ export async function resolveTenant(
  * campaign routes (what is in this campaign?).
  *
  * Identity is not tenant-scoped: a signed-in user must be able to learn who
- * they are even when they belong to no campaign, their org is unregistered, or
- * they are a platform operator who has not entered a campaign yet. Attaching
- * campaign context is best-effort; nothing here ever rejects the request.
+ * they are even when they belong to no campaign or have not entered one.
+ * Attaching campaign context is best-effort; nothing here ever rejects the
+ * request beyond the 401 for a missing session.
  */
 export async function resolveTenantOptional(
   req: Request,
@@ -182,25 +245,19 @@ export async function resolveTenantOptional(
     return;
   }
 
-  const clerkOrgId: string | null =
-    (auth as any).orgId ?? process.env.SEED_CLERK_ORG_ID ?? null;
+  const ctx = await loadCallerContext(auth.userId);
 
-  if (clerkOrgId) {
-    const [tenant] = await db
-      .select()
-      .from(tenantsTable)
-      .where(eq(tenantsTable.clerkOrgId, clerkOrgId))
-      .limit(1);
-    if (tenant && !tenant.isSuspended) {
-      (req as TenantedRequest).tenant = tenant;
-      next();
-      return;
-    }
+  if (ctx.isGlobalAdmin) {
+    await attachEnteredCampaign(req, ctx.activeTenantId);
+    return next();
   }
 
-  const operator = await loadOperator(auth.userId);
-  if (operator.isGlobalAdmin) {
-    await attachEnteredCampaign(req, operator.activeTenantId);
+  const tenantId = memberTenantId(ctx);
+  if (tenantId) {
+    const tenant = await loadTenantById(tenantId);
+    if (tenant && !tenant.isSuspended) {
+      (req as TenantedRequest).tenant = tenant;
+    }
   }
   next();
 }
@@ -210,13 +267,13 @@ export async function resolveTenantOptional(
  * unauthenticated (public) endpoints.
  *
  * - If the request carries an active Clerk session → delegate to resolveTenant
- *   (derives tenant from orgId in the JWT, the authoritative source).
+ *   (derives tenant from the caller's own memberships — never from headers).
  * - If the request is unauthenticated → delegate to resolveTenantPublic
  *   (derives tenant from X-Tenant-Slug / ?tenant query param).
  *
- * This ensures authenticated callers always use their JWT org as the tenant
- * source (no request-header spoofing), while public callers can still identify
- * the campaign they are submitting to.
+ * This ensures authenticated callers always use their app-owned membership as
+ * the tenant source (no request-header spoofing), while public callers can
+ * still identify the campaign they are submitting to.
  */
 export async function resolveTenantMixed(
   req: Request,

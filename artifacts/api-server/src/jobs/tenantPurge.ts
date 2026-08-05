@@ -8,9 +8,9 @@
  * cancelled — this job is the point of no return.
  *
  * Order matters: external systems are detached BEFORE the database row goes,
- * because once the row is gone we no longer know the Stripe customer or Clerk
- * org to clean up. A failure detaching externals aborts that tenant's purge and
- * leaves it for the next run rather than orphaning billing or auth records.
+ * because once the row is gone we no longer know the Stripe customer to clean
+ * up. A failure detaching externals aborts that tenant's purge and leaves it
+ * for the next run rather than orphaning a billing record.
  *
  * Campaign data itself is removed by ON DELETE CASCADE from tenants.id.
  */
@@ -20,14 +20,12 @@ import { db, tenantsTable } from "@workspace/db";
 import { and, eq, isNotNull, lte, sql } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import { stripeConfigured, cancelSubscription } from "../lib/stripe";
-import { clerkDelete, clerkOrgsDisabled } from "../lib/clerkAdmin";
 
 /** 03:00 UTC daily → 06:00 EAT, off-peak. */
 const CRON_SCHEDULE = "0 3 * * *";
 
 async function detachExternals(tenant: {
   id: string;
-  clerkOrgId: string | null;
   stripeSubscriptionId: string | null;
 }): Promise<void> {
   if (tenant.stripeSubscriptionId) {
@@ -43,11 +41,6 @@ async function detachExternals(tenant: {
     }
     await cancelSubscription(tenant.stripeSubscriptionId);
     logger.info({ tenantId: tenant.id }, "[tenantPurge] stripe subscription cancelled");
-  }
-
-  if (tenant.clerkOrgId && !clerkOrgsDisabled() && !tenant.clerkOrgId.startsWith("org_stub_")) {
-    await clerkDelete(`/organizations/${tenant.clerkOrgId}`);
-    logger.info({ tenantId: tenant.id }, "[tenantPurge] clerk organisation deleted");
   }
 }
 
@@ -70,7 +63,6 @@ export async function purgeTenant(
       id: tenantsTable.id,
       name: tenantsTable.name,
       slug: tenantsTable.slug,
-      clerkOrgId: tenantsTable.clerkOrgId,
       stripeSubscriptionId: tenantsTable.stripeSubscriptionId,
       lifecycleState: tenantsTable.lifecycleState,
       scheduledDeletionAt: tenantsTable.scheduledDeletionAt,

@@ -11,7 +11,8 @@
  *    to the correct HTTP status.
  *  - DNS resolution is mocked so tests don't need real CNAME records.
  *  - TLS provisioning is mocked as a no-op.
- *  - Clerk auth is mocked to return controllable userId + orgId.
+ *  - Clerk auth is mocked to return a controllable userId; campaign context is
+ *    switched by setting users.active_tenant_id, as the switcher endpoint does.
  *  - The test user is granted super-admin (which bypasses requireRoles checks).
  *
  * Run: pnpm --filter @workspace/api-server exec vitest run tests/custom-domain-uniqueness.test.ts
@@ -20,7 +21,7 @@
 import { vi, describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 
 // ─── Mutable auth — set per test ──────────────────────────────────────────────
-const mockAuth = { userId: "user_test_domain", orgId: null as string | null };
+const mockAuth = { userId: "user_test_domain" };
 
 // ─── Mutable DNS result — default to verified (resolveCname returns PORTAL_DOMAIN) ─
 let _dnsResult: string[] = ["ushindi.app"];
@@ -69,8 +70,6 @@ import { eq } from "drizzle-orm";
 const { default: app } = await import("../src/app");
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
-let orgAId: string;
-let orgBId: string;
 let tenantAId: string;
 let tenantBId: string;
 let testUserId: string;
@@ -84,9 +83,6 @@ const ALT_DOMAIN_B  = `results-b-${ts}.example.ke`;
 beforeAll(async () => {
   process.env.PORTAL_DOMAIN = "ushindi.app";
 
-  orgAId = `org_domain_A_${ts}`;
-  orgBId = `org_domain_B_${ts}`;
-
   // Custom domains are a paid feature, and a stored plan alone does not grant
   // entitlement — the effective plan needs an active subscription or an
   // unexpired override. Give both fixtures a manual grant so these tests
@@ -95,13 +91,13 @@ beforeAll(async () => {
 
   const [tA] = await db
     .insert(tenantsTable)
-    .values({ clerkOrgId: orgAId, name: "Domain Test Tenant A", slug: `domain-a-${ts}`, plan: "pro", planOverrideUntil: paidUntil })
+    .values({ name: "Domain Test Tenant A", slug: `domain-a-${ts}`, plan: "pro", planOverrideUntil: paidUntil })
     .returning();
   tenantAId = tA.id;
 
   const [tB] = await db
     .insert(tenantsTable)
-    .values({ clerkOrgId: orgBId, name: "Domain Test Tenant B", slug: `domain-b-${ts}`, plan: "pro", planOverrideUntil: paidUntil })
+    .values({ name: "Domain Test Tenant B", slug: `domain-b-${ts}`, plan: "pro", planOverrideUntil: paidUntil })
     .returning();
   tenantBId = tB.id;
 
@@ -120,6 +116,12 @@ beforeAll(async () => {
     })
     .returning();
   testUserId = testUser.id;
+
+  // Start with no campaign entered — each test enters one explicitly.
+  await db
+    .update(usersTable)
+    .set({ activeTenantId: null })
+    .where(eq(usersTable.id, testUserId));
 
   // Grant super-admin in both tenants — super-admin bypasses all requireRoles checks
   const [superAdmin] = await db
@@ -141,8 +143,13 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  mockAuth.orgId = null;
-  if (testUserId) await db.delete(userRolesTable).where(eq(userRolesTable.userId, testUserId));
+  if (testUserId) {
+    await db
+      .update(usersTable)
+      .set({ activeTenantId: null })
+      .where(eq(usersTable.id, testUserId));
+    await db.delete(userRolesTable).where(eq(userRolesTable.userId, testUserId));
+  }
   if (tenantAId)  await db.delete(tenantsTable).where(eq(tenantsTable.id, tenantAId));
   if (tenantBId)  await db.delete(tenantsTable).where(eq(tenantsTable.id, tenantBId));
   // Leave the test user row (reused via onConflictDoUpdate in future runs)
@@ -154,8 +161,14 @@ beforeEach(() => {
 });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-function asOrgA() { mockAuth.orgId = orgAId; }
-function asOrgB() { mockAuth.orgId = orgBId; }
+async function enterTenant(tenantId: string | null) {
+  await db
+    .update(usersTable)
+    .set({ activeTenantId: tenantId })
+    .where(eq(usersTable.clerkId, mockAuth.userId));
+}
+const asTenantA = () => enterTenant(tenantAId);
+const asTenantB = () => enterTenant(tenantBId);
 
 async function patchDomain(domain: string | null) {
   return request(app)
@@ -168,28 +181,28 @@ async function patchDomain(domain: string | null) {
 
 describe("Custom domain uniqueness — PATCH /api/config/domain", () => {
   it("Campaign A can register a custom domain that is not yet taken", async () => {
-    asOrgA();
+    await asTenantA();
     const res = await patchDomain(ALT_DOMAIN_A);
     expect(res.status).toBe(200);
     expect(res.body.customDomain).toBe(ALT_DOMAIN_A);
   });
 
   it("Campaign B can register a different custom domain simultaneously", async () => {
-    asOrgB();
+    await asTenantB();
     const res = await patchDomain(ALT_DOMAIN_B);
     expect(res.status).toBe(200);
     expect(res.body.customDomain).toBe(ALT_DOMAIN_B);
   });
 
   it("Campaign A can clear its own domain without error", async () => {
-    asOrgA();
+    await asTenantA();
     const res = await patchDomain(null);
     expect(res.status).toBe(200);
     expect(res.body.customDomain).toBeNull();
   });
 
   it("Campaign A registers the shared domain after clearing", async () => {
-    asOrgA();
+    await asTenantA();
     const res = await patchDomain(SHARED_DOMAIN);
     expect(res.status).toBe(200);
     expect(res.body.customDomain).toBe(SHARED_DOMAIN);
@@ -198,7 +211,7 @@ describe("Custom domain uniqueness — PATCH /api/config/domain", () => {
   it("Campaign B gets 409 when attempting to claim a domain already owned by Campaign A", async () => {
     // Campaign A already holds SHARED_DOMAIN from the previous test.
     // The DB unique constraint on tenantsTable.customDomain must block this.
-    asOrgB();
+    await asTenantB();
     const res = await patchDomain(SHARED_DOMAIN);
     expect(res.status).toBe(409);
     expect(res.body.error).toMatch(/already registered to another campaign/i);
@@ -206,18 +219,18 @@ describe("Custom domain uniqueness — PATCH /api/config/domain", () => {
 
   it("Campaign A can re-register its own domain (idempotent update — no conflict)", async () => {
     // Updating a row to its current value must not trigger a unique-constraint error.
-    asOrgA();
+    await asTenantA();
     const res = await patchDomain(SHARED_DOMAIN);
     expect(res.status).toBe(200);
     expect(res.body.customDomain).toBe(SHARED_DOMAIN);
   });
 
   it("Campaign A releases the shared domain, then Campaign B can claim it", async () => {
-    asOrgA();
+    await asTenantA();
     const clear = await patchDomain(null);
     expect(clear.status).toBe(200);
 
-    asOrgB();
+    await asTenantB();
     const claim = await patchDomain(SHARED_DOMAIN);
     expect(claim.status).toBe(200);
     expect(claim.body.customDomain).toBe(SHARED_DOMAIN);
@@ -226,21 +239,25 @@ describe("Custom domain uniqueness — PATCH /api/config/domain", () => {
   it("Returns 422 when the CNAME record is not yet pointing at the platform", async () => {
     // Simulate DNS not yet configured: resolveCname returns a different target
     _dnsResult = ["some-other-host.example.com"];
-    asOrgA();
+    await asTenantA();
     const res = await patchDomain(`unverified-${ts}.example.ke`);
     expect(res.status).toBe(422);
     expect(res.body.dnsVerified).toBe(false);
   });
 
   it("Returns 400 for a malformed domain string", async () => {
-    asOrgA();
+    await asTenantA();
     const res = await patchDomain("not a domain!");
     expect(res.status).toBe(400);
   });
 
-  it("Returns 403 when the JWT carries no orgId (resolveTenant blocks access)", async () => {
-    mockAuth.orgId = null;
+  it("Returns 409 when the member has not entered a campaign (no context to mutate)", async () => {
+    // The caller belongs to two campaigns but has entered neither, so there is
+    // no tenant for the PATCH to act on. resolveTenant proceeds without one
+    // and assertTenant surfaces the explicit "pick a campaign" state.
+    await enterTenant(null);
     const res = await patchDomain(SHARED_DOMAIN);
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("NO_CAMPAIGN_SELECTED");
   });
 });

@@ -70,7 +70,8 @@ export function tenantFilter(table: any, tenantId: string): SQL {
 /** Minimal Tenant shape as returned from the DB (avoids circular import of generated types) */
 export interface TenantInfo {
   id: string;
-  clerkOrgId: string;
+  /** Legacy Clerk Organisation reference — no longer used for access control. */
+  clerkOrgId: string | null;
   name: string;
   slug: string;
   plan: string;

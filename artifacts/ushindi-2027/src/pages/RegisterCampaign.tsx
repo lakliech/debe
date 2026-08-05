@@ -154,8 +154,8 @@ export default function RegisterCampaign() {
     onSuccess: async (data: RegisterResponse) => {
       setSuccessData(data);
       setShowSuccess(true);
-      // Reload Clerk session to include new org, then hard navigate
-      await user?.reload?.();
+      // Membership is app-owned, so the session needs no reload — the next
+      // request already resolves the new campaign. Hard navigate to re-scope.
       setTimeout(() => {
         window.location.assign(`${BASE}/dashboard`);
       }, 3000);

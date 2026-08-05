@@ -2,8 +2,10 @@
  * HTTP-layer tenant isolation integration tests.
  *
  * Uses supertest against the real Express app. Clerk auth is mocked via
- * vi.mock() (hoisted) so no real tokens are needed. Two tenants are created
- * and we verify cross-tenant access is blocked at the HTTP layer.
+ * vi.mock() (hoisted) so no real tokens are needed. Two campaigns are created,
+ * each with its OWN member user — campaign context comes from app-owned
+ * membership (user_roles), never from anything the request carries. We verify
+ * cross-tenant access is blocked at the HTTP layer.
  *
  * Run with: pnpm --filter @workspace/api-server test
  */
@@ -14,8 +16,8 @@ import { vi, describe, it, expect, beforeAll, afterAll } from "vitest";
 // vi.mock is hoisted to the top of the compiled output, so this runs before
 // any module that imports @clerk/express.
 
-// We expose a mutable object that individual tests can point at the desired org.
-const mockAuth = { userId: "user_test_http", orgId: "" as string | null };
+// We expose a mutable object that individual tests can point at the desired user.
+const mockAuth = { userId: "" as string | null };
 
 vi.mock("@clerk/express", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@clerk/express")>();
@@ -42,19 +44,21 @@ import {
   userRolesTable,
   rolesTable,
 } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 // Dynamic import so the app picks up the mocked @clerk/express
 const { default: app } = await import("../app");
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
+const USER_A_CLERK_ID = "user_test_http_a";
+const USER_B_CLERK_ID = "user_test_http_b";
+
 let tenantAId: string;
 let tenantBId: string;
-let orgAId: string;
-let orgBId: string;
 let tenantASlug: string;
-let testUserId: string;
+let userAId: string;
+let userBId: string;
 
 let aspirantAId: string;
 let aspirantBId: string;
@@ -69,39 +73,46 @@ beforeAll(async () => {
   const countyId = county.id;
 
   const ts = Date.now();
-  orgAId = `org_http_A_${ts}`;
-  orgBId = `org_http_B_${ts}`;
 
-  // Create a local user for our mock Clerk ID so RBAC can find their roles
-  const [testUser] = await db
+  // One member user per campaign — with a single membership each, their
+  // campaign context resolves automatically, exactly like a real campaign user.
+  const [userA] = await db
     .insert(usersTable)
-    .values({ clerkId: "user_test_http", email: "test_http@isolation.test", fullName: "HTTP Test User", status: "active" })
-    .onConflictDoUpdate({ target: usersTable.clerkId, set: { email: "test_http@isolation.test" } })
+    .values({ clerkId: USER_A_CLERK_ID, email: `test_http_a_${ts}@isolation.test`, fullName: "HTTP Test User A", status: "active" })
+    .onConflictDoUpdate({ target: usersTable.clerkId, set: { activeTenantId: null } })
     .returning();
-  testUserId = testUser.id;
+  userAId = userA.id;
+
+  const [userB] = await db
+    .insert(usersTable)
+    .values({ clerkId: USER_B_CLERK_ID, email: `test_http_b_${ts}@isolation.test`, fullName: "HTTP Test User B", status: "active" })
+    .onConflictDoUpdate({ target: usersTable.clerkId, set: { activeTenantId: null } })
+    .returning();
+  userBId = userB.id;
 
   const [tA] = await db
     .insert(tenantsTable)
-    .values({ clerkOrgId: orgAId, name: "HTTP Tenant A", slug: `http-a-${ts}`, plan: "free" })
+    .values({ name: "HTTP Tenant A", slug: `http-a-${ts}`, plan: "free" })
     .returning();
   tenantAId = tA.id;
   tenantASlug = tA.slug;
 
   const [tB] = await db
     .insert(tenantsTable)
-    .values({ clerkOrgId: orgBId, name: "HTTP Tenant B", slug: `http-b-${ts}`, plan: "free" })
+    .values({ name: "HTTP Tenant B", slug: `http-b-${ts}`, plan: "free" })
     .returning();
   tenantBId = tB.id;
 
-  // Grant super-admin role in both tenants so RBAC passes; tenant filter is what we're testing
+  // Grant each user super-admin in THEIR campaign only, so RBAC passes and
+  // the tenant filter is what we're testing.
   const [superAdminRole] = await db
     .select()
     .from(rolesTable)
     .where(eq(rolesTable.slug, "super-admin"))
     .limit(1);
   if (superAdminRole) {
-    await db.insert(userRolesTable).values({ userId: testUserId, roleId: superAdminRole.id, tenantId: tenantAId }).onConflictDoNothing();
-    await db.insert(userRolesTable).values({ userId: testUserId, roleId: superAdminRole.id, tenantId: tenantBId }).onConflictDoNothing();
+    await db.insert(userRolesTable).values({ userId: userAId, roleId: superAdminRole.id, tenantId: tenantAId }).onConflictDoNothing();
+    await db.insert(userRolesTable).values({ userId: userBId, roleId: superAdminRole.id, tenantId: tenantBId }).onConflictDoNothing();
   }
 
   const [aA] = await db
@@ -142,8 +153,6 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  mockAuth.orgId = null;
-
   if (aspirantAId) await db.delete(aspirantsTable).where(eq(aspirantsTable.id, aspirantAId));
   if (aspirantBId) await db.delete(aspirantsTable).where(eq(aspirantsTable.id, aspirantBId));
   if (messageAId) await db.delete(contactMessagesTable).where(eq(contactMessagesTable.id, messageAId));
@@ -151,22 +160,24 @@ afterAll(async () => {
   if (volunteerAId) await db.delete(volunteersTable).where(eq(volunteersTable.id, volunteerAId));
   if (volunteerBId) await db.delete(volunteersTable).where(eq(volunteersTable.id, volunteerBId));
   // Delete user_roles before tenants (CASCADE not guaranteed on user_roles.tenantId)
-  if (testUserId) await db.delete(userRolesTable).where(eq(userRolesTable.userId, testUserId));
+  if (userAId) await db.delete(userRolesTable).where(eq(userRolesTable.userId, userAId));
+  if (userBId) await db.delete(userRolesTable).where(eq(userRolesTable.userId, userBId));
   if (tenantAId) await db.delete(tenantsTable).where(eq(tenantsTable.id, tenantAId));
   if (tenantBId) await db.delete(tenantsTable).where(eq(tenantsTable.id, tenantBId));
-  // Leave the test user row — it will be reused via onConflictDoUpdate
+  if (userAId) await db.delete(usersTable).where(eq(usersTable.id, userAId));
+  if (userBId) await db.delete(usersTable).where(eq(usersTable.id, userBId));
 });
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function asOrgA() { mockAuth.orgId = orgAId; mockAuth.userId = "user_test_http"; }
-function asOrgB() { mockAuth.orgId = orgBId; mockAuth.userId = "user_test_http"; }
+function asMemberA() { mockAuth.userId = USER_A_CLERK_ID; }
+function asMemberB() { mockAuth.userId = USER_B_CLERK_ID; }
 
 // ─── Aspirants ────────────────────────────────────────────────────────────────
 
 describe("HTTP /api/aspirants — tenant isolation", () => {
-  it("GET / for org A does not include org B aspirant", async () => {
-    asOrgA();
+  it("GET / for campaign A does not include campaign B aspirant", async () => {
+    asMemberA();
     const res = await request(app).get("/api/aspirants");
     expect(res.status).toBe(200);
     const ids = (res.body.data ?? []).map((a: any) => a.id);
@@ -174,14 +185,14 @@ describe("HTTP /api/aspirants — tenant isolation", () => {
     expect(ids).not.toContain(aspirantBId);
   });
 
-  it("GET /:id for org A returns 404 for org B aspirant", async () => {
-    asOrgA();
+  it("GET /:id for campaign A returns 404 for campaign B aspirant", async () => {
+    asMemberA();
     const res = await request(app).get(`/api/aspirants/${aspirantBId}`);
     expect(res.status).toBe(404);
   });
 
-  it("GET / for org B does not include org A aspirant", async () => {
-    asOrgB();
+  it("GET / for campaign B does not include campaign A aspirant", async () => {
+    asMemberB();
     const res = await request(app).get("/api/aspirants");
     expect(res.status).toBe(200);
     const ids = (res.body.data ?? []).map((a: any) => a.id);
@@ -189,8 +200,8 @@ describe("HTTP /api/aspirants — tenant isolation", () => {
     expect(ids).not.toContain(aspirantAId);
   });
 
-  it("GET /:id for org B returns 404 for org A aspirant", async () => {
-    asOrgB();
+  it("GET /:id for campaign B returns 404 for campaign A aspirant", async () => {
+    asMemberB();
     const res = await request(app).get(`/api/aspirants/${aspirantAId}`);
     expect(res.status).toBe(404);
   });
@@ -199,8 +210,8 @@ describe("HTTP /api/aspirants — tenant isolation", () => {
 // ─── Contact Messages ─────────────────────────────────────────────────────────
 
 describe("HTTP /api/contact-messages — tenant isolation", () => {
-  it("GET / for org A does not include org B message", async () => {
-    asOrgA();
+  it("GET / for campaign A does not include campaign B message", async () => {
+    asMemberA();
     const res = await request(app).get("/api/contact-messages");
     expect(res.status).toBe(200);
     const ids = (res.body.data ?? []).map((m: any) => m.id);
@@ -208,16 +219,16 @@ describe("HTTP /api/contact-messages — tenant isolation", () => {
     expect(ids).not.toContain(messageBId);
   });
 
-  it("GET /:id for org A is blocked for org B message (403 RBAC or 404 not found)", async () => {
-    asOrgA();
+  it("GET /:id for campaign A is blocked for campaign B message (403 RBAC or 404 not found)", async () => {
+    asMemberA();
     const res = await request(app).get(`/api/contact-messages/${messageBId}`);
-    // 403: RBAC fires first (mock user has no roles); 404: tenant filter fires first.
+    // 403: RBAC fires first; 404: tenant filter fires first.
     // Both are correct — cross-tenant access is denied at the HTTP layer.
     expect([403, 404]).toContain(res.status);
   });
 
-  it("PATCH on org B message from org A session is blocked (403 or 404)", async () => {
-    asOrgA();
+  it("PATCH on campaign B message from campaign A session is blocked (403 or 404)", async () => {
+    asMemberA();
     const res = await request(app)
       .patch(`/api/contact-messages/${messageBId}`)
       .send({ status: "read" });
@@ -228,8 +239,8 @@ describe("HTTP /api/contact-messages — tenant isolation", () => {
 // ─── Volunteers ───────────────────────────────────────────────────────────────
 
 describe("HTTP /api/volunteers — tenant isolation", () => {
-  it("GET / for org A does not include org B volunteer", async () => {
-    asOrgA();
+  it("GET / for campaign A does not include campaign B volunteer", async () => {
+    asMemberA();
     const res = await request(app).get("/api/volunteers");
     expect(res.status).toBe(200);
     const ids = (res.body.data ?? []).map((v: any) => v.id);
@@ -237,14 +248,14 @@ describe("HTTP /api/volunteers — tenant isolation", () => {
     expect(ids).not.toContain(volunteerBId);
   });
 
-  it("GET /:id for org A returns 404 for org B volunteer", async () => {
-    asOrgA();
+  it("GET /:id for campaign A returns 404 for campaign B volunteer", async () => {
+    asMemberA();
     const res = await request(app).get(`/api/volunteers/${volunteerBId}`);
     expect(res.status).toBe(404);
   });
 
-  it("POST /suspend on org B volunteer from org A session returns 404", async () => {
-    asOrgA();
+  it("POST /suspend on campaign B volunteer from campaign A session is blocked", async () => {
+    asMemberA();
     const res = await request(app)
       .post(`/api/volunteers/${volunteerBId}/suspend`)
       .send({ reason: "cross-tenant test" });
@@ -259,7 +270,6 @@ describe("HTTP /api/config/branding — public access", () => {
   it("returns 200 with X-Tenant-Slug header and no auth", async () => {
     // unauthenticated — getAuth returns no userId
     mockAuth.userId = "";
-    mockAuth.orgId = null;
 
     const res = await request(app)
       .get("/api/config/branding")
@@ -271,7 +281,6 @@ describe("HTTP /api/config/branding — public access", () => {
 
   it("returns 200 with default branding when no slug provided", async () => {
     mockAuth.userId = "";
-    mockAuth.orgId = null;
 
     const res = await request(app).get("/api/config/branding");
     expect(res.status).toBe(200);

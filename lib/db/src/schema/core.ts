@@ -14,10 +14,13 @@ import { z } from "zod/v4";
 import { countiesTable } from "./geography";
 
 // ── Tenants ───────────────────────────────────────────────────────────────────
-// One row per campaign deployment. clerk_org_id ties it to a Clerk Organisation.
+// One row per campaign deployment. Membership is owned by the app (user_roles),
+// NOT by the identity provider. clerk_org_id is a legacy reference to a Clerk
+// Organisation from when membership lived there — nullable and unused for
+// access control; kept only so historical rows and external references survive.
 export const tenantsTable = pgTable("tenants", {
   id: uuid("id").primaryKey().defaultRandom(),
-  clerkOrgId: text("clerk_org_id").notNull().unique(),
+  clerkOrgId: text("clerk_org_id").unique(),
   name: text("name").notNull(),
   /** URL-safe identifier used in subdomains / public links */
   slug: text("slug").notNull().unique(),

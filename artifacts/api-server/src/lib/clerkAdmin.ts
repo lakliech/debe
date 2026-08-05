@@ -1,22 +1,15 @@
 /**
- * Clerk Backend API helpers.
+ * Clerk Backend API helpers — identity lookups only.
  *
- * @clerk/backend is not a direct dependency, so admin-plane calls (creating
- * organisations, inviting members) go through the REST API with the secret key.
+ * Clerk owns WHO a user is (accounts, verified email addresses); the app owns
+ * campaign membership (user_roles). There are deliberately no organisation
+ * helpers here: Clerk Organisations is not part of the access model.
  *
- * Shared by the platform-admin routes and the self-serve registration flow so
- * both create organisations identically.
+ * @clerk/backend is not a direct dependency, so lookups go through the REST
+ * API with the secret key.
  */
 
 const CLERK_API = "https://api.clerk.com/v1";
-
-/**
- * True when running without Clerk Organizations enabled (local dev).
- * Set CLERK_ORGS_DISABLED=true to use stub org IDs.
- */
-export function clerkOrgsDisabled(): boolean {
-  return process.env.CLERK_ORGS_DISABLED === "true";
-}
 
 async function clerkRequest(method: string, path: string, body?: Record<string, unknown>) {
   const secretKey = process.env.CLERK_SECRET_KEY;
@@ -41,16 +34,8 @@ async function clerkRequest(method: string, path: string, body?: Record<string, 
   return json;
 }
 
-export function clerkPost(path: string, body: Record<string, unknown>) {
-  return clerkRequest("POST", path, body);
-}
-
 export function clerkGet(path: string) {
   return clerkRequest("GET", path);
-}
-
-export function clerkDelete(path: string) {
-  return clerkRequest("DELETE", path);
 }
 
 /** Primary email address for a Clerk user, or null. */

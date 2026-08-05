@@ -5,17 +5,13 @@
  * platform admin provisioning it by hand. Mounted at /api/register with NO
  * resolveTenant wrapper — by definition the caller has no tenant yet.
  *
- * Flow:
+ * Flow (all in one transaction — membership is owned by the app, so no
+ * external system needs to be provisioned or rolled back):
  *   1. Validate + reserve the slug
- *   2. Create the Clerk organisation and make the caller its admin
- *   3. Insert the tenant row with a 14-day Pro trial
- *   4. Seed branding from the submitted campaign details
- *   5. Grant the caller Super Administrator (level 1) for that tenant
- *   6. Send the welcome email
- *
- * Steps 3-6 run in a transaction where possible; the Clerk org is created
- * first because it is the only step we cannot roll back, and it is cleaned up
- * explicitly if the database work fails.
+ *   2. Insert the tenant row with a 14-day Pro trial
+ *   3. Seed branding from the submitted campaign details
+ *   4. Grant the caller Super Administrator (level 1) for that tenant
+ *   5. Send the welcome email
  */
 
 import { Router } from "express";
@@ -32,7 +28,7 @@ import {
 import { eq, and, sql } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import { sendEmailAsync } from "../lib/email";
-import { clerkPost, clerkDelete, clerkOrgsDisabled, clerkUserEmail, clerkUserName } from "../lib/clerkAdmin";
+import { clerkUserEmail, clerkUserName } from "../lib/clerkAdmin";
 import { TRIAL_DAYS } from "../lib/plans";
 import { platformUrl } from "../lib/stripe";
 import { bustActorCache } from "../middlewares/rbac";
@@ -156,8 +152,6 @@ router.post("/", requireAuth, async (req: any, res: any) => {
     contactEmail,
   } = req.body as Record<string, string | number | undefined>;
 
-  let createdOrgId: string | null = null;
-
   try {
     if (!campaignName || typeof campaignName !== "string" || campaignName.trim().length < 2) {
       return res.status(400).json({ error: "Enter your campaign name." });
@@ -213,29 +207,7 @@ router.post("/", requireAuth, async (req: any, res: any) => {
       });
     }
 
-    // ── Clerk organisation (not transactional — cleaned up manually on failure)
-    let clerkOrgId: string;
-    if (clerkOrgsDisabled()) {
-      clerkOrgId = `org_stub_${slug}_${Date.now()}`;
-    } else {
-      try {
-        const org = await clerkPost("/organizations", {
-          name: campaignName,
-          slug,
-          created_by_user_id: req.clerkId,
-        });
-        clerkOrgId = org.id;
-        createdOrgId = org.id;
-      } catch (clerkErr: any) {
-        logger.error({ err: clerkErr.message }, "[register] Clerk org creation failed");
-        return res.status(502).json({
-          error:
-            "We couldn't finish setting up your campaign workspace. Please try again in a moment.",
-        });
-      }
-    }
-
-    // ── Database work ─────────────────────────────────────────────────────────
+    // ── Database work (one transaction — rolls back cleanly on failure) ───────
     const trialEndsAt = new Date(Date.now() + TRIAL_DAYS * 86_400_000);
 
     const tenant = await db.transaction(async (tx) => {
@@ -244,7 +216,6 @@ router.post("/", requireAuth, async (req: any, res: any) => {
         .values({
           name: campaignName.trim(),
           slug,
-          clerkOrgId,
           // Trial grants Pro; planOverrideUntil is what actually enforces it.
           plan: "pro",
           planOverrideUntil: trialEndsAt,
@@ -254,17 +225,15 @@ router.post("/", requireAuth, async (req: any, res: any) => {
         })
         .returning();
 
+      // Only set fields the founder actually provided — the branding columns
+      // are NOT NULL with sensible defaults, so passing explicit nulls would
+      // violate the constraints instead of falling back to the defaults.
       await tx.insert(brandingTable).values({
         tenantId: t.id,
         campaignName: campaignName.trim(),
-        candidateName: typeof candidateName === "string" && candidateName ? candidateName : null,
-        tagline: typeof tagline === "string" && tagline ? tagline : null,
-        electionYear:
-          typeof electionYear === "number"
-            ? electionYear
-            : electionYear
-              ? Number(electionYear)
-              : null,
+        ...(typeof candidateName === "string" && candidateName ? { candidateName } : {}),
+        ...(typeof tagline === "string" && tagline ? { tagline } : {}),
+        ...(electionYear ? { electionYear: Number(electionYear) } : {}),
         ...(typeof electionLevel === "string" && electionLevel ? { electionLevel } : {}),
         ...(typeof primaryColor === "string" && /^#[0-9a-fA-F]{6}$/.test(primaryColor)
           ? { primaryColor }
@@ -289,19 +258,6 @@ router.post("/", requireAuth, async (req: any, res: any) => {
 
       return t;
     });
-
-    // Add the founder to the Clerk org as admin so their JWT carries the orgId.
-    if (!clerkOrgsDisabled()) {
-      try {
-        await clerkPost(`/organizations/${clerkOrgId}/memberships`, {
-          user_id: req.clerkId,
-          role: "org:admin",
-        });
-      } catch (memErr: any) {
-        // created_by_user_id usually adds them already; a duplicate is fine.
-        logger.warn({ err: memErr.message }, "[register] org membership add skipped");
-      }
-    }
 
     // The caller's cached RBAC actor predates this tenant — clear it so the
     // very next request sees the new role instead of a stale "no access".
@@ -336,18 +292,6 @@ router.post("/", requireAuth, async (req: any, res: any) => {
     });
   } catch (err: any) {
     logger.error({ err }, "[register] failed");
-
-    // Roll back the Clerk org so a retry with the same slug isn't blocked.
-    if (createdOrgId && !clerkOrgsDisabled()) {
-      try {
-        await clerkDelete(`/organizations/${createdOrgId}`);
-      } catch (cleanupErr: any) {
-        logger.error(
-          { err: cleanupErr.message, orgId: createdOrgId },
-          "[register] orphaned Clerk org — manual cleanup needed",
-        );
-      }
-    }
 
     res.status(500).json({ error: "We couldn't create your campaign. Please try again." });
   }

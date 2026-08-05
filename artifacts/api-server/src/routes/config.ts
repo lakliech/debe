@@ -6,7 +6,7 @@ import { brandingTable, systemConfigTable, tenantsTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
 import { resolveTenant, resolveTenantPublic, resolveTenantMixed } from "../middlewares/resolveTenant";
-import { tenantFilter, assertTenant } from "../lib/withTenant";
+import { tenantFilter, assertTenant, requireTenantContext } from "../lib/withTenant";
 import { triggerTlsProvisioning } from "../lib/tlsCert";
 import { PLANS, getEffectivePlan, minimumTierFor } from "../lib/plans";
 
@@ -51,10 +51,10 @@ const canUpdateBranding = requireRoles([
 
 // GET /api/config/branding — public + authenticated endpoint.
 // resolveTenantMixed checks:
-//   authenticated requests → Clerk JWT orgId (authoritative, cannot be spoofed)
+//   authenticated requests → the caller's app-owned membership (cannot be spoofed)
 //   unauthenticated requests → X-Tenant-Slug header or ?tenant= query param
-// This allows the mobile app (after org activation) and the web frontend (via
-// VITE_TENANT_SLUG / subdomain) to both resolve the correct campaign's branding.
+// This allows the mobile app and the web frontend (via subdomain) to both
+// resolve the correct campaign's branding.
 router.get("/branding", resolveTenantMixed, async (req: any, res: any) => {
   try {
     const t = (req as any).tenant as import("../lib/withTenant").TenantInfo | undefined;
@@ -164,7 +164,7 @@ router.patch("/branding", requireAuth, resolveTenant, canUpdateBranding, async (
 
 // ── GET /api/config/domain ─────────────────────────────────────────────────
 // Returns the tenant's current custom domain plus a live DNS verification result.
-router.get("/domain", requireAuth, resolveTenant, async (req: any, res: any) => {
+router.get("/domain", requireAuth, resolveTenant, requireTenantContext, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
     const [tenant] = await db
@@ -205,7 +205,7 @@ const canUpdateDomain = requireRoles([
   "national-campaign-manager",
 ]);
 
-router.patch("/domain", requireAuth, resolveTenant, canUpdateDomain, async (req: any, res: any) => {
+router.patch("/domain", requireAuth, resolveTenant, requireTenantContext, canUpdateDomain, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
     const { customDomain } = req.body as { customDomain?: string | null };

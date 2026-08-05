@@ -25,7 +25,6 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface TenantRow {
   id: string;
-  clerkOrgId: string;
   name: string;
   slug: string;
   plan: string;
@@ -375,10 +374,6 @@ function TenantDetail({ tenant, onClose }: { tenant: TenantRow; onClose: () => v
           )}
         </div>
 
-        {/* Clerk org ID — useful for debugging */}
-        <div className="text-xs text-muted-foreground font-mono border-t border-border pt-4">
-          Clerk org: <span className="select-all">{d.clerkOrgId}</span>
-        </div>
       </aside>
     </div>
   );

@@ -7,7 +7,7 @@
  *
  * Endpoints:
  *   GET    /api/platform/tenants          — list all tenants with user counts
- *   POST   /api/platform/tenants          — create Clerk org + tenant row + send invitation
+ *   POST   /api/platform/tenants          — create tenant row + grant its first admin
  *   GET    /api/platform/tenants/:id      — single tenant detail
  *   PATCH  /api/platform/tenants/:id/suspend — toggle suspension
  */
@@ -34,6 +34,7 @@ import {
 import { eq, sql, and, or, isNull, isNotNull, notExists, lt, gt, ne, ilike, desc, inArray } from "drizzle-orm";
 import { bustActorCache } from "../middlewares/rbac";
 import { requireLevel } from "../middlewares/rbac";
+import { grantCampaignAdminByEmail } from "../lib/grantCampaignAdmin";
 
 const router = Router();
 
@@ -43,40 +44,6 @@ function requireAuth(req: any, res: any, next: any) {
   if (!auth?.userId) return res.status(401).json({ error: "Unauthorized" });
   req.clerkId = auth.userId;
   next();
-}
-
-// ── Clerk Backend API helper (uses secret key directly — @clerk/backend is not a direct dep) ──
-const CLERK_API = "https://api.clerk.com/v1";
-
-async function clerkPost(path: string, body: Record<string, unknown>) {
-  const secretKey = process.env.CLERK_SECRET_KEY;
-  if (!secretKey) throw new Error("CLERK_SECRET_KEY is not set");
-  const res = await fetch(`${CLERK_API}${path}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${secretKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-  const json: any = await res.json();
-  if (!res.ok) {
-    // Surface the full Clerk error for easier debugging
-    const clerkMsg =
-      json?.errors?.[0]?.long_message ??
-      json?.errors?.[0]?.message ??
-      JSON.stringify(json);
-    throw new Error(`Clerk ${res.status}: ${clerkMsg}`);
-  }
-  return json;
-}
-
-/**
- * Returns true when running in dev with Clerk Organizations disabled.
- * Set CLERK_ORGS_DISABLED=true in .env to use stub org IDs locally.
- */
-function clerkOrgsDisabled() {
-  return process.env.CLERK_ORGS_DISABLED === "true";
 }
 
 // ── Shared: all-tenant query with user counts ─────────────────────────────────
@@ -237,46 +204,24 @@ router.post("/tenants", requireAuth, requireLevel(0), async (req: any, res: any)
       return res.status(409).json({ error: `Tenant slug '${slug}' is already taken` });
     }
 
-    // Create Clerk organisation.
-    // If CLERK_ORGS_DISABLED=true (local dev without Organizations enabled), use a stub ID.
-    let clerkOrgId: string;
-    if (clerkOrgsDisabled()) {
-      clerkOrgId = `org_stub_${slug}_${Date.now()}`;
-    } else {
-      try {
-        const org = await clerkPost("/organizations", {
-          name,
-          slug,
-          created_by_user_id: req.clerkId,
-        });
-        clerkOrgId = org.id;
-      } catch (clerkErr: any) {
-        // Surface the full Clerk error so it's visible in logs and the UI
-        console.error("[platform] Clerk org creation failed:", clerkErr.message);
-        return res.status(502).json({
-          error: `Failed to create Clerk organisation: ${clerkErr.message}`,
-          hint: "If you are running locally without Clerk Organizations enabled, set CLERK_ORGS_DISABLED=true in your environment.",
-        });
-      }
-    }
-
-    // Insert tenant row
+    // Membership is owned by the app — creating a campaign is just the tenant
+    // row; no identity-provider workspace needs provisioning.
     const [tenant] = await db
       .insert(tenantsTable)
-      .values({ name, slug, clerkOrgId, plan })
+      .values({ name, slug, plan })
       .returning();
 
-    // Send invitation to the designated admin email (best-effort — don't block tenant creation on failure)
+    // Grant the designated admin access (best-effort — don't block tenant
+    // creation). The invitee must already have an account; if they don't,
+    // say so plainly rather than inventing a pending grant.
     let invitationWarning: string | null = null;
     if (adminEmail) {
-      try {
-        await clerkPost(`/organizations/${clerkOrgId}/invitations`, {
-          email_address: adminEmail,
-          role: "org:admin",
-          inviter_user_id: req.clerkId,
-        });
-      } catch (invErr: any) {
-        invitationWarning = `Tenant created but invitation failed: ${invErr.message}`;
+      const grant = await grantCampaignAdminByEmail(tenant.id, adminEmail);
+      if (!grant.granted) {
+        invitationWarning =
+          grant.reason === "no_account"
+            ? `Campaign created, but no account exists for ${adminEmail} yet. Ask them to sign up, then resend the invite.`
+            : "Campaign created, but the Super Administrator role is missing from the roles table.";
       }
     }
 
@@ -389,15 +334,21 @@ router.post("/tenants/:id/invite", requireAuth, requireLevel(0), async (req: any
 
     if (!tenant) return res.status(404).json({ error: "Tenant not found" });
 
-    await clerkPost(`/organizations/${tenant.clerkOrgId}/invitations`, {
-      email_address: adminEmail,
-      role: "org:admin",
-      inviter_user_id: req.clerkId,
-    });
+    const grant = await grantCampaignAdminByEmail(tenant.id, adminEmail);
+    if (!grant.granted) {
+      if (grant.reason === "no_account") {
+        return res.status(404).json({
+          error: `No account exists for ${adminEmail} yet. Ask them to sign up first, then resend the invite.`,
+        });
+      }
+      return res
+        .status(500)
+        .json({ error: "The Super Administrator role is missing from the roles table." });
+    }
 
-    res.json({ message: `Invitation sent to ${adminEmail}` });
+    res.json({ message: `${adminEmail} now has campaign administrator access.` });
   } catch (err: any) {
-    res.status(502).json({ error: err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 

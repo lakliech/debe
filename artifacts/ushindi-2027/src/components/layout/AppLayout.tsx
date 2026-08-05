@@ -1,6 +1,6 @@
 import { Shield, Flag, Users, Activity, Settings, MapPin, Search, Menu, LogOut, ChevronRight, DollarSign, Megaphone, Library, Calendar, AlertTriangle, Settings2, ClipboardList, BarChart3, AlertOctagon, Scale, Monitor, Globe, Download, Lock, Vote, Mail, Building2, ChevronsUpDown, Check, Radio, CreditCard, LifeBuoy } from "lucide-react";
 import { Link, useLocation } from "wouter";
-import { useClerk, useUser, useOrganizationList } from "@clerk/react";
+import { useClerk, useUser } from "@clerk/react";
 import { useQuery } from "@tanstack/react-query";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -127,10 +127,11 @@ function SidebarHeader() {
 //
 // Two different mechanisms, because the two kinds of user are different:
 //
-//   Campaign staff belong to Clerk organisations, so switching campaign means
-//   switching the active org — the JWT is the source of truth.
+//   Campaign staff belong to campaigns via app-owned membership (user_roles).
+//   Switching campaign means entering another of their memberships — the
+//   choice is stored server-side on the user row and takes effect immediately.
 //
-//   Platform operators belong to no organisation at all. They administer every
+//   Platform operators belong to no campaign at all. They administer every
 //   campaign from the platform surface and explicitly *enter* one when they
 //   need to change its configuration. That choice is stored server-side, and
 //   exiting returns them to the platform with no campaign context.
@@ -255,22 +256,31 @@ function PlatformCampaignSwitcher({ activeTenant }: { activeTenant: ActiveTenant
   );
 }
 
-/** Campaign-staff variant — switch between the Clerk orgs you belong to. */
-function OrgCampaignSwitcher() {
-  const { setActive, userMemberships, isLoaded } = useOrganizationList({ userMemberships: true });
+/** Campaign-staff variant — switch between the campaigns you belong to. */
+function MemberCampaignSwitcher() {
+  const { campaigns, activeTenant } = useIdentity();
   const [open, setOpen] = useState(false);
-  const orgs = (userMemberships as any)?.data ?? [];
+  const [busy, setBusy] = useState(false);
 
-  if (!isLoaded || orgs.length <= 1) return null;
+  if (campaigns.length <= 1) return null;
 
-  const activeOrg = orgs.find((m: any) => m.organization) ?? null;
-
-  const handleSwitch = async (orgId: string) => {
-    if (!setActive) return;
-    await setActive({ organization: orgId });
-    setOpen(false);
-    // Hard reload to re-scope all queries to the new tenant
-    window.location.reload();
+  const handleSwitch = async (tenantId: string) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`${BASE}/api/users/me/active-campaign`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ tenantId }),
+      });
+      if (!res.ok) return;
+      setOpen(false);
+      // Hard reload to re-scope all queries to the new tenant
+      window.location.reload();
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -281,7 +291,7 @@ function OrgCampaignSwitcher() {
       >
         <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
         <span className="font-semibold truncate max-w-[120px]">
-          {activeOrg?.organization?.name ?? "Select campaign"}
+          {activeTenant?.name ?? "Select campaign"}
         </span>
         <ChevronsUpDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
       </button>
@@ -294,18 +304,18 @@ function OrgCampaignSwitcher() {
             <p className="px-3 py-1.5 text-[10px] font-black tracking-widest text-muted-foreground uppercase">
               Switch Campaign
             </p>
-            {orgs.map((m: any) => {
-              const org = m.organization;
-              const isCurrent = m.organization?.id === (userMemberships as any)?.activeOrganizationId;
+            {campaigns.map((c) => {
+              const isCurrent = c.id === activeTenant?.id;
               return (
                 <button
-                  key={org.id}
-                  onClick={() => handleSwitch(org.id)}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50 transition-colors text-left"
+                  key={c.id}
+                  disabled={busy}
+                  onClick={() => handleSwitch(c.id)}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50 transition-colors text-left disabled:opacity-50"
                 >
                   {isCurrent && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
                   {!isCurrent && <span className="w-3.5 shrink-0" />}
-                  <span className="truncate">{org.name}</span>
+                  <span className="truncate">{c.name}</span>
                 </button>
               );
             })}
@@ -509,11 +519,11 @@ export default function AppLayout({ children }: AppLayoutProps) {
           
           <div className="flex items-center gap-3 text-sm font-mono text-muted-foreground">
             {/* Platform operators pick which campaign to enter; campaign staff
-                switch between the orgs they belong to. */}
+                switch between the campaigns they belong to. */}
             {isPlatformOperator ? (
               <PlatformCampaignSwitcher activeTenant={activeTenant} />
             ) : (
-              <OrgCampaignSwitcher />
+              <MemberCampaignSwitcher />
             )}
             {/* Status indicator */}
             <div className="flex items-center gap-2 bg-muted/50 px-3 py-1.5 rounded-sm border border-border">

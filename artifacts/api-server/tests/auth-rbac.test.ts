@@ -17,8 +17,22 @@ import request from "supertest";
 
 // ─── Mutable auth state (set per test) ────────────────────────────────────────
 let _mockAuthUserId: string | null = null;
-let _mockUserRow: { id: string } | null = null;
+let _mockUserRow: { id: string; isGlobalAdmin: boolean; activeTenantId: string | null } | null = null;
 let _mockRoles: Array<{ slug: string; level: number }> = [];
+
+// The campaign every mocked actor belongs to. resolveTenant only attaches a
+// tenant when app-owned membership (user_roles) says so — there is no JWT org
+// fallback anymore.
+const _TENANT = {
+  id: "tenant-rbac-uuid",
+  slug: "rbac-test-campaign",
+  name: "RBAC Test Campaign",
+  plan: "standard",
+  isSuspended: false,
+  customDomain: null,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+};
 
 // ─── Mock Clerk ────────────────────────────────────────────────────────────────
 vi.mock("@clerk/express", () => ({
@@ -73,6 +87,10 @@ vi.mock("@workspace/db", () => {
 
   function makeQueryBuilder() {
     let _table: string | null = null;
+    // resolveTenant's membership query selects tenant ids from user_roles
+    // WITHOUT joins; resolveActor's role query joins the roles table. The join
+    // is what tells the two user_roles queries apart.
+    let _joined = false;
 
     const qb: any = {
       from(table: any) {
@@ -83,6 +101,7 @@ vi.mock("@workspace/db", () => {
         return qb;
       },
       innerJoin() {
+        _joined = true;
         return qb;
       },
       orderBy() {
@@ -95,12 +114,20 @@ vi.mock("@workspace/db", () => {
         if (_table === "users") {
           return Promise.resolve(_mockUserRow ? [_mockUserRow] : []);
         }
+        if (_table === "tenants") {
+          return Promise.resolve([_TENANT]);
+        }
         return Promise.resolve([]);
       },
       // Support awaiting the builder directly (e.g. roles query without .limit())
       then(resolve: any, reject: any) {
         if (_table === "user_roles") {
-          return Promise.resolve([..._mockRoles]).then(resolve, reject);
+          const rows = _joined
+            ? [..._mockRoles]
+            : _mockUserRow
+              ? [{ tenantId: _TENANT.id }]
+              : [];
+          return Promise.resolve(rows).then(resolve, reject);
         }
         return Promise.resolve([]).then(resolve, reject);
       },
@@ -126,6 +153,7 @@ vi.mock("@workspace/db", () => {
     usersTable,
     userRolesTable,
     rolesTable,
+    tenantsTable: makeTable("tenants"),
     // Sentinel exports used in route files — queries will resolve to []
     resultSubmissionsTable: makeTable("result_submissions"),
     submissionCandidateVotesTable: makeTable("submission_candidate_votes"),
@@ -183,7 +211,7 @@ function asUser(
   roles: Array<{ slug: string; level: number }>
 ) {
   _mockAuthUserId = clerkId;
-  _mockUserRow = { id: "user-uuid-" + clerkId };
+  _mockUserRow = { id: "user-uuid-" + clerkId, isGlobalAdmin: false, activeTenantId: null };
   _mockRoles = roles;
 }
 

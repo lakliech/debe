@@ -33,6 +33,8 @@ export interface Identity {
   isPlatformOperator: boolean;
   /** The campaign in context, or null (operator who has not entered one). */
   activeTenant: ActiveTenant | null;
+  /** The campaigns the caller belongs to and may enter (empty for operators). */
+  campaigns: ActiveTenant[];
   /** False while Clerk is still resolving or the request is in flight. */
   isLoaded: boolean;
   isSignedIn: boolean;
@@ -66,14 +68,14 @@ export function useIdentity(): Identity {
   if (!clerkLoaded) {
     return {
       data: null, access: NO_ACCESS, isPlatformOperator: false,
-      activeTenant: null, isLoaded: false, isSignedIn: false,
+      activeTenant: null, campaigns: [], isLoaded: false, isSignedIn: false,
     };
   }
 
   if (!isSignedIn) {
     return {
       data: null, access: { ...NO_ACCESS, isLoaded: true }, isPlatformOperator: false,
-      activeTenant: null, isLoaded: true, isSignedIn: false,
+      activeTenant: null, campaigns: [], isLoaded: true, isSignedIn: false,
     };
   }
 
@@ -83,6 +85,7 @@ export function useIdentity(): Identity {
       access: deriveAccess(data),
       isPlatformOperator: Boolean(data.isPlatformOperator),
       activeTenant: (data.activeTenant as ActiveTenant | null) ?? null,
+      campaigns: (data.campaigns as ActiveTenant[] | undefined) ?? [],
       isLoaded: true,
       isSignedIn: true,
     };
@@ -96,6 +99,7 @@ export function useIdentity(): Identity {
     access: isError ? { ...NO_ACCESS, isLoaded: true } : NO_ACCESS,
     isPlatformOperator: false,
     activeTenant: null,
+    campaigns: [],
     isLoaded: isError,
     isSignedIn: true,
   };
