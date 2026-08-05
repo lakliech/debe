@@ -72,7 +72,7 @@ export default function RequestAccess() {
             DEBE
           </div>
           <span className="text-[10px] font-bold tracking-[0.18em] uppercase text-gray-400 hidden sm:block">
-            Digital Ballot Box
+            Niko kwa debe
           </span>
         </Link>
         <Link
@@ -267,7 +267,7 @@ export default function RequestAccess() {
                 DEBE
               </div>
               <span className="text-slate-500 text-xs tracking-wider uppercase">
-                Digital Ballot Box
+                Niko kwa debe · I'm in the ballot
               </span>
             </div>
             <p className="text-slate-600 text-xs text-center">

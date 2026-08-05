@@ -1,7 +1,9 @@
 /**
  * DebeHome — Debe platform landing page.
  * Shown on the base domain when no tenant subdomain is active.
- * "Debe" (deh-beh) is Swahili for ballot box.
+ * Debe is the end-to-end platform a candidate uses to manage their whole
+ * election — the name nods to the ballot box, and the catchphrase
+ * "Niko kwa debe" ("I'm in the ballot") is the brand voice.
  */
 import { Link } from "wouter";
 import { ChevronRight, LayoutDashboard, Smartphone, Eye, Globe, CheckCircle, Menu, X, Copy, ExternalLink } from "lucide-react";
@@ -235,7 +237,7 @@ export default function DebeHome() {
             DEBE
           </div>
           <span className="text-[10px] font-bold tracking-[0.18em] uppercase text-gray-400 hidden sm:block">
-            Digital Ballot Box
+            Niko kwa debe
           </span>
         </Link>
 
@@ -332,14 +334,18 @@ export default function DebeHome() {
               <h1 className="text-5xl sm:text-6xl lg:text-7xl font-black tracking-tighter leading-[1.0] uppercase">
                 <span className="text-primary">Debe</span>
                 <br />
-                <span className="text-white">The Digital</span>
+                <span className="text-white">Your Campaign,</span>
                 <br />
-                <span className="text-white">Ballot Box</span>
+                <span className="text-white">End to End</span>
               </h1>
+              <p className="text-sm font-bold tracking-[0.25em] uppercase text-primary">
+                Niko kwa debe — I'm in the ballot
+              </p>
               <p className="text-lg text-slate-300 max-w-lg leading-relaxed">
-                End-to-end campaign management for Kenyan elections. Purpose-built
-                for the realities of campaigning across 47 counties — offline-capable,
-                multi-tenant, and transparent by design.
+                The platform that lets a political candidate manage their entire
+                election — from campaign HQ to field agents to verified results —
+                in one place. Purpose-built for the realities of campaigning across
+                47 counties: offline-capable, multi-tenant, and transparent by design.
               </p>
               <div className="flex flex-col sm:flex-row gap-3 mt-2">
                 <Link
@@ -476,7 +482,7 @@ export default function DebeHome() {
                 DEBE
               </div>
               <span className="text-slate-500 text-xs tracking-wider uppercase">
-                Digital Ballot Box
+                Niko kwa debe · I'm in the ballot
               </span>
             </div>
             <div className="flex gap-6">
