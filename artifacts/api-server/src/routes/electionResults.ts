@@ -611,17 +611,29 @@ router.post("/submissions/:id/verify", requireAuth, canVerifyResults, async (req
       .where(and(eq(resultSubmissionsTable.id, req.params.id), tenantFilter(resultSubmissionsTable, t.id))).limit(1);
     if (!submission) return res.status(404).json({ error: "Submission not found" });
 
-    const [updated] = await db.update(resultSubmissionsTable).set({ status: toStatus })
-      .where(and(eq(resultSubmissionsTable.id, req.params.id), tenantFilter(resultSubmissionsTable, t.id))).returning();
+    // Status change, per-vote flag sync, and audit step commit together.
+    // The tally aggregates only isVerified votes, and this endpoint is the
+    // ONLY writer of a submission's status — so the votes must flip in
+    // lockstep here, in both directions (verify AND un-verify/reject/query).
+    const [updated] = await db.transaction(async (tx) => {
+      const [u] = await tx.update(resultSubmissionsTable).set({ status: toStatus })
+        .where(and(eq(resultSubmissionsTable.id, req.params.id), tenantFilter(resultSubmissionsTable, t.id))).returning();
 
-    await db.insert(submissionVerificationStepsTable).values({
-      submissionId: req.params.id,
-      fromStatus: submission.status,
-      toStatus,
-      reviewerId: actorId ?? undefined,
-      action,
-      notes,
-      queriedFields: queriedFields ?? null,
+      await tx.update(submissionCandidateVotesTable)
+        .set({ isVerified: toStatus === "verified" })
+        .where(eq(submissionCandidateVotesTable.submissionId, req.params.id));
+
+      await tx.insert(submissionVerificationStepsTable).values({
+        submissionId: req.params.id,
+        fromStatus: submission.status,
+        toStatus,
+        reviewerId: actorId ?? undefined,
+        action,
+        notes,
+        queriedFields: queriedFields ?? null,
+      });
+
+      return [u];
     });
 
     res.json(updated);
