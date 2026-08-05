@@ -293,7 +293,8 @@ router.get("/domain-requests", requireAuth, requireLevel(2), async (req: any, re
       .where(eq(domainChangeRequestsTable.tenantId, tenantId))
       .orderBy(desc(domainChangeRequestsTable.createdAt))
       .limit(20);
-    res.json(rows);
+    // Envelope shape — the Settings DomainTab reads data.requests.
+    res.json({ requests: rows });
   } catch (err: any) {
     logger.error({ err }, "request failed");
     res.status(500).json({ error: "Something went wrong. Please try again." });
