@@ -11,6 +11,7 @@ import {
 import { eq, and, or, ilike, sql } from "drizzle-orm";
 import { z } from "zod";
 import { validate } from "../lib/validate";
+import { resolveScopeGeoFilter, type ScopeGeoFilter } from "../lib/campaignScope";
 
 const router = Router();
 
@@ -39,17 +40,67 @@ function requireAuth(req: any, res: any, next: any) {
   next();
 }
 
+/**
+ * Campaign-scope geography filter. Geography is shared reference data (not
+ * secret), but a campaign should only be SHOWN the geography it contests —
+ * a Nairobi senatorial campaign sees Nairobi's hierarchy, not 47 counties.
+ * Resolved from req.tenant (attached by resolveTenantOptional when the caller
+ * has campaign context); ?all=1 bypasses for scope-SELECTION pickers, which
+ * must offer the full map.
+ */
+async function scopeFilterFor(req: any): Promise<ScopeGeoFilter | null> {
+  if (req.query?.all === "1") return null;
+  const tenant = req.tenant;
+  if (!tenant?.seatType) return null;
+  return resolveScopeGeoFilter(tenant);
+}
+
+/** WHERE clauses matching each level's rows to the scope filter. The filter
+ * always carries countyId (parents are resolved), so the non-null assertions
+ * are safe. */
+function constituencyScopeWhere(filter: ScopeGeoFilter | null) {
+  if (!filter) return undefined;
+  return filter.constituencyId
+    ? eq(constituenciesTable.id, filter.constituencyId)
+    : eq(constituenciesTable.countyId, filter.countyId!);
+}
+function wardScopeWhere(filter: ScopeGeoFilter | null) {
+  if (!filter) return undefined;
+  if (filter.wardId) return eq(wardsTable.id, filter.wardId);
+  if (filter.constituencyId) return eq(wardsTable.constituencyId, filter.constituencyId);
+  return eq(wardsTable.countyId, filter.countyId!);
+}
+function centreScopeWhere(filter: ScopeGeoFilter | null) {
+  if (!filter) return undefined;
+  if (filter.wardId) return eq(pollingCentresTable.wardId, filter.wardId);
+  if (filter.constituencyId) return eq(pollingCentresTable.constituencyId, filter.constituencyId);
+  return eq(pollingCentresTable.countyId, filter.countyId!);
+}
+function stationScopeWhere(filter: ScopeGeoFilter | null) {
+  if (!filter) return undefined;
+  if (filter.wardId) return eq(pollingStationsTable.wardId, filter.wardId);
+  if (filter.constituencyId) return eq(pollingStationsTable.constituencyId, filter.constituencyId);
+  return eq(pollingStationsTable.countyId, filter.countyId!);
+}
+
 // GET /api/geography/counties
 router.get("/counties", requireAuth, async (req: any, res: any) => {
-  const counties = await db.select().from(countiesTable).orderBy(countiesTable.code);
+  const filter = await scopeFilterFor(req);
+  const counties = await db
+    .select()
+    .from(countiesTable)
+    .where(filter ? eq(countiesTable.id, filter.countyId!) : undefined)
+    .orderBy(countiesTable.code);
 
-  // Get constituency and ward counts
+  // Get constituency and ward counts (scoped the same way so per-county
+  // totals reflect what the campaign can actually see)
   const constCounts = await db
     .select({
       countyId: constituenciesTable.countyId,
       count: sql<number>`cast(count(*) as int)`,
     })
     .from(constituenciesTable)
+    .where(constituencyScopeWhere(filter))
     .groupBy(constituenciesTable.countyId);
 
   const wardCounts = await db
@@ -58,6 +109,7 @@ router.get("/counties", requireAuth, async (req: any, res: any) => {
       count: sql<number>`cast(count(*) as int)`,
     })
     .from(wardsTable)
+    .where(wardScopeWhere(filter))
     .groupBy(wardsTable.countyId);
 
   const constMap: Record<string, number> = {};
@@ -74,6 +126,12 @@ router.get("/counties", requireAuth, async (req: any, res: any) => {
 
 // GET /api/geography/counties/:id
 router.get("/counties/:id", requireAuth, async (req: any, res: any) => {
+  const filter = await scopeFilterFor(req);
+  // Out-of-scope counties are indistinguishable from unknown ones.
+  if (filter && req.params.id !== filter.countyId) {
+    return res.status(404).json({ error: "County not found" });
+  }
+
   const county = await db
     .select()
     .from(countiesTable)
@@ -85,18 +143,18 @@ router.get("/counties/:id", requireAuth, async (req: any, res: any) => {
   const constituencies = await db
     .select()
     .from(constituenciesTable)
-    .where(eq(constituenciesTable.countyId, req.params.id))
+    .where(constituencyScopeWhere(filter) ?? eq(constituenciesTable.countyId, req.params.id))
     .orderBy(constituenciesTable.code);
 
   const [wardCount] = await db
     .select({ count: sql<number>`cast(count(*) as int)` })
     .from(wardsTable)
-    .where(eq(wardsTable.countyId, req.params.id));
+    .where(wardScopeWhere(filter) ?? eq(wardsTable.countyId, req.params.id));
 
   const [stationCount] = await db
     .select({ count: sql<number>`cast(count(*) as int)` })
     .from(pollingStationsTable)
-    .where(eq(pollingStationsTable.countyId, req.params.id));
+    .where(stationScopeWhere(filter) ?? eq(pollingStationsTable.countyId, req.params.id));
 
   // Add ward counts to constituencies
   const wardCounts = await db
@@ -140,7 +198,12 @@ router.get("/constituencies", requireAuth, async (req: any, res: any) => {
   const q = validate(constituenciesQuerySchema, req.query, res);
   if (!q) return;
   const { countyId } = q;
-  const whereConditions = countyId ? eq(constituenciesTable.countyId, countyId) : undefined;
+  const filter = await scopeFilterFor(req);
+  const conditions = [];
+  if (countyId) conditions.push(eq(constituenciesTable.countyId, countyId));
+  const scoped = constituencyScopeWhere(filter);
+  if (scoped) conditions.push(scoped);
+  const whereConditions = conditions.length > 0 ? and(...conditions) : undefined;
 
   const constituencies = await db
     .select({
@@ -162,6 +225,7 @@ router.get("/constituencies", requireAuth, async (req: any, res: any) => {
       count: sql<number>`cast(count(*) as int)`,
     })
     .from(wardsTable)
+    .where(wardScopeWhere(filter))
     .groupBy(wardsTable.constituencyId);
 
   const wcMap: Record<string, number> = {};
@@ -175,9 +239,12 @@ router.get("/wards", requireAuth, async (req: any, res: any) => {
   const q = validate(wardsQuerySchema, req.query, res);
   if (!q) return;
   const { constituencyId, countyId } = q;
+  const filter = await scopeFilterFor(req);
   const conditions = [];
   if (constituencyId) conditions.push(eq(wardsTable.constituencyId, constituencyId));
   if (countyId) conditions.push(eq(wardsTable.countyId, countyId));
+  const scopedWards = wardScopeWhere(filter);
+  if (scopedWards) conditions.push(scopedWards);
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
@@ -207,9 +274,12 @@ router.get("/polling-centres", requireAuth, async (req: any, res: any) => {
   const q = validate(pollingCentresQuerySchema, req.query, res);
   if (!q) return;
   const { wardId, constituencyId } = q;
+  const filter = await scopeFilterFor(req);
   const conditions = [];
   if (wardId) conditions.push(eq(pollingCentresTable.wardId, wardId));
   if (constituencyId) conditions.push(eq(pollingCentresTable.constituencyId, constituencyId));
+  const scopedCentres = centreScopeWhere(filter);
+  if (scopedCentres) conditions.push(scopedCentres);
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
@@ -248,11 +318,14 @@ router.get("/polling-stations", requireAuth, async (req: any, res: any) => {
   const q = validate(pollingStationsQuerySchema, req.query, res);
   if (!q) return;
   const { centreId, wardId, constituencyId, countyId, search } = q;
+  const filter = await scopeFilterFor(req);
   const conditions = [];
   if (centreId) conditions.push(eq(pollingStationsTable.centreId, centreId));
   if (wardId) conditions.push(eq(pollingStationsTable.wardId, wardId));
   if (constituencyId) conditions.push(eq(pollingStationsTable.constituencyId, constituencyId));
   if (countyId) conditions.push(eq(pollingStationsTable.countyId, countyId));
+  const scopedStations = stationScopeWhere(filter);
+  if (scopedStations) conditions.push(scopedStations);
   // search by station code or name (case-insensitive)
   if (search) conditions.push(or(ilike(pollingStationsTable.code, `%${search}%`), ilike(pollingStationsTable.name, `%${search}%`)));
 
@@ -286,12 +359,42 @@ router.get("/polling-stations", requireAuth, async (req: any, res: any) => {
 
 // GET /api/geography/stats
 router.get("/stats", requireAuth, async (req: any, res: any) => {
-  const [countyCount] = await db.select({ count: sql<number>`cast(count(*) as int)` }).from(countiesTable);
-  const [constCount] = await db.select({ count: sql<number>`cast(count(*) as int)` }).from(constituenciesTable);
-  const [wardCount] = await db.select({ count: sql<number>`cast(count(*) as int)` }).from(wardsTable);
-  const [centreCount] = await db.select({ count: sql<number>`cast(count(*) as int)` }).from(pollingCentresTable);
-  const [stationCount] = await db.select({ count: sql<number>`cast(count(*) as int)` }).from(pollingStationsTable);
-  const [voters] = await db.select({ total: sql<number>`coalesce(cast(sum(registered_voters) as int), 0)` }).from(countiesTable);
+  const filter = await scopeFilterFor(req);
+  const [countyCount] = await db
+    .select({ count: sql<number>`cast(count(*) as int)` })
+    .from(countiesTable)
+    .where(filter ? eq(countiesTable.id, filter.countyId!) : undefined);
+  const [constCount] = await db
+    .select({ count: sql<number>`cast(count(*) as int)` })
+    .from(constituenciesTable)
+    .where(constituencyScopeWhere(filter));
+  const [wardCount] = await db
+    .select({ count: sql<number>`cast(count(*) as int)` })
+    .from(wardsTable)
+    .where(wardScopeWhere(filter));
+  const [centreCount] = await db
+    .select({ count: sql<number>`cast(count(*) as int)` })
+    .from(pollingCentresTable)
+    .where(centreScopeWhere(filter));
+  const [stationCount] = await db
+    .select({ count: sql<number>`cast(count(*) as int)` })
+    .from(pollingStationsTable)
+    .where(stationScopeWhere(filter));
+  // Voter totals come from the deepest scoped level's own registered_voters.
+  const [voters] = filter?.wardId
+    ? await db
+        .select({ total: sql<number>`coalesce(cast(sum(registered_voters) as int), 0)` })
+        .from(wardsTable)
+        .where(eq(wardsTable.id, filter.wardId))
+    : filter?.constituencyId
+      ? await db
+          .select({ total: sql<number>`coalesce(cast(sum(registered_voters) as int), 0)` })
+          .from(constituenciesTable)
+          .where(eq(constituenciesTable.id, filter.constituencyId))
+      : await db
+          .select({ total: sql<number>`coalesce(cast(sum(registered_voters) as int), 0)` })
+          .from(countiesTable)
+          .where(filter ? eq(countiesTable.id, filter.countyId!) : undefined);
 
   res.json({
     countyCount: countyCount?.count || 0,

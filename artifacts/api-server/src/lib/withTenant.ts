@@ -76,6 +76,11 @@ export interface TenantInfo {
   slug: string;
   plan: string;
   isSuspended: boolean;
+  /** Campaign scope — which seat is contested and the geography it covers. */
+  seatType: string | null;
+  scopeCountyId: string | null;
+  scopeConstituencyId: string | null;
+  scopeWardId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }

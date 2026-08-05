@@ -116,7 +116,7 @@ export default function Dashboard() {
           </div>
           <div className="mb-6 relative z-10">
             <h2 className="text-lg font-bold text-foreground">National Coverage Map</h2>
-            <p className="text-sm text-muted-foreground">Live deployment status across 47 counties</p>
+            <p className="text-sm text-muted-foreground">Live deployment status across your campaign's scope</p>
           </div>
           <div className="flex-1 min-h-[300px] relative z-10 flex items-center justify-center border-2 border-dashed border-border rounded bg-muted/10">
             <div className="text-center text-muted-foreground">

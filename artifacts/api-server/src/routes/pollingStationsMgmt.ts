@@ -5,8 +5,9 @@
  * Per-tenant campaign state (accreditation, training, agent assignments) is stored
  * in campaign_station_profiles, scoped to the active tenant.
  *
- * All 24,594 real stations are visible to any authenticated campaign user —
- * a campaign does not need to have deployed agents to view or profile a station.
+ * Stations are filtered to the campaign's scope (seat + geography): a Nairobi
+ * senatorial campaign sees Nairobi's stations, not all 24,594. A campaign does
+ * not need to have deployed agents to view or profile an in-scope station.
  */
 import { logger } from "../lib/logger";
 import { Router } from "express";
@@ -28,6 +29,7 @@ import { resolveTenant } from "../middlewares/resolveTenant";
 import { tenantFilter, assertTenant } from '../lib/withTenant';
 import { z } from "zod";
 import { validate } from "../lib/validate";
+import { resolveScopeGeoFilter, type ScopeGeoFilter } from "../lib/campaignScope";
 
 const router = Router();
 
@@ -68,10 +70,24 @@ const canManageStations = requireRoles([
   "county-coordinator",
 ]);
 
+/**
+ * Shared stations are filtered to the campaign's scope. resolveScopeGeoFilter
+ * returns null for presidential / legacy scope-less tenants (no filtering).
+ */
+function stationScopeCondition(filter: ScopeGeoFilter | null) {
+  if (!filter) return undefined;
+  if (filter.wardId) return eq(pollingStationsTable.wardId, filter.wardId);
+  if (filter.constituencyId) return eq(pollingStationsTable.constituencyId, filter.constituencyId);
+  return eq(pollingStationsTable.countyId, filter.countyId!);
+}
+
+function countyScopeCondition(filter: ScopeGeoFilter | null) {
+  return filter ? eq(countiesTable.id, filter.countyId!) : undefined;
+}
+
 // GET /api/polling-stations-mgmt/stations
-// Returns ALL polling stations. Per-tenant campaign profile (agent assignment,
-// accreditation, etc.) is joined per-page. A campaign can view any station
-// regardless of whether it has deployed agents there.
+// Returns the stations within this campaign's scope. Per-tenant campaign
+// profile (agent assignment, accreditation, etc.) is joined per-page.
 router.get("/stations", requireAuth, resolveTenant, canViewStations, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
@@ -81,8 +97,11 @@ router.get("/stations", requireAuth, resolveTenant, canViewStations, async (req:
     const pageNum = q.page;
     const pageSize = q.limit;
     const offset = (pageNum - 1) * pageSize;
+    const filter = await resolveScopeGeoFilter(t);
 
     const conditions: any[] = [];
+    const scoped = stationScopeCondition(filter);
+    if (scoped) conditions.push(scoped);
     if (countyId) conditions.push(eq(pollingStationsTable.countyId, countyId as string));
     if (constituencyId) conditions.push(eq(pollingStationsTable.constituencyId, constituencyId as string));
     if (wardId) conditions.push(eq(pollingStationsTable.wardId, wardId as string));
@@ -135,20 +154,24 @@ router.get("/stations", requireAuth, resolveTenant, canViewStations, async (req:
       // Filtered total
       db.select({ total: count() }).from(pollingStationsTable).where(where),
 
-      // Grand total (no filters) for coverage denominator
-      db.select({ totalAll: count() }).from(pollingStationsTable),
+      // Scope total (no query filters) for the coverage denominator
+      db.select({ totalAll: count() }).from(pollingStationsTable).where(stationScopeCondition(filter)),
 
-      // Stations with a primary agent assigned in this campaign
+      // Stations with a primary agent assigned in this campaign, within scope
+      // (legacy profiles may exist on out-of-scope stations)
       db.select({ assignedCount: count() })
         .from(campaignStationProfilesTable)
+        .innerJoin(pollingStationsTable, eq(campaignStationProfilesTable.stationId, pollingStationsTable.id))
         .where(and(
           tenantFilter(campaignStationProfilesTable, t.id),
           isNotNull(campaignStationProfilesTable.primaryAgentId),
+          stationScopeCondition(filter),
         )),
 
-      // All counties for the filter dropdown
+      // Counties for the filter dropdown (scoped)
       db.select({ id: countiesTable.id, name: countiesTable.name })
         .from(countiesTable)
+        .where(countyScopeCondition(filter))
         .orderBy(countiesTable.name),
     ]);
 
@@ -198,6 +221,7 @@ router.get("/stations", requireAuth, resolveTenant, canViewStations, async (req:
 router.get("/stations/:id", requireAuth, resolveTenant, canViewStations, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
+    const filter = await resolveScopeGeoFilter(t);
 
     const [row] = await db.select({
       id: pollingStationsTable.id,
@@ -216,7 +240,8 @@ router.get("/stations/:id", requireAuth, resolveTenant, canViewStations, async (
       .innerJoin(constituenciesTable, eq(pollingStationsTable.constituencyId, constituenciesTable.id))
       .innerJoin(countiesTable, eq(pollingStationsTable.countyId, countiesTable.id))
       .innerJoin(pollingCentresTable, eq(pollingStationsTable.centreId, pollingCentresTable.id))
-      .where(eq(pollingStationsTable.id, req.params.id))
+      // Out-of-scope stations are indistinguishable from unknown ones.
+      .where(and(eq(pollingStationsTable.id, req.params.id), stationScopeCondition(filter)))
       .limit(1);
 
     if (!row) return res.status(404).json({ error: "Station not found" });
@@ -289,10 +314,12 @@ router.patch("/stations/:id", requireAuth, resolveTenant, canManageStations, asy
       return res.status(400).json({ error: "No updatable fields provided" });
     }
 
-    // Confirm the station exists in the shared geography
+    // Confirm the station exists within this campaign's scope — out-of-scope
+    // stations cannot be profiled.
+    const filter = await resolveScopeGeoFilter(t);
     const [exists] = await db.select({ id: pollingStationsTable.id })
       .from(pollingStationsTable)
-      .where(eq(pollingStationsTable.id, req.params.id))
+      .where(and(eq(pollingStationsTable.id, req.params.id), stationScopeCondition(filter)))
       .limit(1);
     if (!exists) return res.status(404).json({ error: "Station not found" });
 
@@ -375,6 +402,18 @@ router.post("/stations/bulk-status", requireAuth, resolveTenant, canManageStatio
       return res.status(400).json({ error: "No status fields to update" });
     }
 
+    // Every referenced station must be inside this campaign's scope.
+    const filter = await resolveScopeGeoFilter(t);
+    if (filter) {
+      const [{ inScope }] = await db
+        .select({ inScope: count() })
+        .from(pollingStationsTable)
+        .where(and(inArray(pollingStationsTable.id, stationIds), stationScopeCondition(filter)));
+      if (Number(inScope) !== stationIds.length) {
+        return res.status(403).json({ error: "One or more stations are unknown or outside this campaign's scope." });
+      }
+    }
+
     let updated = 0;
     for (const stationId of stationIds) {
       await db.insert(campaignStationProfilesTable)
@@ -406,10 +445,13 @@ router.get("/coverage-gaps", requireAuth, resolveTenant, canViewStations, async 
     const q = validate(coverageGapsQuerySchema, req.query, res);
     if (!q) return;
     const { countyId, constituencyId } = q;
+    const filter = await resolveScopeGeoFilter(t);
 
     const conditions: any[] = [];
     if (countyId) conditions.push(eq(pollingStationsTable.countyId, countyId as string));
     if (constituencyId) conditions.push(eq(pollingStationsTable.constituencyId, constituencyId as string));
+    const scoped = stationScopeCondition(filter);
+    if (scoped) conditions.push(scoped);
     const where = conditions.length ? and(...conditions) : undefined;
 
     const [rows, [{ grandTotal }], [{ grandAssigned }], counties] = await Promise.all([
@@ -446,21 +488,25 @@ router.get("/coverage-gaps", requireAuth, resolveTenant, canViewStations, async 
         )
         .orderBy(countiesTable.name, constituenciesTable.name, wardsTable.name),
 
-      // Grand total — ALL stations (no tenant filter; stations are global geography)
-      db.select({ grandTotal: count() }).from(pollingStationsTable),
+      // Scope total — stations within this campaign's scope (stations are
+      // shared geography, so scope, not tenant, bounds the denominator)
+      db.select({ grandTotal: count() }).from(pollingStationsTable).where(stationScopeCondition(filter)),
 
-      // Grand assigned count for this tenant specifically
+      // Grand assigned count for this tenant, within scope
       db
         .select({ grandAssigned: sql<number>`count(${campaignStationProfilesTable.primaryAgentId})::int` })
         .from(campaignStationProfilesTable)
+        .innerJoin(pollingStationsTable, eq(campaignStationProfilesTable.stationId, pollingStationsTable.id))
         .where(and(
           tenantFilter(campaignStationProfilesTable, t.id),
           isNotNull(campaignStationProfilesTable.primaryAgentId),
+          stationScopeCondition(filter),
         )),
 
-      // County list for the filter dropdown
+      // County list for the filter dropdown (scoped)
       db.select({ id: countiesTable.id, name: countiesTable.name })
         .from(countiesTable)
+        .where(countyScopeCondition(filter))
         .orderBy(countiesTable.name),
     ]);
 

@@ -131,7 +131,7 @@ export default function PollingStations() {
       <div>
         <h1 className="text-2xl font-black tracking-tight uppercase">POLLING STATIONS</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Browse and manage all {totalAll > 0 ? totalAll.toLocaleString() : "…"} stations across Kenya's 47 counties.
+          Browse and manage all {totalAll > 0 ? totalAll.toLocaleString() : "…"} polling stations in your campaign's scope.
         </p>
       </div>
 

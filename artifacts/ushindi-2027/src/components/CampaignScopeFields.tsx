@@ -75,19 +75,21 @@ export function CampaignScopeFields({
   const showConstituency = (value.seatType === "mp" || value.seatType === "mca") && Boolean(value.countyId);
   const showWard = value.seatType === "mca" && Boolean(value.constituencyId);
 
+  // ?all=1 — scope SELECTION must offer the full map, bypassing the
+  // tenant-scope filter the API applies to operational geography queries.
   const { data: counties } = useQuery<GeoOption[]>({
-    queryKey: ["/api/geography/counties"],
-    queryFn: () => apiFetch("/api/geography/counties"),
+    queryKey: ["/api/geography/counties", "all"],
+    queryFn: () => apiFetch("/api/geography/counties?all=1"),
     enabled: showCounty,
   });
   const { data: constituencies } = useQuery<GeoOption[]>({
-    queryKey: ["/api/geography/constituencies", value.countyId],
-    queryFn: () => apiFetch(`/api/geography/constituencies?countyId=${value.countyId}`),
+    queryKey: ["/api/geography/constituencies", value.countyId, "all"],
+    queryFn: () => apiFetch(`/api/geography/constituencies?countyId=${value.countyId}&all=1`),
     enabled: showConstituency,
   });
   const { data: wards } = useQuery<GeoOption[]>({
-    queryKey: ["/api/geography/wards", value.constituencyId],
-    queryFn: () => apiFetch(`/api/geography/wards?constituencyId=${value.constituencyId}`),
+    queryKey: ["/api/geography/wards", value.constituencyId, "all"],
+    queryFn: () => apiFetch(`/api/geography/wards?constituencyId=${value.constituencyId}&all=1`),
     enabled: showWard,
   });
 

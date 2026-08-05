@@ -95,7 +95,11 @@ function withTenantMixed(subrouter: IRouter) {
 router.use("/users", identityRouter);
 router.use("/users", withTenant(usersRouter));
 router.use("/roles", withTenant(rolesRouter));
-router.use("/geography", geographyRouter); // geography is global/shared — no tenant filter needed
+// Geography is shared reference data, but when the caller has campaign
+// context the list endpoints are filtered to the campaign's scope — a
+// Nairobi senatorial campaign only sees Nairobi's hierarchy. Scope-SELECTION
+// pickers pass ?all=1 to get the full map.
+router.use("/geography", resolveTenantOptional, geographyRouter);
 router.use("/dashboard", withTenant(dashboardRouter));
 router.use("/config", configRouter); // GET /branding is public; mutations use requireAuth+resolveTenant internally
 router.use("/audit", withTenant(auditRouter));

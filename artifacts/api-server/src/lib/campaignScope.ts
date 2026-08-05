@@ -127,3 +127,53 @@ export async function scopeGeographyExists(scope: NormalizedScope): Promise<stri
   }
   return null;
 }
+
+/**
+ * Geography visibility filter derived from a campaign's scope.
+ *
+ * Operational screens should only show the geography a campaign actually
+ * contests: a Nairobi senatorial campaign sees Nairobi and its hierarchy,
+ * not all 47 counties. The filter always includes the scope's PARENT chain
+ * (an MCA campaign still sees its own county and constituency) so cascading
+ * pickers and breadcrumbs keep working. Returns null for presidential and
+ * legacy scope-less tenants — they see everything.
+ */
+export interface ScopeGeoFilter {
+  countyId: string | null;
+  constituencyId: string | null;
+  wardId: string | null;
+}
+
+export async function resolveScopeGeoFilter(scope: {
+  seatType: string | null;
+  scopeCountyId: string | null;
+  scopeConstituencyId: string | null;
+  scopeWardId: string | null;
+}): Promise<ScopeGeoFilter | null> {
+  if (!scope.seatType || scope.seatType === "presidential") return null;
+
+  if (scope.scopeCountyId) {
+    return { countyId: scope.scopeCountyId, constituencyId: null, wardId: null };
+  }
+  if (scope.scopeConstituencyId) {
+    const [row] = await db
+      .select({ countyId: constituenciesTable.countyId })
+      .from(constituenciesTable)
+      .where(eq(constituenciesTable.id, scope.scopeConstituencyId))
+      .limit(1);
+    // Reference row vanished — fail open (no filtering) rather than hide everything.
+    if (!row) return null;
+    return { countyId: row.countyId, constituencyId: scope.scopeConstituencyId, wardId: null };
+  }
+  if (scope.scopeWardId) {
+    const [row] = await db
+      .select({ constituencyId: wardsTable.constituencyId, countyId: wardsTable.countyId })
+      .from(wardsTable)
+      .where(eq(wardsTable.id, scope.scopeWardId))
+      .limit(1);
+    if (!row) return null;
+    return { countyId: row.countyId, constituencyId: row.constituencyId, wardId: scope.scopeWardId };
+  }
+  // Seat set but no geography (blocked by the CHECK constraint) — no filtering.
+  return null;
+}
