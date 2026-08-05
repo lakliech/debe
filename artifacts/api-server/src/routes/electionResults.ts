@@ -317,6 +317,17 @@ router.post("/submissions/agent-submit", requireAuth, canSubmitResults, async (r
       if (!ownedAgent) return res.status(400).json({ error: "agentId not found or not owned by this campaign" });
     }
 
+    // Station must be registered to THIS campaign (a campaign_station_profiles
+    // row). polling_stations is shared global geography — without this check an
+    // agent could submit results for any station in the country, including
+    // stations the campaign does not operate.
+    const [ownedStation] = await db.select({ id: campaignStationProfilesTable.id }).from(campaignStationProfilesTable)
+      .where(and(
+        eq(campaignStationProfilesTable.stationId, body.pollingStationId),
+        tenantFilter(campaignStationProfilesTable, t.id),
+      )).limit(1);
+    if (!ownedStation) return res.status(400).json({ error: "pollingStationId not registered to this campaign" });
+
     // Idempotency: check for existing submission by deviceId + offlineCapturedAt
     if (body.deviceId && body.offlineCapturedAt) {
       const [dup] = await db.select({ id: resultSubmissionsTable.id, status: resultSubmissionsTable.status })
