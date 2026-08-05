@@ -2,6 +2,7 @@
  * Election Admin API: Elections & Candidates management
  */
 import { logger } from "../lib/logger";
+import { makeImportHandler, chunks, cellString, cellBool, cellInt, ImportNotFoundError } from "../lib/bulkImport";
 import { Router } from "express";
 import { z } from "zod";
 import { getAuth } from "@clerk/express";
@@ -161,6 +162,44 @@ router.get("/elections/:id/candidates", requireAuth, async (req: any, res: any) 
     res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
+
+// POST /api/election-admin/elections/:id/candidates/import — bulk CSV/Excel import
+// (multipart form field "file": .csv/.xls/.xlsx, max 5 MB / 5000 rows)
+const candidateImportRowSchema = z.object({
+  fullName: z.preprocess(cellString, z.string().min(1).max(200)),
+  partyName: z.preprocess(cellString, z.string().max(200).optional()),
+  partyAbbreviation: z.preprocess(cellString, z.string().max(20).optional()),
+  isOurCandidate: z.preprocess(cellBool, z.boolean().optional()),
+  displayOrder: z.preprocess(cellInt, z.number().int().nonnegative().optional()),
+});
+const CANDIDATE_IMPORT_ALIASES = {
+  fullName: ["name"],
+  partyName: ["party"],
+  partyAbbreviation: ["partyabbr", "abbreviation"],
+  isOurCandidate: ["ourcandidate", "ours"],
+  displayOrder: ["order", "position"],
+};
+
+router.post("/elections/:id/candidates/import", requireAuth, canManageElections, makeImportHandler({
+  schema: candidateImportRowSchema,
+  aliases: CANDIDATE_IMPORT_ALIASES,
+  getTenantId: (req) => assertTenant(req).id,
+  insertRows: async (rows, tenantId, req) => {
+    // The election must belong to this tenant before importing into it.
+    const [election] = await db.select({ id: electionsTable.id }).from(electionsTable)
+      .where(and(eq(electionsTable.id, req.params.id), tenantFilter(electionsTable, tenantId))).limit(1);
+    if (!election) throw new ImportNotFoundError("Election not found");
+
+    let created = 0;
+    for (const chunk of chunks(rows, 500)) {
+      created += (await db.insert(candidatesTable)
+        .values(chunk.map((r) => ({ ...r, tenantId, electionId: req.params.id })))
+        .returning({ id: candidatesTable.id })).length;
+    }
+    return created;
+  },
+  logger,
+}));
 
 // POST /api/election-admin/elections/:id/candidates
 router.post("/elections/:id/candidates", requireAuth, canManageElections, async (req: any, res: any) => {

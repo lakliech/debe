@@ -2,6 +2,7 @@
  * Polling Agents Management API
  */
 import { logger } from "../lib/logger";
+import { makeImportHandler, chunks, cellString, cellBool } from "../lib/bulkImport";
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
 import { z } from "zod";
@@ -178,6 +179,37 @@ router.get("/", requireAuth, canViewAgents, async (req: any, res: any) => {
     res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
+
+// POST /api/polling-agents/import — bulk CSV/Excel import
+// (multipart form field "file": .csv/.xls/.xlsx, max 5 MB / 5000 rows)
+const agentImportRowSchema = z.object({
+  fullName: z.preprocess(cellString, z.string().min(1).max(200)),
+  phoneNumber: z.preprocess(cellString, z.string().min(9).max(20)),
+  nationalId: z.preprocess(cellString, z.string().max(20).optional()),
+  isBackup: z.preprocess(cellBool, z.boolean().optional()),
+});
+const AGENT_IMPORT_ALIASES = {
+  fullName: ["name"],
+  phoneNumber: ["phone", "msisdn", "mobile", "telephone", "contact"],
+  nationalId: ["idnumber", "idno", "nationalidnumber"],
+  isBackup: ["backup"],
+};
+
+router.post("/import", requireAuth, canManageAgents, makeImportHandler({
+  schema: agentImportRowSchema,
+  aliases: AGENT_IMPORT_ALIASES,
+  getTenantId: (req) => assertTenant(req).id,
+  insertRows: async (rows, tenantId) => {
+    let created = 0;
+    for (const chunk of chunks(rows, 500)) {
+      created += (await db.insert(pollingAgentsTable)
+        .values(chunk.map((r) => ({ ...r, tenantId })))
+        .returning({ id: pollingAgentsTable.id })).length;
+    }
+    return created;
+  },
+  logger,
+}));
 
 // POST /api/polling-agents/
 router.post("/", requireAuth, canManageAgents, async (req: any, res: any) => {

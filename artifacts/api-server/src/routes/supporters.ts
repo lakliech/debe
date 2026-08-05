@@ -1,4 +1,5 @@
 import { logger } from "../lib/logger";
+import { makeImportHandler, chunks, cellString, cellList } from "../lib/bulkImport";
 import { Router } from "express";
 import { z } from "zod";
 import { getAuth } from "@clerk/express";
@@ -81,6 +82,37 @@ const ConsentWithdrawSchema = z.object({
 });
 
 // GET /api/supporters
+// POST /api/supporters/import — bulk CSV/Excel import
+// (multipart form field "file": .csv/.xls/.xlsx, max 5 MB / 5000 rows)
+const supporterImportRowSchema = z.object({
+  fullName: z.preprocess(cellString, z.string().min(1).max(200)),
+  email: z.preprocess(cellString, z.string().email().max(320).optional()),
+  phoneNumber: z.preprocess(cellString, z.string().min(9).max(20).optional()),
+  policyInterests: z.preprocess(cellList, z.array(z.string().max(80)).max(20).optional()),
+});
+const SUPPORTER_IMPORT_ALIASES = {
+  fullName: ["name"],
+  email: ["emailaddress", "e-mail", "mail"],
+  phoneNumber: ["phone", "msisdn", "mobile", "telephone", "contact"],
+  policyInterests: ["interests"],
+};
+
+router.post("/import", requireAuth, resolveTenant, canManageSupporters, makeImportHandler({
+  schema: supporterImportRowSchema,
+  aliases: SUPPORTER_IMPORT_ALIASES,
+  getTenantId: (req) => assertTenant(req).id,
+  insertRows: async (rows, tenantId) => {
+    let created = 0;
+    for (const chunk of chunks(rows, 500)) {
+      created += (await db.insert(supportersTable)
+        .values(chunk.map((r) => ({ ...r, tenantId })))
+        .returning({ id: supportersTable.id })).length;
+    }
+    return created;
+  },
+  logger,
+}));
+
 router.get("/", requireAuth, resolveTenant, canManageSupporters, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);

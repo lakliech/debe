@@ -1,4 +1,5 @@
 import { logger } from "../lib/logger";
+import { makeImportHandler, chunks, cellString, cellList } from "../lib/bulkImport";
 import { Router } from "express";
 import { z } from "zod";
 import { getAuth } from "@clerk/express";
@@ -92,6 +93,43 @@ const BadgeAwardSchema = z.object({
 });
 
 // GET /api/volunteers
+// POST /api/volunteers/import — bulk CSV/Excel import
+// (multipart form field "file": .csv/.xls/.xlsx, max 5 MB / 5000 rows)
+const volunteerImportRowSchema = z.object({
+  fullName: z.preprocess(cellString, z.string().min(1).max(200)),
+  phoneNumber: z.preprocess(cellString, z.string().min(9).max(20)),
+  email: z.preprocess(cellString, z.string().email().max(320).optional()),
+  preferredRole: z.preprocess(cellString, z.string().max(100).optional()),
+  skills: z.preprocess(cellList, z.array(z.string().max(60)).max(20).optional()),
+  languages: z.preprocess(cellList, z.array(z.string().max(60)).max(10).optional()),
+  availability: z.preprocess(cellString, z.string().max(100).optional()),
+});
+const VOLUNTEER_IMPORT_ALIASES = {
+  fullName: ["name"],
+  phoneNumber: ["phone", "msisdn", "mobile", "telephone", "contact"],
+  email: ["emailaddress", "e-mail", "mail"],
+  preferredRole: ["role"],
+  skills: ["skill"],
+  languages: ["language"],
+  availability: [],
+};
+
+router.post("/import", requireAuth, resolveTenant, canManageVolunteers, makeImportHandler({
+  schema: volunteerImportRowSchema,
+  aliases: VOLUNTEER_IMPORT_ALIASES,
+  getTenantId: (req) => assertTenant(req).id,
+  insertRows: async (rows, tenantId) => {
+    let created = 0;
+    for (const chunk of chunks(rows, 500)) {
+      created += (await db.insert(volunteersTable)
+        .values(chunk.map((r) => ({ ...r, tenantId })))
+        .returning({ id: volunteersTable.id })).length;
+    }
+    return created;
+  },
+  logger,
+}));
+
 router.get("/", requireAuth, resolveTenant, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
