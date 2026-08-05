@@ -24,10 +24,18 @@ import {
   domainChangeRequestsTable,
   deletionRequestsTable,
   onboardingProgressTable,
+  countiesTable,
+  constituenciesTable,
+  wardsTable,
 } from "@workspace/db";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { requireLevel } from "../middlewares/rbac";
 import { logger } from "../lib/logger";
+import {
+  normalizeScope,
+  scopeGeographyExists,
+  ScopeValidationError,
+} from "../lib/campaignScope";
 import { PLANS, getEffectivePlan } from "../lib/plans";
 import { stripeConfigured } from "../lib/stripe";
 
@@ -207,6 +215,30 @@ router.get("/overview", requireAuth, requireLevel(2), async (req: any, res: any)
       .orderBy(desc(deletionRequestsTable.createdAt))
       .limit(1);
 
+    // Resolve the scope geography names (with parent ids) so the client can
+    // display the chain and pre-fill the edit form's cascading pickers.
+    const [scopeCounty] = tenant.scopeCountyId
+      ? await db
+          .select({ id: countiesTable.id, name: countiesTable.name })
+          .from(countiesTable)
+          .where(eq(countiesTable.id, tenant.scopeCountyId))
+          .limit(1)
+      : [null];
+    const [scopeConstituency] = tenant.scopeConstituencyId
+      ? await db
+          .select({ id: constituenciesTable.id, name: constituenciesTable.name, countyId: constituenciesTable.countyId })
+          .from(constituenciesTable)
+          .where(eq(constituenciesTable.id, tenant.scopeConstituencyId))
+          .limit(1)
+      : [null];
+    const [scopeWard] = tenant.scopeWardId
+      ? await db
+          .select({ id: wardsTable.id, name: wardsTable.name, constituencyId: wardsTable.constituencyId, countyId: wardsTable.countyId })
+          .from(wardsTable)
+          .where(eq(wardsTable.id, tenant.scopeWardId))
+          .limit(1)
+      : [null];
+
     res.json({
       campaign: {
         id: tenant.id,
@@ -218,6 +250,10 @@ router.get("/overview", requireAuth, requireLevel(2), async (req: any, res: any)
         lifecycleState: tenant.lifecycleState,
         scheduledDeletionAt: tenant.scheduledDeletionAt,
         isSuspended: tenant.isSuspended,
+        seatType: tenant.seatType,
+        scopeCounty: scopeCounty ?? null,
+        scopeConstituency: scopeConstituency ?? null,
+        scopeWard: scopeWard ?? null,
       },
       branding: branding ?? null,
       plan: {
@@ -275,6 +311,34 @@ router.post("/onboarding/dismiss", requireAuth, requireLevel(2), async (req: any
       });
 
     res.json(await buildOnboarding(tenantId));
+  } catch (err: any) {
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// ── Campaign scope (seat + geography) ────────────────────────────────────────
+
+// PATCH /api/settings/scope — set or change which seat the campaign contests.
+// The seat's geography rule is enforced (see lib/campaignScope.ts); the
+// tenants_scope_valid CHECK constraint mirrors it at the database layer.
+router.patch("/scope", requireAuth, requireLevel(2), async (req: any, res: any) => {
+  try {
+    const tenantId = assertTenant(req, res);
+    if (!tenantId) return;
+
+    let scope;
+    try {
+      scope = normalizeScope(req.body ?? {});
+    } catch (err) {
+      if (err instanceof ScopeValidationError) return res.status(400).json({ error: err.message });
+      throw err;
+    }
+    const geoProblem = await scopeGeographyExists(scope);
+    if (geoProblem) return res.status(400).json({ error: geoProblem });
+
+    await db.update(tenantsTable).set(scope).where(eq(tenantsTable.id, tenantId));
+    res.json({ message: "Campaign scope updated.", scope });
   } catch (err: any) {
     logger.error({ err }, "request failed");
     res.status(500).json({ error: "Something went wrong. Please try again." });

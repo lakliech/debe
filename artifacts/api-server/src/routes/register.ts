@@ -32,6 +32,13 @@ import { clerkUserEmail, clerkUserName } from "../lib/clerkAdmin";
 import { TRIAL_DAYS } from "../lib/plans";
 import { platformUrl } from "../lib/stripe";
 import { bustActorCache } from "../middlewares/rbac";
+import {
+  normalizeScope,
+  scopeGeographyExists,
+  ScopeValidationError,
+  SEAT_LABELS,
+  type NormalizedScope,
+} from "../lib/campaignScope";
 
 const router = Router();
 
@@ -152,6 +159,10 @@ router.post("/", requireAuth, async (req: any, res: any) => {
     primaryColor,
     tagline,
     contactEmail,
+    seatType,
+    scopeCountyId,
+    scopeConstituencyId,
+    scopeWardId,
   } = req.body as Record<string, string | number | undefined>;
 
   try {
@@ -165,6 +176,18 @@ router.post("/", requireAuth, async (req: any, res: any) => {
     if (await slugTaken(slug)) {
       return res.status(409).json({ error: "That web address is already taken." });
     }
+
+    // Campaign scope is required from day one — every campaign contests a
+    // seat, and the geography selection must match that seat's level.
+    let scope: NormalizedScope;
+    try {
+      scope = normalizeScope({ seatType, scopeCountyId, scopeConstituencyId, scopeWardId });
+    } catch (err) {
+      if (err instanceof ScopeValidationError) return res.status(400).json({ error: err.message });
+      throw err;
+    }
+    const geoProblem = await scopeGeographyExists(scope);
+    if (geoProblem) return res.status(400).json({ error: geoProblem });
 
     // Resolve or create the local user row for the caller.
     // The signed-in account's own Clerk address is authoritative for the user
@@ -224,6 +247,7 @@ router.post("/", requireAuth, async (req: any, res: any) => {
           trialUsed: true,
           lifecycleState: "active",
           billingEmail: email ?? null,
+          ...scope,
         })
         .returning();
 
@@ -236,7 +260,12 @@ router.post("/", requireAuth, async (req: any, res: any) => {
         ...(typeof candidateName === "string" && candidateName ? { candidateName } : {}),
         ...(typeof tagline === "string" && tagline ? { tagline } : {}),
         ...(electionYear ? { electionYear: Number(electionYear) } : {}),
-        ...(typeof electionLevel === "string" && electionLevel ? { electionLevel } : {}),
+        // Branding's display label — explicit electionLevel wins; otherwise
+        // derive it from the (now required) campaign scope seat.
+        electionLevel:
+          typeof electionLevel === "string" && electionLevel
+            ? electionLevel
+            : SEAT_LABELS[scope.seatType],
         ...(typeof primaryColor === "string" && /^#[0-9a-fA-F]{6}$/.test(primaryColor)
           ? { primaryColor }
           : {}),

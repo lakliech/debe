@@ -7,11 +7,12 @@ import {
   uuid,
   unique,
   uniqueIndex,
+  check,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
-import { countiesTable } from "./geography";
+import { countiesTable, constituenciesTable, wardsTable } from "./geography";
 
 // ── Tenants ───────────────────────────────────────────────────────────────────
 // One row per campaign deployment. Membership is owned by the app (user_roles),
@@ -68,9 +69,37 @@ export const tenantsTable = pgTable("tenants", {
   tlsCertError: text("tls_cert_error"),
   /** Timestamp when TLS was last confirmed active. */
   tlsProvisionedAt: timestamp("tls_provisioned_at", { withTimezone: true }),
+  /**
+   * Campaign scope — the seat this campaign contests:
+   *   presidential | gubernatorial | senator | women_rep | mp | mca
+   * Exactly one geography FK is stored, at the level the seat requires
+   * (county seats → scopeCountyId, mp → scopeConstituencyId, mca → scopeWardId,
+   * presidential → none). The tenants_scope_valid CHECK constraint enforces
+   * the seat/geography pairing; api-server/src/lib/campaignScope.ts enforces
+   * it at the API layer. Nullable only so pre-scope campaigns can exist until
+   * they define their scope.
+   */
+  seatType: text("seat_type"),
+  scopeCountyId: uuid("scope_county_id").references(() => countiesTable.id),
+  scopeConstituencyId: uuid("scope_constituency_id").references(() => constituenciesTable.id),
+  scopeWardId: uuid("scope_ward_id").references(() => wardsTable.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
-});
+}, (t) => [
+  // Seat → geography pairing, mirroring api-server/src/lib/campaignScope.ts.
+  // Applied out-of-band as tenants_scope_valid (see lib/db/ddl/). seat_type
+  // NULL is allowed only for campaigns created before scope existed — they
+  // define it in Settings; all creation routes now require it at the API.
+  check(
+    "tenants_scope_valid",
+    sql`seat_type IS NULL OR (
+      (seat_type = 'presidential' AND scope_county_id IS NULL AND scope_constituency_id IS NULL AND scope_ward_id IS NULL) OR
+      (seat_type IN ('gubernatorial', 'senator', 'women_rep') AND scope_county_id IS NOT NULL AND scope_constituency_id IS NULL AND scope_ward_id IS NULL) OR
+      (seat_type = 'mp' AND scope_county_id IS NULL AND scope_constituency_id IS NOT NULL AND scope_ward_id IS NULL) OR
+      (seat_type = 'mca' AND scope_county_id IS NULL AND scope_constituency_id IS NULL AND scope_ward_id IS NOT NULL)
+    )`,
+  ),
+]);
 
 export const insertTenantSchema = createInsertSchema(tenantsTable).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertTenant = z.infer<typeof insertTenantSchema>;

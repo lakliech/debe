@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { CampaignScopeFields, SEAT_TO_LEVEL, scopeComplete, type ScopeSelection } from "@/components/CampaignScopeFields";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -45,15 +46,6 @@ interface RegisterResponse {
   message: string;
 }
 
-const ELECTION_LEVELS = [
-  "Presidential",
-  "Governor",
-  "Senator",
-  "Woman Representative",
-  "Member of Parliament",
-  "Member of County Assembly",
-];
-
 const PRESET_COLORS = [
   { name: "Kenya Red", value: "#CE1126" },
   { name: "Kenya Green", value: "#006B3F" },
@@ -78,7 +70,7 @@ export default function RegisterCampaign() {
   const [campaignName, setCampaignName] = useState("");
   const [slug, setSlug] = useState("");
   const [candidateName, setCandidateName] = useState("");
-  const [electionLevel, setElectionLevel] = useState("");
+  const [scope, setScope] = useState<ScopeSelection>({ seatType: "", countyId: "", constituencyId: "", wardId: "" });
   const [electionYear, setElectionYear] = useState("2027");
   const [primaryColor, setPrimaryColor] = useState(PRESET_COLORS[2].value);
   const [tagline, setTagline] = useState("");
@@ -144,8 +136,12 @@ export default function RegisterCampaign() {
           campaignName,
           slug,
           candidateName: candidateName || undefined,
-          electionLevel: electionLevel || undefined,
+          electionLevel: SEAT_TO_LEVEL[scope.seatType],
           electionYear: Number(electionYear),
+          seatType: scope.seatType,
+          scopeCountyId: scope.countyId || undefined,
+          scopeConstituencyId: scope.constituencyId || undefined,
+          scopeWardId: scope.wardId || undefined,
           primaryColor,
           tagline: tagline || undefined,
           contactEmail: contactEmail || undefined,
@@ -179,7 +175,7 @@ export default function RegisterCampaign() {
 
   const canProceed = (currentStep: number): boolean => {
     if (currentStep === 1) return campaignName.trim().length > 0 && slugCheck?.available === true;
-    if (currentStep === 2) return true; // Optional fields
+    if (currentStep === 2) return scopeComplete(scope); // Scope is required
     if (currentStep === 3) return true; // Optional
     if (currentStep === 4) return true; // Optional
     return false;
@@ -421,7 +417,7 @@ export default function RegisterCampaign() {
                       <div>
                         <h2 className="text-2xl font-black tracking-tight mb-2">Candidate &amp; Election</h2>
                         <p className="text-sm text-muted-foreground">
-                          Optional — you can configure this later in Branding settings.
+                          Which seat are you contesting? This defines the area your campaign covers.
                         </p>
                       </div>
 
@@ -437,36 +433,20 @@ export default function RegisterCampaign() {
                         />
                       </div>
 
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="electionLevel" className="font-bold">Election Level</Label>
-                          <Select value={electionLevel} onValueChange={setElectionLevel}>
-                            <SelectTrigger id="electionLevel" data-testid="select-election-level">
-                              <SelectValue placeholder="Select level" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {ELECTION_LEVELS.map((lvl) => (
-                                <SelectItem key={lvl} value={lvl}>
-                                  {lvl}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
+                      <CampaignScopeFields value={scope} onChange={setScope} />
 
-                        <div className="space-y-2">
-                          <Label htmlFor="electionYear" className="font-bold">Election Year</Label>
-                          <Input
-                            id="electionYear"
-                            type="number"
-                            min="2024"
-                            max="2030"
-                            value={electionYear}
-                            onChange={(e) => setElectionYear(e.target.value)}
-                            className="text-base"
-                            data-testid="input-election-year"
-                          />
-                        </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="electionYear" className="font-bold">Election Year</Label>
+                        <Input
+                          id="electionYear"
+                          type="number"
+                          min="2024"
+                          max="2030"
+                          value={electionYear}
+                          onChange={(e) => setElectionYear(e.target.value)}
+                          className="text-base"
+                          data-testid="input-election-year"
+                        />
                       </div>
                     </div>
                   )}
@@ -566,7 +546,7 @@ export default function RegisterCampaign() {
                           </div>
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">Election:</span>
-                            <span className="font-bold">{electionLevel ? `${electionLevel} ${electionYear}` : "Not set"}</span>
+                            <span className="font-bold">{scope.seatType ? `${SEAT_TO_LEVEL[scope.seatType]} ${electionYear}` : "Not set"}</span>
                           </div>
                           <div className="flex justify-between items-center">
                             <span className="text-muted-foreground">Primary Color:</span>

@@ -10,6 +10,7 @@
  *  - Tenant detail sheet: branding snapshot, user count, election level, suspend toggle, resend invite
  */
 import { useState } from "react";
+import { CampaignScopeFields, scopeComplete, type ScopeSelection } from "@/components/CampaignScopeFields";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Building2, Plus, Shield, Users, Calendar, ChevronRight, AlertCircle, CheckCircle2, XCircle, RefreshCw, Mail, Loader2, Globe, Copy, Check, LockKeyhole, Clock as ClockIcon, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -62,12 +63,19 @@ function NewCampaignForm({ onSuccess }: { onSuccess: () => void }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [form, setForm] = useState({ name: "", slug: "", adminEmail: "" });
+  const [scope, setScope] = useState<ScopeSelection>({ seatType: "", countyId: "", constituencyId: "", wardId: "" });
 
   const mutation = useMutation({
     mutationFn: () =>
       apiFetch("/tenants", {
         method: "POST",
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          ...form,
+          seatType: scope.seatType,
+          scopeCountyId: scope.countyId || undefined,
+          scopeConstituencyId: scope.constituencyId || undefined,
+          scopeWardId: scope.wardId || undefined,
+        }),
       }),
     onSuccess: (data: any) => {
       qc.invalidateQueries({ queryKey: ["platform-tenants"] });
@@ -76,6 +84,7 @@ function NewCampaignForm({ onSuccess }: { onSuccess: () => void }) {
         description: data.message ?? "New campaign is ready.",
       });
       setForm({ name: "", slug: "", adminEmail: "" });
+      setScope({ seatType: "", countyId: "", constituencyId: "", wardId: "" });
       onSuccess();
     },
     onError: (err: any) => {
@@ -131,9 +140,13 @@ function NewCampaignForm({ onSuccess }: { onSuccess: () => void }) {
         </p>
       </div>
 
+      <div className="border-t border-border pt-4">
+        <CampaignScopeFields value={scope} onChange={setScope} />
+      </div>
+
       <Button
         onClick={() => mutation.mutate()}
-        disabled={!form.name || !form.slug || mutation.isPending}
+        disabled={!form.name || !form.slug || !scopeComplete(scope) || mutation.isPending}
         className="gap-2"
       >
         {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}

@@ -7,6 +7,7 @@ import {
   Trash2, ChevronRight, Users, Database, TrendingUp, Zap, Shield,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
+import { CampaignScopeFields, SEAT_TO_LEVEL, scopeComplete, type ScopeSelection } from "@/components/CampaignScopeFields";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -53,6 +54,10 @@ interface OverviewData {
     lifecycleState: string;
     scheduledDeletionAt: string | null;
     isSuspended: boolean;
+    seatType: string | null;
+    scopeCounty: { id: string; name: string } | null;
+    scopeConstituency: { id: string; name: string; countyId: string } | null;
+    scopeWard: { id: string; name: string; constituencyId: string; countyId: string } | null;
   };
   branding: {
     campaignName: string;
@@ -446,6 +451,99 @@ function BrandingTab({ overview }: { overview: OverviewData }) {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function ScopeCard({ overview }: { overview: OverviewData }) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const c = overview.campaign;
+  const [editing, setEditing] = useState(false);
+  const [sel, setSel] = useState<ScopeSelection>({
+    seatType: c.seatType ?? "",
+    // Parent ids come back on the overview so the cascading pickers pre-fill.
+    countyId: c.scopeCounty?.id ?? c.scopeConstituency?.countyId ?? c.scopeWard?.countyId ?? "",
+    constituencyId: c.scopeConstituency?.id ?? c.scopeWard?.constituencyId ?? "",
+    wardId: c.scopeWard?.id ?? "",
+  });
+
+  const save = useMutation({
+    mutationFn: () =>
+      apiFetch("/api/settings/scope", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          seatType: sel.seatType,
+          scopeCountyId: sel.countyId || undefined,
+          scopeConstituencyId: sel.constituencyId || undefined,
+          scopeWardId: sel.wardId || undefined,
+        }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/settings/overview"] });
+      toast({ title: "Campaign scope updated" });
+      setEditing(false);
+    },
+    onError: (err: Error) =>
+      toast({ title: "Could not update scope", description: err.message, variant: "destructive" }),
+  });
+
+  const showForm = editing || !c.seatType;
+  const seatLabel = c.seatType ? SEAT_TO_LEVEL[c.seatType] ?? c.seatType : null;
+  const geoName = c.scopeCounty?.name ?? c.scopeConstituency?.name ?? c.scopeWard?.name ?? null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-lg flex items-center gap-2">
+          <Globe className="h-5 w-5 text-primary" />
+          Campaign Scope
+        </CardTitle>
+        <CardDescription>The seat this campaign is contesting and the area it covers.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {!c.seatType && (
+          <Alert>
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              No scope defined yet — set the seat and area this campaign is contesting.
+            </AlertDescription>
+          </Alert>
+        )}
+        {showForm ? (
+          <div className="space-y-4">
+            <CampaignScopeFields value={sel} onChange={setSel} />
+            <div className="flex gap-2">
+              <Button
+                onClick={() => save.mutate()}
+                disabled={!scopeComplete(sel) || save.isPending}
+                data-testid="button-save-scope"
+              >
+                {save.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Save Scope
+              </Button>
+              {c.seatType && (
+                <Button variant="ghost" onClick={() => setEditing(false)}>
+                  Cancel
+                </Button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-bold">{seatLabel}</p>
+              <p className="text-sm text-muted-foreground">
+                {c.seatType === "presidential" ? "National — all 47 counties" : geoName}
+              </p>
+            </div>
+            <Button variant="outline" onClick={() => setEditing(true)} data-testid="button-edit-scope">
+              Change
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -870,6 +968,7 @@ export default function Settings() {
           {overview.onboarding && activeTab === "plan" && <OnboardingChecklist data={overview.onboarding} />}
 
           {activeTab === "plan" && <PlanTab overview={overview} />}
+          {activeTab === "branding" && <ScopeCard overview={overview} />}
           {activeTab === "branding" && <BrandingTab overview={overview} />}
           {activeTab === "domain" && <DomainTab overview={overview} />}
           {activeTab === "danger" && <DangerTab overview={overview} />}

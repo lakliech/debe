@@ -13,6 +13,12 @@
  */
 
 import { logger } from "../lib/logger";
+import {
+  normalizeScope,
+  scopeGeographyExists,
+  ScopeValidationError,
+  type NormalizedScope,
+} from "../lib/campaignScope";
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
 import { db } from "@workspace/db";
@@ -242,11 +248,15 @@ router.put("/active-campaign", requireAuth, requireLevel(0), async (req: any, re
 // ── POST /api/platform/tenants ────────────────────────────────────────────────
 router.post("/tenants", requireAuth, requireLevel(0), async (req: any, res: any) => {
   try {
-    const { name, slug, adminEmail, plan = "free" } = req.body as {
+    const { name, slug, adminEmail, plan = "free", seatType, scopeCountyId, scopeConstituencyId, scopeWardId } = req.body as {
       name?: string;
       slug?: string;
       adminEmail?: string;
       plan?: string;
+      seatType?: string;
+      scopeCountyId?: string;
+      scopeConstituencyId?: string;
+      scopeWardId?: string;
     };
 
     if (!name || !slug) {
@@ -255,6 +265,19 @@ router.post("/tenants", requireAuth, requireLevel(0), async (req: any, res: any)
     if (!/^[a-z0-9-]+$/.test(slug)) {
       return res.status(400).json({ error: "slug must be lowercase alphanumeric and hyphens only" });
     }
+
+    // Every campaign contests a seat — platform-provisioned tenants are no
+    // exception. The seat's geography rule is enforced here and mirrored by
+    // the tenants_scope_valid CHECK constraint.
+    let scope: NormalizedScope;
+    try {
+      scope = normalizeScope({ seatType, scopeCountyId, scopeConstituencyId, scopeWardId });
+    } catch (err) {
+      if (err instanceof ScopeValidationError) return res.status(400).json({ error: err.message });
+      throw err;
+    }
+    const geoProblem = await scopeGeographyExists(scope);
+    if (geoProblem) return res.status(400).json({ error: geoProblem });
 
     // Check slug uniqueness before hitting Clerk
     const [existing] = await db
@@ -271,7 +294,7 @@ router.post("/tenants", requireAuth, requireLevel(0), async (req: any, res: any)
     const [tenant] = await db.transaction(async (tx) => {
       const [t] = await tx
         .insert(tenantsTable)
-        .values({ name, slug, plan })
+        .values({ name, slug, plan, ...scope })
         .returning();
 
       await recordPlatformAction(
