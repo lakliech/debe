@@ -14,12 +14,11 @@ import {
 } from "@workspace/db";
 import { eq, desc, and, or, ilike, count, sum, gte, lte, ne } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
-import { createMpesaAdapter, parseStkCallback } from "../lib/mpesa";
+import { createMpesaAdapterForTenant, parseStkCallback } from "../lib/mpesa";
 import { validate } from "../lib/validate";
 import { tenantFilter, assertTenant } from "../lib/withTenant";
 
 const router = Router();
-const mpesa = createMpesaAdapter();
 
 const mpesaTransactionsQuerySchema = z.object({
   status: z.string().trim().max(100).optional(),
@@ -173,6 +172,11 @@ router.post("/mpesa/stk-push", async (req: any, res: any) => {
 
     const { phoneNumber, amount, accountReference, transactionDesc, donorFullName, donorEmail } = body;
 
+    // Resolve the adapter per request: a tenant with its own Daraja config
+    // pays into its own shortcode; everyone else uses the env/sandbox fallback.
+    const tenantId: string | undefined = (req as any).tenant?.id;
+    const mpesa = await createMpesaAdapterForTenant(tenantId);
+
     const stkRes = await mpesa.initiateStkPush({
       phoneNumber, amount: Number(amount),
       accountReference: accountReference ?? "LINDA-MWANANCHI",
@@ -183,7 +187,6 @@ router.post("/mpesa/stk-push", async (req: any, res: any) => {
 
     // Persist transaction record — capture tenant from resolved context so
     // callback can later look up the correct campaign for auto-contribution
-    const tenantId: string | undefined = (req as any).tenant?.id;
     const [txn] = await db.insert(mpesaTransactionsTable).values({
       ...(tenantId ? { tenantId } : {}),
       merchantRequestId: stkRes.merchantRequestId,

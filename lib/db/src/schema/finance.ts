@@ -49,6 +49,28 @@ export type InsertMpesaTransaction = z.infer<typeof insertMpesaTransactionSchema
 export type MpesaTransaction = typeof mpesaTransactionsTable.$inferSelect;
 
 // ─────────────────────────────────────────────────────────────────────────────
+//  TENANT M-PESA CONFIGS (per-campaign Daraja credentials)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const tenantMpesaConfigsTable = pgTable("tenant_mpesa_configs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().unique().references(() => tenantsTable.id, { onDelete: "cascade" }),
+  shortcode: text("shortcode").notNull(),
+  consumerKey: text("consumer_key").notNull(),
+  // consumerSecret and passkey are AES-256-GCM encrypted at rest
+  // (encryptSecret/decryptSecret in artifacts/api-server/src/lib/mpesa.ts).
+  consumerSecret: text("consumer_secret").notNull(),
+  passkey: text("passkey").notNull(),
+  environment: text("environment").notNull().default("sandbox"), // sandbox | production
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+
+export const insertTenantMpesaConfigSchema = createInsertSchema(tenantMpesaConfigsTable).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertTenantMpesaConfig = z.infer<typeof insertTenantMpesaConfigSchema>;
+export type TenantMpesaConfig = typeof tenantMpesaConfigsTable.$inferSelect;
+
+// ─────────────────────────────────────────────────────────────────────────────
 //  CONTRIBUTIONS (all channels)
 // ─────────────────────────────────────────────────────────────────────────────
 

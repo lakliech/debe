@@ -2,6 +2,7 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { runPlatformBootstrap } from "./lib/platformBootstrap";
 import { backfillTallyEligibilityFlags } from "./lib/resultStatus";
+import { ensureMpesaConfigTable } from "./lib/mpesa";
 import { db } from "@workspace/db";
 import { pollingStationsTable } from "@workspace/db";
 import { sql, like, count } from "drizzle-orm";
@@ -105,6 +106,7 @@ async function main() {
     // locks the owner out of their own product with no in-app way back in.
     void runPlatformBootstrap()
       .then(() => runDemoStationCleanupIfNeeded())
+      .then(() => ensureMpesaConfigTable())
       .then(async () => {
         // Idempotent: syncs candidate-vote tally flags with their parent
         // submission's status — repairs rows written before the lockstep

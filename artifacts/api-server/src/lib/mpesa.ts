@@ -13,9 +13,55 @@
  *   MPESA_CALLBACK_URL        — Public HTTPS URL for STK callbacks
  *   MPESA_ENV                 — "sandbox" | "production" (default: "sandbox")
  *
- * Each campaign configures its own Daraja credentials via these environment
- * variables — no campaign-specific shortcode is hardcoded here.
+ * Each campaign (tenant) can store its OWN Daraja credentials in the
+ * tenant_mpesa_configs table — see createMpesaAdapterForTenant(). The env
+ * vars above remain as a platform-wide fallback for tenants without a row.
+ *
+ * consumerSecret/passkey are stored AES-256-GCM encrypted (helpers below);
+ * rows seeded with plaintext are tolerated for ops convenience.
  */
+
+import { createCipheriv, createDecipheriv, randomBytes, createHash } from "node:crypto";
+import { eq } from "drizzle-orm";
+import { db, tenantMpesaConfigsTable } from "@workspace/db";
+
+export interface MpesaLiveConfig {
+  shortcode: string;
+  consumerKey: string;
+  consumerSecret: string;
+  passkey: string;
+  environment?: string; // "sandbox" | "production" (default: "sandbox")
+  callbackUrl: string;
+}
+
+// ─── Credential encryption at rest (AES-256-GCM) ─────────────────────────────
+
+const ENC_PREFIX = "v1";
+
+function encryptionKey(): Buffer {
+  const secret = process.env.MPESA_CONFIG_ENCRYPTION_KEY ?? process.env.SESSION_SECRET;
+  if (!secret) {
+    throw new Error("MPESA_CONFIG_ENCRYPTION_KEY (or SESSION_SECRET) is required for M-Pesa tenant credential encryption");
+  }
+  return createHash("sha256").update(secret).digest();
+}
+
+export function encryptSecret(plain: string): string {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", encryptionKey(), iv);
+  const enc = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
+  return `${ENC_PREFIX}:${iv.toString("base64")}:${cipher.getAuthTag().toString("base64")}:${enc.toString("base64")}`;
+}
+
+export function decryptSecret(stored: string): string {
+  if (!stored.startsWith(`${ENC_PREFIX}:`)) return stored; // plaintext-seeded row
+  const parts = stored.split(":");
+  if (parts.length !== 4) throw new Error("Malformed encrypted M-Pesa credential");
+  const [, iv, tag, data] = parts;
+  const decipher = createDecipheriv("aes-256-gcm", encryptionKey(), Buffer.from(iv, "base64"));
+  decipher.setAuthTag(Buffer.from(tag, "base64"));
+  return Buffer.concat([decipher.update(Buffer.from(data, "base64")), decipher.final()]).toString("utf8");
+}
 
 export interface StkPushRequest {
   phoneNumber: string;        // Format: 254XXXXXXXXX
@@ -85,27 +131,52 @@ export class SandboxMpesaAdapter implements IMpesaAdapter {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+//  UNCONFIGURED ADAPTER — fail-closed response when a campaign has no usable
+//  M-Pesa configuration (never silently route money anywhere else)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class UnconfiguredMpesaAdapter implements IMpesaAdapter {
+  constructor(private readonly reason: string) {}
+  async initiateStkPush(_req: StkPushRequest): Promise<StkPushResponse> {
+    return { success: false, error: this.reason };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 //  LIVE ADAPTER (requires production/sandbox Daraja credentials)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export class LiveMpesaAdapter implements IMpesaAdapter {
   private readonly baseUrl: string;
-  private readonly shortcode: string;
+  readonly shortcode: string;
+  readonly environment: string;
   private readonly passkey: string;
   private readonly consumerKey: string;
   private readonly consumerSecret: string;
   private readonly callbackUrl: string;
 
-  constructor() {
-    const env = process.env.MPESA_ENV ?? "sandbox";
-    this.baseUrl = env === "production"
+  constructor(config: MpesaLiveConfig) {
+    this.environment = config.environment ?? "sandbox";
+    this.baseUrl = this.environment === "production"
       ? "https://api.safaricom.co.ke"
       : "https://sandbox.safaricom.co.ke";
-    this.shortcode   = process.env.MPESA_SHORTCODE ?? "174379";  // sandbox default
-    this.passkey     = process.env.MPESA_PASSKEY ?? "";
-    this.consumerKey = process.env.MPESA_CONSUMER_KEY ?? "";
-    this.consumerSecret = process.env.MPESA_CONSUMER_SECRET ?? "";
-    this.callbackUrl = process.env.MPESA_CALLBACK_URL ?? "";
+    this.shortcode = config.shortcode;
+    this.passkey = config.passkey;
+    this.consumerKey = config.consumerKey;
+    this.consumerSecret = config.consumerSecret;
+    this.callbackUrl = config.callbackUrl;
+  }
+
+  /** Build from the platform-wide environment variables (fallback path). */
+  static fromEnv(): LiveMpesaAdapter {
+    return new LiveMpesaAdapter({
+      shortcode: process.env.MPESA_SHORTCODE ?? "174379", // sandbox default
+      consumerKey: process.env.MPESA_CONSUMER_KEY ?? "",
+      consumerSecret: process.env.MPESA_CONSUMER_SECRET ?? "",
+      passkey: process.env.MPESA_PASSKEY ?? "",
+      environment: process.env.MPESA_ENV ?? "sandbox",
+      callbackUrl: process.env.MPESA_CALLBACK_URL ?? "",
+    });
   }
 
   private async getAccessToken(): Promise<string> {
@@ -176,16 +247,87 @@ export class LiveMpesaAdapter implements IMpesaAdapter {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Factory — returns sandbox adapter unless MPESA_CONSUMER_KEY is set
+//  Factories
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Platform-wide fallback — live env adapter when env credentials exist, else sandbox. */
 export function createMpesaAdapter(): IMpesaAdapter {
   if (process.env.MPESA_CONSUMER_KEY && process.env.MPESA_CONSUMER_SECRET) {
-    console.info("[mpesa] Using live Daraja adapter");
-    return new LiveMpesaAdapter();
+    console.info("[mpesa] Using live Daraja adapter (env credentials)");
+    return LiveMpesaAdapter.fromEnv();
   }
   console.info("[mpesa] Using sandbox adapter (set MPESA_CONSUMER_KEY to enable live mode)");
   return new SandboxMpesaAdapter();
+}
+
+/**
+ * Tenant-aware factory: a campaign with a row in tenant_mpesa_configs pays
+ * into its OWN shortcode with its OWN Daraja credentials (secrets decrypted
+ * at read time).
+ *
+ * Fail-closed in production: a resolved tenant WITHOUT a config row gets an
+ * UnconfiguredMpesaAdapter (clear error to the donor) rather than silently
+ * routing payments through the platform's env credentials — and config rows
+ * holding PLAINTEXT secrets are refused (encrypt via encryptSecret first).
+ * Outside production the env/sandbox fallback and plaintext tolerance remain
+ * available for development and one-time seeding.
+ */
+export async function createMpesaAdapterForTenant(tenantId?: string): Promise<IMpesaAdapter> {
+  const isProduction = process.env.NODE_ENV === "production";
+  if (tenantId) {
+    const [cfg] = await db
+      .select()
+      .from(tenantMpesaConfigsTable)
+      .where(eq(tenantMpesaConfigsTable.tenantId, tenantId))
+      .limit(1);
+    if (cfg) {
+      const secretsEncrypted =
+        cfg.consumerSecret.startsWith(`${ENC_PREFIX}:`) && cfg.passkey.startsWith(`${ENC_PREFIX}:`);
+      if (isProduction && !secretsEncrypted) {
+        console.error(`[mpesa] tenant ${tenantId} config holds plaintext credentials — refusing in production`);
+        return new UnconfiguredMpesaAdapter("M-Pesa is temporarily unavailable for this campaign. Please try again later.");
+      }
+      console.info(`[mpesa] Using per-tenant Daraja config (tenant=${tenantId} env=${cfg.environment} shortcode=${cfg.shortcode})`);
+      return new LiveMpesaAdapter({
+        shortcode: cfg.shortcode,
+        consumerKey: cfg.consumerKey,
+        consumerSecret: decryptSecret(cfg.consumerSecret),
+        passkey: decryptSecret(cfg.passkey),
+        environment: cfg.environment,
+        callbackUrl: process.env.MPESA_CALLBACK_URL ?? "",
+      });
+    }
+    if (isProduction) {
+      console.warn(`[mpesa] tenant ${tenantId} has no M-Pesa config — env fallback refused in production`);
+      return new UnconfiguredMpesaAdapter("This campaign is not yet set up to receive M-Pesa contributions.");
+    }
+  }
+  return createMpesaAdapter();
+}
+
+/**
+ * Idempotent table provisioning — runs at every API server boot (startup
+ * housekeeping). drizzle-kit push is unreliable in this repo (known journal
+ * drift), so this CREATE TABLE IF NOT EXISTS is the durable path that
+ * provisions staging/production/rebuilt databases. Keep column-for-column
+ * in sync with tenantMpesaConfigsTable in lib/db/src/schema/finance.ts.
+ */
+export async function ensureMpesaConfigTable(): Promise<void> {
+  const { sql } = await import("drizzle-orm");
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS tenant_mpesa_configs (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id uuid NOT NULL UNIQUE REFERENCES tenants(id) ON DELETE CASCADE,
+      shortcode text NOT NULL,
+      consumer_key text NOT NULL,
+      consumer_secret text NOT NULL,
+      passkey text NOT NULL,
+      environment text NOT NULL DEFAULT 'sandbox',
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
+  console.info("[mpesa] tenant_mpesa_configs table provisioned (IF NOT EXISTS).");
 }
 
 /** Parse the STK callback and extract key fields */
