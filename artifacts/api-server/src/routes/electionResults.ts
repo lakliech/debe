@@ -19,6 +19,7 @@ import {
   submissionOcrSuggestionsTable,
   candidatesTable,
   pollingStationsTable,
+  campaignStationProfilesTable,
   pollingAgentsTable,
   usersTable,
 } from "@workspace/db";
@@ -179,15 +180,20 @@ async function runAutoValidation(submissionId: string, tenantId: string): Promis
     .from(pollingStationsTable).where(eq(pollingStationsTable.id, submission.pollingStationId)).limit(1);
   if (!station) flags.push("Invalid pollingStationId");
 
-  // Rule 6: agentId assigned to station
+  // Rule 6: agentId assigned to station — assignments are per-campaign and
+  // live in campaignStationProfilesTable, NOT the shared geography table
+  // (reading it from pollingStationsTable failed EVERY submission).
   if (station) {
-    const [stationRow] = await db.select({ primaryAgentId: pollingStationsTable.primaryAgentId, backupAgentId: pollingStationsTable.backupAgentId })
-      .from(pollingStationsTable).where(eq(pollingStationsTable.id, submission.pollingStationId)).limit(1);
-    if (stationRow) {
-      const validAgents = [stationRow.primaryAgentId, stationRow.backupAgentId].filter(Boolean);
-      if (!validAgents.includes(submission.agentId)) {
-        flags.push("Agent is not assigned to this polling station");
-      }
+    const [profile] = await db.select({ primaryAgentId: campaignStationProfilesTable.primaryAgentId, backupAgentId: campaignStationProfilesTable.backupAgentId })
+      .from(campaignStationProfilesTable)
+      .where(and(
+        eq(campaignStationProfilesTable.stationId, submission.pollingStationId),
+        tenantFilter(campaignStationProfilesTable, tenantId),
+      ))
+      .limit(1);
+    const validAgents = [profile?.primaryAgentId, profile?.backupAgentId].filter(Boolean);
+    if (!validAgents.includes(submission.agentId)) {
+      flags.push("Agent is not assigned to this polling station");
     }
   }
 
