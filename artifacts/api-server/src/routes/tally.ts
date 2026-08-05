@@ -13,7 +13,7 @@ import {
   electionsTable,
   usersTable,
 } from "@workspace/db";
-import { eq, desc, and, sql, count, sum, countDistinct } from "drizzle-orm";
+import { eq, desc, and, sql, count, sum, countDistinct, inArray } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
 import { tenantFilter, assertTenant } from '../lib/withTenant';
 
@@ -263,7 +263,7 @@ router.get("/county/:electionId/:countyId", requireAuth, canViewResults, async (
         tenantFilter(resultSubmissionsTable, t.id),
         eq(resultSubmissionsTable.electionId, electionId),
         eq(resultSubmissionsTable.status, "verified"),
-        sql`${resultSubmissionsTable.pollingStationId} = ANY(${sql.raw(`ARRAY['${ids.join("','")}']::uuid[]`)})`,
+        inArray(resultSubmissionsTable.pollingStationId, ids),
       ))
       .groupBy(
         submissionCandidateVotesTable.candidateId,
@@ -273,7 +273,7 @@ router.get("/county/:electionId/:countyId", requireAuth, canViewResults, async (
 
     const countySubs = await db.select({ status: resultSubmissionsTable.status, total: count() })
       .from(resultSubmissionsTable)
-      .where(and(tenantFilter(resultSubmissionsTable, t.id), eq(resultSubmissionsTable.electionId, electionId), sql`${resultSubmissionsTable.pollingStationId} = ANY(${sql.raw(`ARRAY['${ids.join("','")}']::uuid[]`)})`))
+      .where(and(tenantFilter(resultSubmissionsTable, t.id), eq(resultSubmissionsTable.electionId, electionId), inArray(resultSubmissionsTable.pollingStationId, ids)))
       .groupBy(resultSubmissionsTable.status);
     const countyReceived = countySubs.reduce((s, r) => s + Number(r.total), 0);
     const countyVerified = countySubs.find(r => r.status === "verified")?.total ?? 0;
@@ -337,7 +337,7 @@ router.get("/constituency/:electionId/:constituencyId", requireAuth, canViewResu
         tenantFilter(resultSubmissionsTable, t.id),
         eq(resultSubmissionsTable.electionId, electionId),
         eq(resultSubmissionsTable.status, "verified"),
-        sql`${resultSubmissionsTable.pollingStationId} = ANY(${sql.raw(`ARRAY['${ids.join("','")}']::uuid[]`)})`,
+        inArray(resultSubmissionsTable.pollingStationId, ids),
       ))
       .groupBy(
         submissionCandidateVotesTable.candidateId,
@@ -347,7 +347,7 @@ router.get("/constituency/:electionId/:constituencyId", requireAuth, canViewResu
 
     const constSubs = await db.select({ status: resultSubmissionsTable.status, total: count() })
       .from(resultSubmissionsTable)
-      .where(and(tenantFilter(resultSubmissionsTable, t.id), eq(resultSubmissionsTable.electionId, electionId), sql`${resultSubmissionsTable.pollingStationId} = ANY(${sql.raw(`ARRAY['${ids.join("','")}']::uuid[]`)})`))
+      .where(and(tenantFilter(resultSubmissionsTable, t.id), eq(resultSubmissionsTable.electionId, electionId), inArray(resultSubmissionsTable.pollingStationId, ids)))
       .groupBy(resultSubmissionsTable.status);
     const constReceived = constSubs.reduce((s, r) => s + Number(r.total), 0);
     const constVerified = constSubs.find(r => r.status === "verified")?.total ?? 0;
@@ -415,7 +415,7 @@ router.get("/ward/:electionId/:wardId", requireAuth, canViewResults, async (req:
         tenantFilter(resultSubmissionsTable, t.id),
         eq(resultSubmissionsTable.electionId, electionId),
         eq(resultSubmissionsTable.status, "verified"),
-        sql`${resultSubmissionsTable.pollingStationId} = ANY(${sql.raw(`ARRAY['${ids.join("','")}']::uuid[]`)})`,
+        inArray(resultSubmissionsTable.pollingStationId, ids),
       ))
       .groupBy(
         submissionCandidateVotesTable.candidateId,
@@ -425,7 +425,7 @@ router.get("/ward/:electionId/:wardId", requireAuth, canViewResults, async (req:
 
     const wardSubs = await db.select({ status: resultSubmissionsTable.status, total: count() })
       .from(resultSubmissionsTable)
-      .where(and(tenantFilter(resultSubmissionsTable, t.id), eq(resultSubmissionsTable.electionId, electionId), sql`${resultSubmissionsTable.pollingStationId} = ANY(${sql.raw(`ARRAY['${ids.join("','")}']::uuid[]`)})`))
+      .where(and(tenantFilter(resultSubmissionsTable, t.id), eq(resultSubmissionsTable.electionId, electionId), inArray(resultSubmissionsTable.pollingStationId, ids)))
       .groupBy(resultSubmissionsTable.status);
     const wardReceived = wardSubs.reduce((s, r) => s + Number(r.total), 0);
     const wardVerified = wardSubs.find(r => r.status === "verified")?.total ?? 0;
@@ -441,7 +441,7 @@ router.get("/ward/:electionId/:wardId", requireAuth, canViewResults, async (req:
     const wardSubmissions = wardStationIds.length > 0 ? await db
       .select({ pollingStationId: resultSubmissionsTable.pollingStationId, id: resultSubmissionsTable.id, status: resultSubmissionsTable.status })
       .from(resultSubmissionsTable)
-      .where(and(tenantFilter(resultSubmissionsTable, t.id), eq(resultSubmissionsTable.electionId, electionId), sql`${resultSubmissionsTable.pollingStationId} = ANY(${sql.raw(`ARRAY['${wardStationIds.join("','")}']::uuid[]`)})`))
+      .where(and(tenantFilter(resultSubmissionsTable, t.id), eq(resultSubmissionsTable.electionId, electionId), inArray(resultSubmissionsTable.pollingStationId, wardStationIds)))
       .orderBy(desc(resultSubmissionsTable.version)) : [];
     const submissionByStation: Record<string, any> = {};
     for (const sub of wardSubmissions) {
@@ -453,7 +453,7 @@ router.get("/ward/:electionId/:wardId", requireAuth, canViewResults, async (req:
       .select({ pollingStationId: resultSubmissionsTable.pollingStationId, candidateName: submissionCandidateVotesTable.candidateName, totalVotes: sum(submissionCandidateVotesTable.voteCount) })
       .from(submissionCandidateVotesTable)
       .innerJoin(resultSubmissionsTable, eq(submissionCandidateVotesTable.submissionId, resultSubmissionsTable.id))
-      .where(and(tenantFilter(resultSubmissionsTable, t.id), eq(resultSubmissionsTable.electionId, electionId), sql`${resultSubmissionsTable.pollingStationId} = ANY(${sql.raw(`ARRAY['${wardStationIds.join("','")}']::uuid[]`)})`))
+      .where(and(tenantFilter(resultSubmissionsTable, t.id), eq(resultSubmissionsTable.electionId, electionId), inArray(resultSubmissionsTable.pollingStationId, wardStationIds)))
       .groupBy(resultSubmissionsTable.pollingStationId, submissionCandidateVotesTable.candidateName) : [];
     const topVotesByStation: Record<string, number> = {};
     for (const sv of stationVotes) {
