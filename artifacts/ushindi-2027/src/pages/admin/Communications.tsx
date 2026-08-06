@@ -1,6 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { FileText, MessageSquare, Mic, Users, ArrowRight } from "lucide-react";
+import { FileText, MessageSquare, Mic, Users, ArrowRight, Inbox, Send, CheckCircle2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -41,6 +42,155 @@ function StatCard({
         <Skeleton className="h-8 w-16" />
       ) : (
         <p className={`text-3xl font-black font-mono ${color}`}>{value ?? "—"}</p>
+      )}
+    </div>
+  );
+}
+
+function WhatsAppInbox() {
+  const qc = useQueryClient();
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+
+  const { data: tickets, isLoading } = useQuery({
+    queryKey: ["comms-tickets"],
+    refetchInterval: 30_000,
+    queryFn: () =>
+      fetch(`${BASE}/api/communications/tickets`, { credentials: "include" }).then((r) => r.json()),
+  });
+
+  const { data: openTicket } = useQuery({
+    queryKey: ["comms-ticket", openId],
+    enabled: !!openId,
+    refetchInterval: 15_000,
+    queryFn: () =>
+      fetch(`${BASE}/api/communications/tickets/${openId}`, { credentials: "include" }).then((r) => r.json()),
+  });
+
+  const reply = useMutation({
+    mutationFn: async () => {
+      const r = await fetch(`${BASE}/api/communications/tickets/${openId}/reply`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body: draft }),
+      });
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        throw new Error(e?.error ?? "Send failed");
+      }
+      return r.json();
+    },
+    onSuccess: () => {
+      setDraft("");
+      qc.invalidateQueries({ queryKey: ["comms-ticket", openId] });
+      qc.invalidateQueries({ queryKey: ["comms-tickets"] });
+    },
+  });
+
+  const resolveTicket = useMutation({
+    mutationFn: async (id: string) => {
+      const r = await fetch(`${BASE}/api/communications/tickets/${id}/resolve`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!r.ok) throw new Error("Resolve failed");
+      return r.json();
+    },
+    onSuccess: () => {
+      setOpenId(null);
+      qc.invalidateQueries({ queryKey: ["comms-tickets"] });
+    },
+  });
+
+  const list: any[] = Array.isArray(tickets) ? tickets : [];
+  const msgs: any[] = Array.isArray(openTicket?.messages) ? openTicket.messages : [];
+  const openCount = list.filter((t) => t.status !== "resolved").length;
+
+  return (
+    <div className="bg-card border border-border p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xs font-black uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+          <Inbox className="h-4 w-4 text-green-600" /> Supporter Inbox — WhatsApp
+        </h2>
+        <span className="text-xs font-bold text-muted-foreground">{openCount} open</span>
+      </div>
+      {isLoading ? (
+        <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
+      ) : list.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          No WhatsApp conversations yet. Once the campaign's WhatsApp Business number is connected,
+          inbound supporter and agent messages will appear here as tickets.
+        </p>
+      ) : (
+        <div className="divide-y divide-border">
+          {list.map((t: any) => (
+            <div key={t.id}>
+              <button
+                onClick={() => setOpenId(openId === t.id ? null : t.id)}
+                className="w-full flex items-center justify-between py-3 text-left hover:bg-muted/30 transition-colors"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">
+                    {t.contactName ?? t.supporterName ?? t.waPhone}
+                    {t.category === "agent" && (
+                      <span className="ml-2 px-1.5 py-0.5 text-[10px] font-bold uppercase bg-blue-100 text-blue-800">Agent</span>
+                    )}
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate">{t.subject ?? t.waPhone}</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0 ml-3">
+                  {t.unreadCount > 0 && (
+                    <span className="px-2 py-0.5 text-xs font-black bg-green-600 text-white rounded-full">{t.unreadCount}</span>
+                  )}
+                  <span className={`px-2 py-0.5 text-xs font-bold uppercase ${STATUS_BADGE[t.status] ?? "bg-gray-100 text-gray-700"}`}>
+                    {t.status}
+                  </span>
+                </div>
+              </button>
+
+              {openId === t.id && (
+                <div className="pb-4 pl-2 pr-1 space-y-3">
+                  <div className="max-h-64 overflow-y-auto space-y-2 bg-muted/20 p-3">
+                    {msgs.length === 0 && <p className="text-xs text-muted-foreground">Loading conversation…</p>}
+                    {msgs.map((m: any) => (
+                      <div key={m.id} className={`max-w-[80%] px-3 py-2 text-sm ${m.direction === "inbound" ? "bg-muted text-foreground" : "bg-green-600 text-white ml-auto"}`}>
+                        <p className="whitespace-pre-wrap">{m.body}</p>
+                        <p className={`text-[10px] mt-1 ${m.direction === "inbound" ? "text-muted-foreground" : "text-green-100"}`}>
+                          {m.direction === "inbound" ? (m.senderName ?? t.waPhone) : (m.senderName ?? "Campaign team")} · {fmtDate(m.createdAt)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                  {reply.isError && <p className="text-xs text-red-600 font-medium">{(reply.error as Error).message}</p>}
+                  <div className="flex gap-2">
+                    <input
+                      value={draft}
+                      onChange={(e) => setDraft(e.target.value)}
+                      placeholder="Reply on WhatsApp…"
+                      className="flex-1 border border-border bg-background px-3 py-2 text-sm"
+                      onKeyDown={(e) => { if (e.key === "Enter" && draft.trim() && !reply.isPending) reply.mutate(); }}
+                    />
+                    <button
+                      onClick={() => reply.mutate()}
+                      disabled={!draft.trim() || reply.isPending}
+                      className="px-3 py-2 bg-green-600 text-white text-sm font-bold disabled:opacity-50 flex items-center gap-1"
+                    >
+                      <Send className="h-4 w-4" /> Send
+                    </button>
+                    <button
+                      onClick={() => resolveTicket.mutate(t.id)}
+                      disabled={resolveTicket.isPending}
+                      className="px-3 py-2 border border-border text-sm font-bold text-muted-foreground hover:text-foreground flex items-center gap-1"
+                    >
+                      <CheckCircle2 className="h-4 w-4" /> Resolve
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -181,6 +331,9 @@ export default function Communications() {
             )}
           </div>
         </div>
+
+        {/* WhatsApp supporter inbox (two-way ticketing) */}
+        <WhatsAppInbox />
       </div>
   );
 }

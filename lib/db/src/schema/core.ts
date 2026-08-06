@@ -58,6 +58,14 @@ export const tenantsTable = pgTable("tenants", {
    */
   customDomain: text("custom_domain").unique(),
   /**
+   * Meta WhatsApp Business phone_number_id for this campaign's WhatsApp
+   * number. Routes inbound webhook events (tickets, delivery callbacks) to
+   * the owning tenant. Null = campaign has no WhatsApp number connected.
+   * UNIQUE: this id is the tenant trust boundary for signed webhook traffic —
+   * two campaigns must never claim the same Meta number.
+   */
+  whatsappPhoneNumberId: text("whatsapp_phone_number_id").unique(),
+  /**
    * TLS certificate status for the custom domain.
    * null    → no domain set or provisioning never triggered
    * pending → HTTPS check in progress

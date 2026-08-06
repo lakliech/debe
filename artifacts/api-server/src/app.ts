@@ -158,6 +158,12 @@ app.post(
   },
 );
 
+// ── WhatsApp webhook ───────────────────────────────────────────────────────
+// Same raw-body requirement as Stripe: Meta's X-Hub-Signature-256 is computed
+// over the exact request bytes, so this route receives the raw Buffer and
+// parses JSON itself AFTER signature verification (see routes/whatsappWebhook.ts).
+app.use("/api/webhooks/whatsapp", express.raw({ type: "application/json" }));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

@@ -18,6 +18,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { countiesTable, constituenciesTable, wardsTable } from "./geography";
 import { usersTable, tenantsTable } from "./core";
+import { supportersTable } from "./config";
 import { eventsTable } from "./config";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -701,3 +702,39 @@ export const claimCorrectionsTable = pgTable("claim_corrections", {
 });
 
 export type ClaimCorrection = typeof claimCorrectionsTable.$inferSelect;
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  SUPPORT TICKETS (two-way WhatsApp inbox)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const supportTicketsTable = pgTable("support_tickets", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
+  supporterId: uuid("supporter_id").references(() => supportersTable.id, { onDelete: "set null" }),
+  channel: text("channel").notNull().default("whatsapp"),
+  /** E.164 phone the conversation is with — denormalised so tickets survive supporter deletion. */
+  waPhone: text("wa_phone").notNull(),
+  contactName: text("contact_name"),
+  category: text("category").notNull().default("supporter"), // supporter | agent
+  subject: text("subject"),
+  status: text("status").notNull().default("open"), // open | pending | resolved
+  assignedTo: uuid("assigned_to").references(() => usersTable.id),
+  unreadCount: integer("unread_count").notNull().default(0),
+  lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+
+export type SupportTicket = typeof supportTicketsTable.$inferSelect;
+
+export const supportTicketMessagesTable = pgTable("support_ticket_messages", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  ticketId: uuid("ticket_id").notNull().references(() => supportTicketsTable.id, { onDelete: "cascade" }),
+  direction: text("direction").notNull(), // inbound | outbound
+  body: text("body").notNull(),
+  senderName: text("sender_name"),
+  waMessageId: text("wa_message_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type SupportTicketMessage = typeof supportTicketMessagesTable.$inferSelect;

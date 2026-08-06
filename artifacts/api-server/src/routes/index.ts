@@ -22,6 +22,7 @@ import dataRequestsRouter from "./dataRequests";
 import coordinatorRouter from "./coordinator";
 import financeRouter from "./finance";
 import communicationsRouter from "./communications";
+import whatsappWebhookRouter from "./whatsappWebhook";
 import contentLibraryRouter from "./contentLibrary";
 import eventsMgmtRouter from "./eventsMgmt";
 import rapidResponseRouter from "./rapidResponse";
@@ -111,6 +112,7 @@ router.use("/data-requests", withTenantMixed(dataRequestsRouter)); // POST / is 
 router.use("/coordinator", withTenant(coordinatorRouter));
 router.use("/finance", withTenantMixed(financeRouter)); // M-Pesa callbacks are unauthenticated
 router.use("/communications", withTenant(communicationsRouter));
+router.use("/webhooks/whatsapp", whatsappWebhookRouter); // public: Meta hub verification + inbound events
 router.use("/content", withTenant(contentLibraryRouter));
 router.use("/events-mgmt", withTenantMixed(eventsMgmtRouter)); // public registration & media-accreditation endpoints
 router.use("/rapid-response", withTenant(rapidResponseRouter));

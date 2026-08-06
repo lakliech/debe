@@ -30,6 +30,7 @@ import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage"
 import { tenantFilter, assertTenant } from "../lib/withTenant";
 import { TALLY_ELIGIBLE_STATUSES } from "../lib/resultStatus";
 import { logActivity } from "../lib/activityFeed";
+import { alertResultEvent } from "../lib/resultAlerts";
 
 // ─── VALIDATION SCHEMAS ───────────────────────────────────────────────────────
 
@@ -573,6 +574,8 @@ router.post("/submissions/:id/submit", requireAuth, canSubmitResults, async (req
       return [u];
     });
 
+    // "Station X just reported" — WhatsApp ping to campaign managers.
+    void alertResultEvent(t.id, "reported", submission.pollingStationId);
     res.json({ submission: updated, autoValidation: { valid, flags } });
   } catch (err: any) {
     logger.error({ err }, "request failed");
@@ -670,7 +673,7 @@ router.post("/submissions/:id/verify", requireAuth, canVerifyResults, async (req
     if (!parsed) return;
     const { action, notes, queriedFields, toStatus } = parsed;
 
-    const [submission] = await db.select({ id: resultSubmissionsTable.id, status: resultSubmissionsTable.status })
+    const [submission] = await db.select({ id: resultSubmissionsTable.id, status: resultSubmissionsTable.status, pollingStationId: resultSubmissionsTable.pollingStationId })
       .from(resultSubmissionsTable)
       .where(and(eq(resultSubmissionsTable.id, req.params.id), tenantFilter(resultSubmissionsTable, t.id))).limit(1);
     if (!submission) return res.status(404).json({ error: "Submission not found" });
@@ -708,6 +711,9 @@ router.post("/submissions/:id/verify", requireAuth, canVerifyResults, async (req
       resource: "result_submission",
       resourceId: req.params.id,
     });
+    if (toStatus === "verified") {
+      void alertResultEvent(t.id, "verified", submission.pollingStationId);
+    }
     res.json(updated);
   } catch (err: any) {
     logger.error({ err }, "request failed");

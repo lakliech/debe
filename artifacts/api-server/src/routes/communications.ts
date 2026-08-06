@@ -10,13 +10,15 @@ import {
   messageTemplatesTable, audienceSegmentsTable, scheduledMessagesTable,
   messageDeliveriesTable, spokespersonDirectoryTable, statementsTable,
   statementVersionsTable, usersTable, supportersTable, volunteersTable,
+  supportTicketsTable, supportTicketMessagesTable,
 } from "@workspace/db";
-import { eq, desc, and, ilike, count, gte, or } from "drizzle-orm";
+import { eq, desc, asc, and, ilike, count, gte, or } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
 import { tenantFilter, assertTenant } from '../lib/withTenant';
 import { z } from "zod";
 import { validate } from "../lib/validate";
 import { logActivity } from "../lib/activityFeed";
+import { sendWhatsappChannel } from "../lib/commsDispatcher";
 
 const router = Router();
 
@@ -461,6 +463,124 @@ router.post("/statements/:id/retract", requireAuth, canApproveComms, async (req:
       .where(and(tenantFilter(statementsTable, t.id), eq(statementsTable.id, req.params.id))).returning();
     if (!row) return res.status(404).json({ error: "Not found" });
     res.json(row);
+  } catch (err: any) {
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// ── Support tickets (WhatsApp two-way inbox) ───────────────────────────────
+// Inbound supporter/agent WhatsApp messages arrive via the public webhook
+// (/api/webhooks/whatsapp); replies go out through the channel provider chain.
+
+const ticketReplySchema = z.object({ body: z.string().trim().min(1).max(2000) });
+
+router.get("/tickets", requireAuth, canViewComms, async (req: any, res: any) => {
+  try {
+    const t = assertTenant(req);
+    const status = typeof req.query.status === "string" ? req.query.status : null;
+    const rows = await db.select({
+      id: supportTicketsTable.id,
+      waPhone: supportTicketsTable.waPhone,
+      contactName: supportTicketsTable.contactName,
+      category: supportTicketsTable.category,
+      subject: supportTicketsTable.subject,
+      status: supportTicketsTable.status,
+      unreadCount: supportTicketsTable.unreadCount,
+      lastMessageAt: supportTicketsTable.lastMessageAt,
+      supporterName: supportersTable.fullName,
+    }).from(supportTicketsTable)
+      .leftJoin(supportersTable, eq(supportTicketsTable.supporterId, supportersTable.id))
+      .where(and(tenantFilter(supportTicketsTable, t.id), ...(status ? [eq(supportTicketsTable.status, status)] : [])))
+      .orderBy(desc(supportTicketsTable.lastMessageAt))
+      .limit(100);
+    res.json(rows);
+  } catch (err: any) {
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+router.get("/tickets/:id", requireAuth, canViewComms, async (req: any, res: any) => {
+  try {
+    const t = assertTenant(req);
+    const [ticket] = await db.select().from(supportTicketsTable)
+      .where(and(eq(supportTicketsTable.id, req.params.id), tenantFilter(supportTicketsTable, t.id))).limit(1);
+    if (!ticket) return res.status(404).json({ error: "Ticket not found" });
+    const messages = await db.select().from(supportTicketMessagesTable)
+      .where(eq(supportTicketMessagesTable.ticketId, ticket.id))
+      .orderBy(asc(supportTicketMessagesTable.createdAt));
+    // Viewing marks the conversation read.
+    if (ticket.unreadCount > 0) {
+      await db.update(supportTicketsTable).set({ unreadCount: 0 }).where(eq(supportTicketsTable.id, ticket.id));
+    }
+    res.json({ ...ticket, messages });
+  } catch (err: any) {
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+router.post("/tickets/:id/reply", requireAuth, canManageComms, async (req: any, res: any) => {
+  try {
+    const t = assertTenant(req);
+    const parsed = validate(ticketReplySchema, req.body, res);
+    if (!parsed) return;
+    const actorId = await resolveActorUUID(req.clerkId);
+
+    const [ticket] = await db.select().from(supportTicketsTable)
+      .where(and(eq(supportTicketsTable.id, req.params.id), tenantFilter(supportTicketsTable, t.id))).limit(1);
+    if (!ticket) return res.status(404).json({ error: "Ticket not found" });
+    if (ticket.status === "resolved") {
+      return res.status(400).json({ error: "Ticket is resolved — it will reopen if the contact messages again" });
+    }
+
+    // Send FIRST — only record the outbound message if it actually went out.
+    // Tenant context selects the campaign's own WhatsApp number when connected.
+    const sent = await sendWhatsappChannel(t.id, ticket.waPhone, parsed.body);
+    if (!sent.ok) return res.status(502).json({ error: `WhatsApp send failed: ${sent.error}` });
+
+    const actor = actorId
+      ? (await db.select({ fullName: usersTable.fullName }).from(usersTable).where(eq(usersTable.id, actorId)).limit(1))[0]
+      : null;
+    // Reply persistence is atomic — the conversation row and the ticket's
+    // status/lastMessageAt either both land or neither does.
+    const msg = await db.transaction(async (tx) => {
+      const [m] = await tx.insert(supportTicketMessagesTable).values({
+        ticketId: ticket.id,
+        direction: "outbound",
+        body: parsed.body,
+        senderName: actor?.fullName ?? "Campaign team",
+      }).returning();
+      await tx.update(supportTicketsTable).set({ lastMessageAt: new Date(), status: "pending" })
+        .where(eq(supportTicketsTable.id, ticket.id));
+      return m;
+    });
+
+    void logActivity({
+      tenantId: t.id,
+      actorUserId: actorId,
+      type: "ticket_reply",
+      description: "Replied to a WhatsApp supporter ticket",
+      resource: "support_ticket",
+      resourceId: ticket.id,
+    });
+    res.status(201).json(msg);
+  } catch (err: any) {
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+router.post("/tickets/:id/resolve", requireAuth, canManageComms, async (req: any, res: any) => {
+  try {
+    const t = assertTenant(req);
+    const [updated] = await db.update(supportTicketsTable)
+      .set({ status: "resolved" })
+      .where(and(eq(supportTicketsTable.id, req.params.id), tenantFilter(supportTicketsTable, t.id)))
+      .returning();
+    if (!updated) return res.status(404).json({ error: "Ticket not found" });
+    res.json(updated);
   } catch (err: any) {
     logger.error({ err }, "request failed");
     res.status(500).json({ error: "Something went wrong. Please try again." });

@@ -14,6 +14,7 @@
  */
 import { logger } from "./logger";
 import { logActivity } from "./activityFeed";
+import { sendWhatsAppText, whatsappCloudConfigured } from "./whatsapp";
 import { db } from "@workspace/db";
 import {
   scheduledMessagesTable,
@@ -21,6 +22,7 @@ import {
   audienceSegmentsTable,
   messageDeliveriesTable,
   supportersTable,
+  tenantsTable,
 } from "@workspace/db";
 import { eq, and, lte, isNull, inArray, asc } from "drizzle-orm";
 
@@ -55,6 +57,39 @@ async function sendViaWebhook(
   } catch (err: any) {
     return { ok: false, error: err?.message ?? "provider unreachable" };
   }
+}
+
+type ChannelProvider = { kind: "wa-cloud" } | { kind: "webhook"; url: string };
+
+/** A campaign's own WhatsApp sender number, if it has connected one. */
+async function tenantWhatsappPhoneId(tenantId: string): Promise<string | undefined> {
+  const [t] = await db.select({ pnid: tenantsTable.whatsappPhoneNumberId })
+    .from(tenantsTable).where(eq(tenantsTable.id, tenantId)).limit(1);
+  return t?.pnid ?? undefined;
+}
+
+/**
+ * Provider chain per channel: WhatsApp uses the real Cloud API when
+ * configured (campaign's own number if connected, else the platform number);
+ * every channel falls back to its generic webhook env.
+ */
+function providerFor(channel: string, tenantWaPhoneId?: string): ChannelProvider | null {
+  if (channel === "whatsapp" && whatsappCloudConfigured(tenantWaPhoneId)) return { kind: "wa-cloud" };
+  const url = webhookFor(channel);
+  return url ? { kind: "webhook", url } : null;
+}
+
+/**
+ * Direct single-recipient WhatsApp send — used by result alerts and support
+ * ticket replies, which bypass the scheduled-message queue. Tenant context is
+ * mandatory so the send originates from that campaign's WhatsApp identity.
+ */
+export async function sendWhatsappChannel(tenantId: string, to: string, body: string): Promise<{ ok: boolean; error?: string }> {
+  const tenantPhoneId = await tenantWhatsappPhoneId(tenantId);
+  if (whatsappCloudConfigured(tenantPhoneId)) return sendWhatsAppText(to, body, tenantPhoneId);
+  const url = webhookFor("whatsapp");
+  if (!url) return { ok: false, error: "no whatsapp provider configured" };
+  return sendViaWebhook(url, { to, channel: "whatsapp", body, deliveryId: "direct" });
 }
 
 function templateCopy(tmpl: any, lang: string): { body: string; subject: string | null } {
@@ -112,11 +147,14 @@ async function dispatchOne(msg: any, batchSize: number): Promise<boolean> {
   }
 
   const channel: string = tmpl.channel;
-  const webhook = webhookFor(channel);
-  if (!webhook) {
+  // Per-tenant sender identity: a campaign with its own WhatsApp number
+  // connected sends from it; everyone else uses the platform number.
+  const tenantWaPhoneId = channel === "whatsapp" ? await tenantWhatsappPhoneId(msg.tenantId) : undefined;
+  const provider = providerFor(channel, tenantWaPhoneId);
+  if (!provider) {
     // Not an error state — leave the message 'approved' so it goes out as
     // soon as a provider is configured.
-    logger.warn({ scheduledMessageId: msg.id, channel }, "comms dispatch deferred: no provider webhook configured for channel");
+    logger.warn({ scheduledMessageId: msg.id, channel }, "comms dispatch deferred: no provider configured for channel");
     return false;
   }
 
@@ -173,9 +211,11 @@ async function dispatchOne(msg: any, batchSize: number): Promise<boolean> {
         await Promise.all(chunk.map(async (d, j) => {
           const r = recipients[i + j];
           const personalised = String(body).replaceAll("{{name}}", r.fullName ?? "");
-          const res = await sendViaWebhook(webhook, {
-            to: r.to!, channel, subject, body: personalised, deliveryId: d.id,
-          });
+          const res = provider.kind === "wa-cloud"
+            ? await sendWhatsAppText(r.to!, personalised, tenantWaPhoneId)
+            : await sendViaWebhook(provider.url, {
+                to: r.to!, channel, subject, body: personalised, deliveryId: d.id,
+              });
           if (res.ok) sent++; else failed++;
           await db.update(messageDeliveriesTable).set({
             status: res.ok ? "sent" : "failed",
