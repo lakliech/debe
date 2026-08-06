@@ -1,0 +1,82 @@
+# Replit Agent Prompt: Kenya Interactive County Map for Debe
+
+You are building an interactive Kenya county map component for **Debe**, a multitenant election campaign management platform. The stack is React + TypeScript + Tailwind CSS + Wouter (routing) + TanStack Query (data fetching).
+
+## Goal
+Create a production-ready, interactive SVG tile map showing all 47 Kenyan counties. Each county tile should be color-coded by the leading candidate's vote count, with hover tooltips and click-to-navigate functionality.
+
+## File to Create
+`client/src/components/KenyaMap.tsx`
+
+## Requirements
+
+### 1. County Data (Tile Grid Layout)
+Arrange all 47 counties in a roughly geographic 10x8 grid. Use this exact data:
+
+```typescript
+interface CountyMapData {
+  id: string;      // matches countiesTable.id (UUID or code)
+  name: string;    // display name
+  code: string;    // IEBC county code e.g. "01" for Mombasa
+  x: number;       // grid column (0-9)
+  y: number;       // grid row (0-7)
+  w?: number;      // width in grid cells (default 1)
+  h?: number;      // height in grid cells (default 1)
+}
+
+const COUNTIES: CountyMapData[] = [
+  // Row 0 - Northern frontier
+  { id: "47", name: "Turkana", code: "23", x: 0, y: 0, w: 2 },
+  { id: "10", name: "Marsabit", code: "10", x: 4, y: 0, w: 2 },
+  { id: "09", name: "Mandera", code: "09", x: 7, y: 0, w: 2 },
+  // Row 1
+  { id: "24", name: "West Pokot", code: "24", x: 1, y: 1 },
+  { id: "25", name: "Samburu", code: "25", x: 3, y: 1 },
+  { id: "11", name: "Isiolo", code: "11", x: 5, y: 1 },
+  { id: "08", name: "Wajir", code: "08", x: 7, y: 1, w: 2 },
+  // Row 2
+  { id: "26", name: "Trans Nzoia", code: "26", x: 1, y: 2 },
+  { id: "27", name: "Uasin Gishu", code: "27", x: 2, y: 2 },
+  { id: "28", name: "Elgeyo-Marakwet", code: "28", x: 3, y: 2 },
+  { id: "30", name: "Baringo", code: "30", x: 4, y: 2 },
+  { id: "31", name: "Laikipia", code: "31", x: 5, y: 2 },
+  { id: "12", name: "Meru", code: "12", x: 6, y: 2 },
+  { id: "13", name: "Tharaka-Nithi", code: "13", x: 7, y: 2 },
+  { id: "14", name: "Embu", code: "14", x: 8, y: 2 },
+  { id: "15", name: "Kitui", code: "15", x: 9, y: 2 },
+  // Row 3
+  { id: "39", name: "Bungoma", code: "39", x: 0, y: 3 },
+  { id: "37", name: "Kakamega", code: "37", x: 1, y: 3 },
+  { id: "38", name: "Vihiga", code: "38", x: 2, y: 3 },
+  { id: "29", name: "Nandi", code: "29", x: 3, y: 3 },
+  { id: "32", name: "Kericho", code: "32", x: 4, y: 3 },
+  { id: "36", name: "Bomet", code: "36", x: 5, y: 3 },
+  { id: "33", name: "Narok", code: "33", x: 6, y: 3, w: 2 },
+  { id: "34", name: "Kajiado", code: "34", x: 8, y: 3 },
+  { id: "16", name: "Machakos", code: "16", x: 9, y: 3 },
+  // Row 4
+  { id: "40", name: "Busia", code: "40", x: 0, y: 4 },
+  { id: "42", name: "Kisumu", code: "42", x: 1, y: 4 },
+  { id: "41", name: "Siaya", code: "41", x: 2, y: 4 },
+  { id: "45", name: "Kisii", code: "45", x: 3, y: 4 },
+  { id: "46", name: "Nyamira", code: "46", x: 4, y: 4 },
+  { id: "35", name: "Nakuru", code: "35", x: 5, y: 4, w: 2 },
+  { id: "22", name: "Kiambu", code: "22", x: 7, y: 4 },
+  { id: "21", name: "Murang'a", code: "21", x: 8, y: 4 },
+  { id: "19", name: "Nyeri", code: "19", x: 9, y: 4 },
+  // Row 5
+  { id: "43", name: "Homa Bay", code: "43", x: 0, y: 5 },
+  { id: "44", name: "Migori", code: "44", x: 1, y: 5 },
+  { id: "18", name: "Nyandarua", code: "18", x: 5, y: 5 },
+  { id: "20", name: "Kirinyaga", code: "20", x: 8, y: 5 },
+  // Row 6 - Coast & Nairobi
+  { id: "01", name: "Mombasa", code: "01", x: 8, y: 6 },
+  { id: "03", name: "Kilifi", code: "03", x: 7, y: 6, w: 2 },
+  { id: "02", name: "Kwale", code: "02", x: 6, y: 6 },
+  { id: "06", name: "Taita-Taveta", code: "06", x: 5, y: 6 },
+  { id: "04", name: "Tana River", code: "04", x: 6, y: 5 },
+  { id: "05", name: "Lamu", code: "05", x: 7, y: 5 },
+  { id: "17", name: "Makueni", code: "17", x: 9, y: 5 },
+  // Nairobi
+  { id: "47b", name: "Nairobi", code: "47", x: 7, y: 7, w: 2, h: 1 },
+];

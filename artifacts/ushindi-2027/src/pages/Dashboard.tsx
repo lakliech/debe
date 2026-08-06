@@ -3,6 +3,7 @@ import { Users, MapPin, Flag, Activity, CheckCircle2, AlertTriangle, Clock } fro
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { format } from "date-fns";
 import OnboardingChecklist from "@/components/OnboardingChecklist";
+import KenyaMap from "@/components/KenyaMap";
 
 // Reusable card for summary metrics
 function StatCard({ title, value, icon: Icon, trend, trendValue, colorClass }: any) {
@@ -107,24 +108,13 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Coverage Map */}
+        {/* Results Map */}
         <div className="lg:col-span-2 bg-card border border-border rounded-md shadow-sm p-6 flex flex-col relative overflow-hidden">
-          <div className="absolute top-0 right-0 p-6 z-10 pointer-events-none opacity-20">
-            <svg viewBox="0 0 200 200" className="w-64 h-64 text-primary fill-current">
-              <path d="M78.6,35.4c-4.2,4.4-6.8,10.6-11.4,14.6c-5.8,5-14.7,5.5-20.5,10.6c-5.1,4.5-8.5,12.2-9.6,18.9c-1,5.6,0.3,11.2,0.9,16.8c1,9.4,0.1,19.3,2.4,28.4c1.8,7,6.8,12.6,10.4,18.9c5.2,8.9,9.4,18.4,15.6,26.6c6.4,8.5,14.1,16,23.3,21.5c8.3,4.9,18,8,27.5,9.6c8.5,1.4,17.2,0.7,25.6-0.9c9.5-1.9,18.5-5.5,26.6-10.4c8.4-5.1,15.4-12,22.2-19c6.4-6.6,11.7-14.1,16.5-21.9c4.3-7.1,7.2-15.1,9.9-22.9c3.1-8.9,5.7-18.4,5-28c-0.6-8.8-4.2-17.2-8.3-24.9c-4.5-8.3-10.8-15.4-17.6-21.9c-7.3-6.9-15.8-12.4-24.6-16.9c-8.9-4.5-18.6-7.5-28.5-9.1C130.6,23.1,117.2,22,104,24.4C94.5,26.1,85.2,30.1,78.6,35.4z"/>
-            </svg>
-          </div>
           <div className="mb-6 relative z-10">
-            <h2 className="text-lg font-bold text-foreground">National Coverage Map</h2>
-            <p className="text-sm text-muted-foreground">Live deployment status across your campaign's scope</p>
+            <h2 className="text-lg font-bold text-foreground">Results by County</h2>
+            <p className="text-sm text-muted-foreground">Verified results across your campaign's scope — click a county to drill down</p>
           </div>
-          <div className="flex-1 min-h-[300px] relative z-10 flex items-center justify-center border-2 border-dashed border-border rounded bg-muted/10">
-            <div className="text-center text-muted-foreground">
-              <MapPin className="w-8 h-8 mx-auto mb-2 opacity-50" />
-              <p className="font-bold">Interactive SVG Map Rendered Here</p>
-              <p className="text-sm mt-1">Awaiting geographic geometry data</p>
-            </div>
-          </div>
+          <KenyaMap />
         </div>
 
         {/* Role Distribution */}
