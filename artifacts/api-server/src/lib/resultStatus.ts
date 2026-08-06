@@ -7,7 +7,7 @@
  * submission's candidate votes' isVerified flag in lockstep with membership
  * in this set — the tally filters on BOTH the parent status and the flag.
  */
-export const TALLY_ELIGIBLE_STATUSES: readonly string[] = ["verified", "auto_validated"];
+export const TALLY_ELIGIBLE_STATUSES: string[] = ["verified", "auto_validated"];
 
 import { sql } from "drizzle-orm";
 

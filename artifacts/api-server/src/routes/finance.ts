@@ -12,11 +12,12 @@ import {
   expenditureRequestsTable, paymentVouchersTable, financeAuditLogTable,
   usersTable,
 } from "@workspace/db";
-import { eq, desc, and, or, ilike, count, sum, gte, lte, ne } from "drizzle-orm";
+import { eq, desc, and, or, ilike, count, sum, gte, lte, ne, sql } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
 import { createMpesaAdapterForTenant, parseStkCallback } from "../lib/mpesa";
 import { validate } from "../lib/validate";
 import { tenantFilter, assertTenant } from "../lib/withTenant";
+import { logActivity } from "../lib/activityFeed";
 
 const router = Router();
 
@@ -558,11 +559,28 @@ router.post("/expenditure-requests", requireAuth, canManageFinance, async (req: 
 
     const actorId = await resolveActorUUID(req.clerkId);
     if (!actorId) return res.status(403).json({ error: "Actor not found" });
+
+    // A budget line, when supplied, must belong to this campaign — otherwise
+    // the burn-rate increment at final approval would silently no-op.
+    if (body.budgetLineId) {
+      const [line] = await db.select({ id: budgetLinesTable.id }).from(budgetLinesTable)
+        .where(and(eq(budgetLinesTable.id, body.budgetLineId), tenantFilter(budgetLinesTable, t.id))).limit(1);
+      if (!line) return res.status(400).json({ error: "Budget line not found for this campaign" });
+    }
+
     const ref = generateRef("EXP");
     const [row] = await db.insert(expenditureRequestsTable).values({
       ...body, tenantId: t.id, referenceNumber: ref, requestedBy: actorId, status: "pending_first",
     }).returning();
     await logFinance("expenditure", row.id, "created", actorId);
+    void logActivity({
+      tenantId: t.id,
+      actorUserId: actorId,
+      type: "expenditure_created",
+      description: `Expenditure request ${row.referenceNumber} created — KES ${Number(row.requestedAmountKes).toLocaleString()}`,
+      resource: "expenditure_request",
+      resourceId: row.id,
+    });
     res.status(201).json(row);
   } catch (err: any) {
     sendRouteError(res, err);
@@ -617,22 +635,70 @@ router.post("/expenditure-requests/:id/final-approve", requireAuth, canApproveEx
     if (!expReq || expReq.status !== "pending_final") return res.status(400).json({ error: "Cannot final-approve — wrong status" });
 
     const voucherNum = `PV-${generateRef("").split("-").slice(1).join("-")}`;
-    const [voucher] = await db.insert(paymentVouchersTable).values({
-      tenantId: t.id,
-      voucherNumber: voucherNum,
-      expenditureRequestId: expReq.id,
-      amountKes: expReq.approvedAmountKes ?? expReq.requestedAmountKes,
-      paymentMethod: body.paymentMethod ?? "bank_transfer",
-      payeeSnapshot: { name: expReq.payeeName, bank: expReq.payeeBank, account: expReq.payeeAccountNumber, phone: expReq.payeePhone },
-      ledger: expReq.ledger,
-      issuedBy: actorId ?? expReq.requestedBy,
-    }).returning();
+    const amountKes = expReq.approvedAmountKes ?? expReq.requestedAmountKes;
 
-    const [updated] = await db.update(expenditureRequestsTable).set({
-      status: "approved", finalApproverId: actorId ?? undefined, finalApprovedAt: new Date(), paymentVoucherId: voucher.id,
-    }).where(eq(expenditureRequestsTable.id, expReq.id)).returning();
+    // One transaction with an atomic claim: only the FIRST concurrent
+    // approver flips pending_final → approved; everyone else rolls back. The
+    // voucher and the budget-line burn commit together with the status flip.
+    let claimFailure: "already_processed" | "budget_line_missing" | null = null;
+    const result = await db.transaction(async (tx) => {
+      const [claimed] = await tx.update(expenditureRequestsTable).set({
+        status: "approved", finalApproverId: actorId ?? undefined, finalApprovedAt: new Date(),
+      }).where(and(
+        eq(expenditureRequestsTable.id, expReq.id),
+        eq(expenditureRequestsTable.status, "pending_final"),
+        tenantFilter(expenditureRequestsTable, t.id),
+      )).returning();
+      if (!claimed) { claimFailure = "already_processed"; throw new Error("FINAL_APPROVE_CLAIM_LOST"); }
+
+      const [voucher] = await tx.insert(paymentVouchersTable).values({
+        tenantId: t.id,
+        voucherNumber: voucherNum,
+        expenditureRequestId: expReq.id,
+        amountKes,
+        paymentMethod: body.paymentMethod ?? "bank_transfer",
+        payeeSnapshot: { name: expReq.payeeName, bank: expReq.payeeBank, account: expReq.payeeAccountNumber, phone: expReq.payeePhone },
+        ledger: expReq.ledger,
+        issuedBy: actorId ?? expReq.requestedBy,
+      }).returning();
+
+      const [updated] = await tx.update(expenditureRequestsTable).set({ paymentVoucherId: voucher.id })
+        .where(eq(expenditureRequestsTable.id, expReq.id)).returning();
+
+      // Budget reconciliation: the burn MUST land — zero rows means the line
+      // is missing or not ours; roll everything back rather than understate.
+      if (expReq.budgetLineId) {
+        const [line] = await tx.update(budgetLinesTable)
+          .set({ spentAmountKes: sql`${budgetLinesTable.spentAmountKes} + ${amountKes}` })
+          .where(and(eq(budgetLinesTable.id, expReq.budgetLineId), tenantFilter(budgetLinesTable, t.id)))
+          .returning({ id: budgetLinesTable.id });
+        if (!line) { claimFailure = "budget_line_missing"; throw new Error("BUDGET_LINE_NOT_FOUND"); }
+      }
+
+      return { voucher, updated };
+    }).catch((err) => {
+      if (err?.message === "FINAL_APPROVE_CLAIM_LOST" || err?.message === "BUDGET_LINE_NOT_FOUND") return null;
+      throw err;
+    });
+
+    if (!result) {
+      return res.status(400).json({
+        error: claimFailure === "budget_line_missing"
+          ? "Budget line not found for this campaign"
+          : "Cannot final-approve — already processed",
+      });
+    }
+    const { voucher, updated } = result;
 
     await logFinance("expenditure", expReq.id, "final_approved", actorId, { voucherId: voucher.id });
+    void logActivity({
+      tenantId: t.id,
+      actorUserId: actorId,
+      type: "expenditure_approved",
+      description: `Expenditure ${expReq.referenceNumber} approved — voucher ${voucher.voucherNumber} issued (KES ${Number(voucher.amountKes).toLocaleString()})`,
+      resource: "payment_voucher",
+      resourceId: voucher.id,
+    });
     res.json({ expenditure: updated, voucher });
   } catch (err: any) {
     sendRouteError(res, err);

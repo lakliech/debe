@@ -19,11 +19,13 @@ import {
   agentReplacementsTable,
   agentSyncStatusTable,
   usersTable,
+  campaignStationProfilesTable,
 } from "@workspace/db";
 import { eq, desc, and, or, ilike, count, inArray } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
 import { validate } from "../lib/validate";
 import { tenantFilter, assertTenant } from '../lib/withTenant';
+import { logActivity } from "../lib/activityFeed";
 
 // ─── VALIDATION SCHEMAS ───────────────────────────────────────────────────────
 
@@ -237,6 +239,14 @@ router.post("/", requireAuth, canManageAgents, async (req: any, res: any) => {
       pollingStationId,
       isBackup: isBackup ?? false,
     } as any).returning();
+    void logActivity({
+      tenantId: t.id,
+      actorClerkId: req.clerkId,
+      type: "agent_created",
+      description: `New polling agent registered${row.isBackup ? " (backup)" : ""}`,
+      resource: "polling_agent",
+      resourceId: row.id,
+    });
     res.status(201).json(row);
   } catch (err: any) {
     logger.error({ err }, "request failed");
@@ -661,19 +671,75 @@ router.post("/replacements", requireAuth, canManageAgents, async (req: any, res:
 });
 
 // PATCH /api/polling-agents/replacements/:rid/approve
+// Approving EXECUTES the swap atomically: the paper trail (status flip) and
+// the operational reassignment (agent rows + station profile slots) either
+// all happen or none do.
 router.patch("/replacements/:rid/approve", requireAuth, canApprovePayments, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
     const actorId = await resolveActorUUID(req.clerkId);
     const parsed = validate(replacementApproveSchema, req.body, res);
     if (!parsed) return;
-    const [row] = await db.update(agentReplacementsTable).set({
-      status: "approved",
-      approvedBy: actorId ?? undefined,
-      effectiveAt: parsed.effectiveAt ? new Date(parsed.effectiveAt) : new Date(),
-    }).where(and(eq(agentReplacementsTable.id, req.params.rid), tenantFilter(agentReplacementsTable, t.id))).returning();
-    if (!row) return res.status(404).json({ error: "Replacement request not found" });
-    res.json(row);
+
+    const outcome = await db.transaction(async (tx) => {
+      const [rep] = await tx.select().from(agentReplacementsTable)
+        .where(and(eq(agentReplacementsTable.id, req.params.rid), tenantFilter(agentReplacementsTable, t.id)));
+      if (!rep) return { status: 404 as const, error: "Replacement request not found" };
+      if (rep.status !== "pending") return { status: 409 as const, error: `Replacement request already ${rep.status}` };
+      if (!rep.replacementAgentId) return { status: 400 as const, error: "No replacement agent assigned to this request" };
+
+      // Both agents must belong to this tenant (IDOR guard)
+      const agents = await tx.select({ id: pollingAgentsTable.id }).from(pollingAgentsTable)
+        .where(and(
+          inArray(pollingAgentsTable.id, [rep.originalAgentId, rep.replacementAgentId]),
+          tenantFilter(pollingAgentsTable, t.id),
+        ));
+      if (agents.length !== 2) return { status: 404 as const, error: "Agent not found" };
+
+      const [row] = await tx.update(agentReplacementsTable).set({
+        status: "approved",
+        approvedBy: actorId ?? undefined,
+        effectiveAt: parsed.effectiveAt ? new Date(parsed.effectiveAt) : new Date(),
+      }).where(eq(agentReplacementsTable.id, rep.id)).returning();
+
+      // Original agent: off the station, marked replaced
+      await tx.update(pollingAgentsTable).set({
+        pollingStationId: null,
+        status: "replaced",
+      }).where(eq(pollingAgentsTable.id, rep.originalAgentId));
+
+      // Replacement agent: onto the station
+      await tx.update(pollingAgentsTable).set({
+        pollingStationId: rep.pollingStationId,
+      }).where(eq(pollingAgentsTable.id, rep.replacementAgentId));
+
+      // Station profile: swap whichever slot the original held (if a profile exists)
+      await tx.update(campaignStationProfilesTable).set({ primaryAgentId: rep.replacementAgentId })
+        .where(and(
+          tenantFilter(campaignStationProfilesTable, t.id),
+          eq(campaignStationProfilesTable.stationId, rep.pollingStationId),
+          eq(campaignStationProfilesTable.primaryAgentId, rep.originalAgentId),
+        ));
+      await tx.update(campaignStationProfilesTable).set({ backupAgentId: rep.replacementAgentId })
+        .where(and(
+          tenantFilter(campaignStationProfilesTable, t.id),
+          eq(campaignStationProfilesTable.stationId, rep.pollingStationId),
+          eq(campaignStationProfilesTable.backupAgentId, rep.originalAgentId),
+        ));
+
+      return { status: 200 as const, row };
+    });
+
+    if (outcome.status !== 200) return res.status(outcome.status).json({ error: outcome.error });
+    void logActivity({
+      tenantId: t.id,
+      actorUserId: actorId,
+      type: "agent_replacement_approved",
+      description: "Agent replacement approved — station assignment swapped",
+      resource: "agent_replacement",
+      resourceId: outcome.row.id,
+    });
+    res.json(outcome.row);
   } catch (err: any) {
     logger.error({ err }, "request failed");
     res.status(500).json({ error: "Something went wrong. Please try again." });

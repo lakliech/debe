@@ -29,6 +29,7 @@ import { validate } from "../lib/validate";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 import { tenantFilter, assertTenant } from "../lib/withTenant";
 import { TALLY_ELIGIBLE_STATUSES } from "../lib/resultStatus";
+import { logActivity } from "../lib/activityFeed";
 
 // ─── VALIDATION SCHEMAS ───────────────────────────────────────────────────────
 
@@ -486,6 +487,14 @@ router.post("/submissions", requireAuth, canSubmitResults, async (req: any, res:
       );
     }
 
+    void logActivity({
+      tenantId: t.id,
+      actorClerkId: req.clerkId,
+      type: "result_created",
+      description: `Result submission drafted (station ${body.pollingStationId.slice(0, 8)}…, v${version})`,
+      resource: "result_submission",
+      resourceId: submission.id,
+    });
     res.status(201).json(submission);
   } catch (err: any) {
     logger.error({ err }, "request failed");
@@ -691,6 +700,14 @@ router.post("/submissions/:id/verify", requireAuth, canVerifyResults, async (req
       return [u];
     });
 
+    void logActivity({
+      tenantId: t.id,
+      actorUserId: actorId,
+      type: "result_review",
+      description: `Result submission ${action}: ${submission.status} → ${toStatus}`,
+      resource: "result_submission",
+      resourceId: req.params.id,
+    });
     res.json(updated);
   } catch (err: any) {
     logger.error({ err }, "request failed");

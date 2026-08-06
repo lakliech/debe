@@ -16,6 +16,7 @@ import { requireRoles } from "../middlewares/rbac";
 import { tenantFilter, assertTenant } from '../lib/withTenant';
 import { z } from "zod";
 import { validate } from "../lib/validate";
+import { logActivity } from "../lib/activityFeed";
 
 const router = Router();
 
@@ -274,6 +275,14 @@ router.post("/messages/:id/approve", requireAuth, canApproveComms, async (req: a
       .where(and(tenantFilter(scheduledMessagesTable, t.id), eq(scheduledMessagesTable.id, req.params.id), eq(scheduledMessagesTable.status, "pending")))
       .returning();
     if (!updated) return res.status(400).json({ error: "Message not in pending status" });
+    void logActivity({
+      tenantId: t.id,
+      actorUserId: actorId,
+      type: "message_approved",
+      description: "Scheduled message approved for dispatch",
+      resource: "scheduled_message",
+      resourceId: updated.id,
+    });
     res.json(updated);
   } catch (err: any) {
     logger.error({ err }, "request failed");

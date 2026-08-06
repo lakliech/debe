@@ -3,6 +3,7 @@ import { logger } from "./lib/logger";
 import { runPlatformBootstrap } from "./lib/platformBootstrap";
 import { backfillTallyEligibilityFlags } from "./lib/resultStatus";
 import { ensureMpesaConfigTable } from "./lib/mpesa";
+import { startCommsDispatcher } from "./lib/commsDispatcher";
 import { db } from "@workspace/db";
 import { pollingStationsTable } from "@workspace/db";
 import { sql, like, count } from "drizzle-orm";
@@ -99,6 +100,7 @@ async function main() {
     }
 
     logger.info({ port }, "Server listening");
+    startCommsDispatcher();
 
     // Both are idempotent and swallow their own failures, so they are safe to
     // run in the background. The bootstrap recovers a deployment whose

@@ -1,0 +1,92 @@
+Significant progress since the last review — ~12 commits addressing critical security and functionality bugs. Here's the delta.
+✅ FIXED — Verified in Current Code
+Issue	Fix Commit	Verification
+SQL injection in tally.ts	1f09fb8	sql.raw() replaced with inArray() across all geo-level endpoints
+Tally returns zero votes	1a4f13c + 3d36ff0	isVerified now syncs lockstep with status changes; TALLY_ELIGIBLE_STATUSES shared constant
+Auto-validation Rule 6 broken	1ca3383	Now queries campaignStationProfilesTable instead of shared pollingStationsTable
+Registration race condition	45b7b07	Unique constraint violation mapped to clean 409
+Sanitized error responses	106d072	All routes use sendRouteError() or generic "Something went wrong"
+Tenant filter on candidate lookup	106d072	Rule 4 in runAutoValidation() now has tenantFilter(candidatesTable, tenantId)
+X-Tenant-Slug trust issue	106d072	Host-authoritative tenant slug resolution
+CSP disabled	106d072	Clerk-compatible CSP enabled
+Dev CORS in production	106d072	Localhost origins removed from prod
+Tally compute non-atomic	106d072	Wrapped in db.transaction()
+Events public filter	45fa524	Uses real lifecycle statuses instead of nonexistent "published"
+Per-tenant M-Pesa config	428a25b	tenantMpesaConfigsTable with encrypted credentials; createMpesaAdapterForTenant()
+Station tenant validation	961029a	agent-submit verifies station exists in campaignStationProfilesTable
+Bulk import endpoints	f098d75	CSV/Excel upload for agents, volunteers, supporters, candidates
+Campaign scope enforcement	89ff3e6 + 54cd648	Seat type + geography filtering at registration and in management
+Zod query validation	106d072	snapshotQuerySchema, contributionsQuerySchema, etc.
+DomainTab crash	3c3c24d	Fixed envelope shape { requests }
+🟡 PARTIALLY FIXED — Needs Attention
+1.  Tally Read vs. Compute Inconsistency
+File: tally.ts
+POST /compute filters on both resultSubmissionsTable.status ∈ TALLY_ELIGIBLE_STATUSES and eq(submissionCandidateVotesTable.isVerified, true).
+But GET /national, /county, /constituency, /ward only filter on resultSubmissionsTable.status ∈ TALLY_ELIGIBLE_STATUSES — they do not filter submissionCandidateVotesTable.isVerified.
+Risk: If isVerified ever desyncs from status (race condition, manual DB edit, migration error), the live dashboard will show different numbers than the computed snapshot.
+Fix: Add eq(submissionCandidateVotesTable.isVerified, true) to all tally GET aggregation queries, or drop the isVerified filter from compute and rely solely on TALLY_ELIGIBLE_STATUSES.
+----
+2.  Agent Replacement Approval Still Doesn't Execute the Swap
+File: pollingAgentsMgmt.ts — PATCH /replacements/:rid/approve
+The endpoint updates agentReplacementsTable.status → "approved" but never updates:
+•  pollingAgentsTable.pollingStationId for the replacement agent
+•  campaignStationProfilesTable.primaryAgentId / backupAgentId
+•  The original agent's status
+The replacement exists as a paper trail only. The operational assignment doesn't change.
+Fix: On approval, run a transaction that:
+3.  Sets original agent status = "replaced" and clears pollingStationId
+4.  Sets replacement agent pollingStationId = replacement.pollingStationId
+5.  Updates campaignStationProfilesTable primary/backup assignment
+----
+🟠 STILL BROKEN / MISSING
+3. Budget Reconciliation
+File: finance.ts
+budgetLinesTable.spentAmountKes is never updated when expenditure requests are approved and vouchers are paid.
+There is no query joining budgetLinesTable.allocatedAmountKes with actual spend from paymentVouchersTable.
+Impact: Finance team cannot see burn rate vs. budget.
+Fix: On voucher payment (or final approval), increment budgetLinesTable.spentAmountKes by the voucher amount.
+4.  Communications Delivery Backend
+Status: Unknown (couldn't fetch communications.ts — timed out)
+From the earlier review, approved scheduled messages had no delivery worker. If this hasn't been added, the entire communications module is still a dead end.
+Check: Does a background worker poll scheduledMessagesTable and dispatch via SMS/email providers? If not, this remains critical.
+----
+5.  Activity Feed & General Audit Logs
+Status: Still empty
+activityFeedTable has a rich schema but no route writes to it. The dashboard queries it and always returns empty.
+auditLogsTable (with oldValue/newValue diff tracking) is completely unused. Only financeAuditLogTable and submissionVerificationStepsTable are actively written.
+----
+6.  Onboarding Progress Never Updated
+Status: Unchanged
+onboardingProgressTable is write-once at registration. There are no endpoints to mark steps complete (logoUploaded, coloursSet, etc.). The settings overview computes state dynamically from live data, making the stored table meaningless.
+----
+7.  Dual Training Systems
+Status: Unchanged
+agentTrainingCoursesTable / agentTrainingEnrollmentsTable (used by polling agents) and trainingCoursesTable / trainingEnrollmentsTable (used by volunteers) are still completely disjoint. No unified reporting.
+----
+8.  Volunteer ↔ Agent Status Linkage
+Status: Unchanged
+A suspended volunteer can still be an active polling agent. No cascade logic connects these two status fields.
+----
+🔴 NEW POTENTIAL ISSUE INTRODUCED
+9. TALLY_ELIGIBLE_STATUSES Type Cast
+File: tally.ts — multiple instances of:
+inArray(resultSubmissionsTable.status, TALLY_ELIGIBLE_STATUSES as string[])
+If TALLY_ELIGIBLE_STATUSES is already a string[], the cast is harmless. But if it's defined as a readonly tuple or const assertion, Drizzle's inArray may not accept it without the cast. The cast itself is a code smell — better to define it as a proper array type.
+📊 Updated Production Readiness Scorecard
+Domain	Previous	Current	Delta
+Multitenant Architecture	8/10	9/10	M-Pesa per-tenant, scope enforcement
+Election Results	4/10	8/10	Auto-validation, tally, SQL injection all fixed
+Workforce Management	7/10	8/10	Bulk import added, replacement still broken
+Communications	3/10	?/10	Unknown — verify delivery worker exists
+Finance	6/10	7/10	M-Pesa fixed, budget reconciliation still missing
+Public Portal	7/10	8/10	Events fixed, scope filtering added
+Compliance & Privacy	6/10	7/10	DSR deletion still incomplete
+Platform Operations	7/10	8/10	Plan limits still not enforced
+Overall: 7.5/10 — The critical election-night pipeline is now functional. Remaining blockers are operational (budget reconciliation, agent replacement execution, communications delivery) rather than existential.
+Priority Actions (Remaining)
+1.  Fix tally read/compute consistency — add isVerified filter to GET endpoints or remove from compute
+2.  Complete agent replacement approval — actually swap assignments in the transaction
+3.  Add budget burn-rate tracking — update spentAmountKes on voucher creation
+4.  Verify communications delivery worker exists — if not, build it
+5.  Populate activity feed — write on key mutations
+Want me to generate Replit prompts for any of the remaining fixes?
