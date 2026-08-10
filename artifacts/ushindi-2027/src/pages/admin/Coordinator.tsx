@@ -1,16 +1,27 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AlertTriangle, MapPin, Users, Activity } from "lucide-react";
 import {
   useGetCoordinatorDashboard,
   useGetVolunteerCoverage,
   useGetCoverageGapAlerts,
   useListCoordinatorVolunteers,
+  getGetCoordinatorDashboardQueryKey,
+  getListCoordinatorVolunteersQueryKey,
 } from "@workspace/api-client-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
 import { cn } from "@/lib/utils";
+import { useBranding, useBrandingLoading } from "@/contexts/BrandingContext";
+import { getLevelOptionsForScope } from "@/lib/electionLevel";
 
 type Scope = "national" | "county" | "constituency" | "ward";
+
+const SCOPE_LABELS: Record<Scope, string> = {
+  national: "🇰🇪 National",
+  county: "County",
+  constituency: "Constituency",
+  ward: "Ward",
+};
 
 function StatTile({ title, value, color }: { title: string; value?: number | null; color: string }) {
   return (
@@ -26,24 +37,91 @@ function StatTile({ title, value, color }: { title: string; value?: number | nul
 }
 
 export default function Coordinator() {
-  const [scope, setScope] = useState<Scope>("national");
-  const [scopeId, setScopeId] = useState("");
+  const branding = useBranding();
+  const brandingLoading = useBrandingLoading();
+
+  // The campaign's seat type is authoritative: a senatorial/gubernatorial
+  // campaign is county-scoped, MP constituency-scoped, MCA ward-scoped.
+  // "National" only exists for presidential (or legacy scope-less) campaigns.
+  const allowedScopes = getLevelOptionsForScope(branding.seatType, branding.electionLevel) as readonly Scope[];
+  const ownScope: Scope = allowedScopes[0] ?? "national";
+  const ownScopeId: string | null =
+    ownScope === "county" ? (branding.scopeCountyId ?? null)
+    : ownScope === "constituency" ? (branding.scopeConstituencyId ?? null)
+    : ownScope === "ward" ? (branding.scopeWardId ?? null)
+    : null;
+
+  // null = follow the campaign's own scope (branding may load async)
+  const [scopeOverride, setScopeOverride] = useState<Scope | null>(null);
+  const [scopeIdInput, setScopeIdInput] = useState("");
   const [volPage, setVolPage] = useState(1);
 
+  // Reset local selection whenever the campaign identity/scope changes
+  // (tenant switch or branding update) so a stale override can't leak across.
+  useEffect(() => {
+    setScopeOverride(null);
+    setScopeIdInput("");
+    setVolPage(1);
+  }, [ownScope, ownScopeId]);
+
+  // Guard against an override that is no longer in the allowed set.
+  const validOverride = scopeOverride && allowedScopes.includes(scopeOverride) ? scopeOverride : null;
+  const scope = validOverride ?? ownScope;
+  const isOwnScope = scope === ownScope;
+  const scopeId = isOwnScope ? (ownScopeId ?? "") : scopeIdInput.trim();
+
+  // A drilldown below the campaign scope without an ID must not query as if it
+  // were that scope — the backend only narrows when an id is present, so it
+  // would return campaign-scope data labelled as the lower scope. Fall back to
+  // the campaign scope until a valid ID is entered.
+  const drilldownPending = !isOwnScope && scope !== "national" && !scopeId;
+  const queryScope: Scope = drilldownPending ? ownScope : scope;
+  const queryScopeId = drilldownPending ? (ownScopeId ?? "") : scopeId;
+
+  // Fetch only after authoritative branding resolves — otherwise the first
+  // render fires a DEFAULTS-derived "national" query for scoped campaigns.
+  const scopeQueryEnabled = !brandingLoading;
+
+  const dashParams = queryScope !== "national"
+    ? { scope: queryScope, ...(queryScopeId ? { id: queryScopeId } : {}) }
+    : { scope: "national" as const };
+  const volParams = {
+    countyId: queryScope === "county" && queryScopeId ? queryScopeId : undefined,
+    constituencyId: queryScope === "constituency" && queryScopeId ? queryScopeId : undefined,
+    wardId: queryScope === "ward" && queryScopeId ? queryScopeId : undefined,
+    page: volPage,
+  };
+
   const { data: dashboard, isLoading: loadingDash } = useGetCoordinatorDashboard(
-    scope !== "national" && scopeId ? { scope, id: scopeId } : { scope: "national" }
+    dashParams,
+    { query: { queryKey: getGetCoordinatorDashboardQueryKey(dashParams), enabled: scopeQueryEnabled } },
   );
   const { data: coverage, isLoading: loadingCoverage } = useGetVolunteerCoverage();
   const { data: gaps } = useGetCoverageGapAlerts();
-  const { data: volList, isLoading: loadingVols } = useListCoordinatorVolunteers({
-    countyId: scope === "county" ? scopeId : undefined,
-    page: volPage,
-  });
+  const { data: volList, isLoading: loadingVols } = useListCoordinatorVolunteers(
+    volParams,
+    { query: { queryKey: getListCoordinatorVolunteersQueryKey(volParams), enabled: scopeQueryEnabled } },
+  );
 
   const dash = dashboard as any;
   const coverageList: any[] = Array.isArray(coverage) ? coverage : [];
   const volData: any = volList;
   const gapData: any = gaps;
+
+  // Never render (or query) from DEFAULTS branding: a county-scoped campaign
+  // would otherwise briefly fire a misleading "national" dashboard request.
+  if (brandingLoading) {
+    return (
+      <div className="space-y-6 pb-8">
+        <Skeleton className="h-9 w-80" />
+        <Skeleton className="h-16 w-full" />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-24" />)}
+        </div>
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
 
   return (
     <>
@@ -51,10 +129,12 @@ export default function Coordinator() {
         {/* Header */}
         <div>
           <h1 className="text-2xl font-extrabold tracking-tight text-foreground uppercase">Field Coordinator Dashboard</h1>
-          <p className="text-muted-foreground text-sm mt-1">Monitor volunteer coverage and ground operations across Kenya.</p>
+          <p className="text-muted-foreground text-sm mt-1">
+            Monitor volunteer coverage and ground operations {ownScope === "national" ? "across Kenya" : `across your ${ownScope}`}.
+          </p>
         </div>
 
-        {/* Scope selector */}
+        {/* Scope selector — only levels at or below the campaign's seat scope */}
         <div className="flex flex-wrap gap-3 items-center border border-border p-4 bg-muted/20 shadow-sm">
           <div className="flex items-center gap-2">
             <MapPin className="h-4 w-4 text-muted-foreground" />
@@ -62,20 +142,19 @@ export default function Coordinator() {
           </div>
           <select
             value={scope}
-            onChange={(e) => { setScope(e.target.value as Scope); setScopeId(""); }}
+            onChange={(e) => { setScopeOverride(e.target.value as Scope); setScopeIdInput(""); }}
             className="border border-input px-3 py-2 text-sm bg-background focus:outline-none focus:border-primary font-medium"
           >
-            <option value="national">🇰🇪 National</option>
-            <option value="county">County</option>
-            <option value="constituency">Constituency</option>
-            <option value="ward">Ward</option>
+            {allowedScopes.map((s) => (
+              <option key={s} value={s}>{SCOPE_LABELS[s]}{s === ownScope && s !== "national" ? " (campaign)" : ""}</option>
+            ))}
           </select>
-          {scope !== "national" && (
+          {scope !== "national" && !isOwnScope && (
             <input
               type="text"
               placeholder={`Enter ${scope} ID...`}
-              value={scopeId}
-              onChange={(e) => setScopeId(e.target.value)}
+              value={scopeIdInput}
+              onChange={(e) => setScopeIdInput(e.target.value)}
               className="border border-input px-3 py-2 text-sm bg-background focus:outline-none focus:border-primary min-w-[200px] font-medium"
             />
           )}
@@ -209,7 +288,8 @@ export default function Coordinator() {
           <div className="px-5 py-4 border-b border-border bg-muted/30 flex items-center justify-between">
             <h2 className="font-black text-sm uppercase tracking-wider flex items-center gap-2">
               <Activity className="h-4 w-4" />
-              Volunteer List {scope !== "national" && `— ${scope} scope`}
+              Volunteer List {queryScope !== "national" && `— ${queryScope} scope`}
+              {drilldownPending && <span className="text-muted-foreground normal-case font-medium">(enter an ID to drill down)</span>}
             </h2>
           </div>
           {loadingVols ? (

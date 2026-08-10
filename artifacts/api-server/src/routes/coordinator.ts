@@ -274,6 +274,7 @@ router.get("/volunteers", requireAuth, canViewCoordinator, async (req: any, res:
         tenantFilter(volunteersTable, t.id),
         countyId ? eq(volunteersTable.countyId, countyId as string) : undefined,
         constituencyId ? eq(volunteersTable.constituencyId, constituencyId as string) : undefined,
+        wardId ? eq(volunteersTable.wardId, wardId as string) : undefined,
         status ? eq(volunteersTable.status, status as string) : undefined,
         scopeCond,
       ));
