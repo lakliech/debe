@@ -214,6 +214,7 @@ export default function ResultSubmissions() {
                     <TableHead>Agent</TableHead>
                     <TableHead>Submitted At</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Anomaly</TableHead>
                     <TableHead>Flags</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -237,6 +238,32 @@ export default function ResultSubmissions() {
                         >
                           {sub.status?.replace(/_/g, " ")}
                         </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {sub.anomalyScore === null || sub.anomalyScore === undefined ? (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        ) : (
+                          <Badge
+                            variant="outline"
+                            className={`text-xs font-bold ${
+                              sub.anomalyScore >= 50
+                                ? "bg-red-100 text-red-800 border-red-300"
+                                : sub.anomalyScore >= 20
+                                  ? "bg-amber-100 text-amber-800 border-amber-300"
+                                  : sub.anomalyScore > 0
+                                    ? "bg-yellow-50 text-yellow-700"
+                                    : "bg-green-50 text-green-700"
+                            }`}
+                            title={
+                              (sub.anomalyFlags as string[] | undefined)?.length
+                                ? (sub.anomalyFlags as string[]).map((f) => f.replace(/_/g, " ")).join(" · ")
+                                : "No anomalies detected"
+                            }
+                          >
+                            {sub.anomalyScore >= 50 ? "High " : sub.anomalyScore >= 20 ? "Med " : ""}
+                            {sub.anomalyScore}
+                          </Badge>
+                        )}
                       </TableCell>
                       <TableCell>
                         {(sub.validationFlags ?? []).length > 0 ? (

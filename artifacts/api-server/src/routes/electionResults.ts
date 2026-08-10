@@ -31,6 +31,8 @@ import { tenantFilter, assertTenant } from "../lib/withTenant";
 import { TALLY_ELIGIBLE_STATUSES } from "../lib/resultStatus";
 import { logActivity } from "../lib/activityFeed";
 import { alertResultEvent } from "../lib/resultAlerts";
+import { evaluateSubmission } from "../lib/anomalyDetection";
+import { resultAnomalyFlagsTable } from "@workspace/db";
 
 // ─── VALIDATION SCHEMAS ───────────────────────────────────────────────────────
 
@@ -296,7 +298,23 @@ router.get("/submissions", requireAuth, canViewResults, async (req: any, res: an
         .orderBy(desc(resultSubmissionsTable.createdAt)).limit(pageSize).offset(offset),
       db.select({ total: count() }).from(resultSubmissionsTable).where(where),
     ]);
-    res.json({ data: rows, total: Number(total), page: pageNum, pageSize });
+    // Attach anomaly context so the queue can render risk badges.
+    const rowIds = rows.map((r) => r.id);
+    const flagRows = rowIds.length
+      ? await db.select({
+          submissionId: resultAnomalyFlagsTable.submissionId,
+          type: resultAnomalyFlagsTable.type,
+        }).from(resultAnomalyFlagsTable)
+        .where(inArray(resultAnomalyFlagsTable.submissionId, rowIds))
+      : [];
+    const flagsBySubmission = new Map<string, string[]>();
+    for (const f of flagRows) {
+      const arr = flagsBySubmission.get(f.submissionId) ?? [];
+      arr.push(f.type);
+      flagsBySubmission.set(f.submissionId, arr);
+    }
+    const data = rows.map((r) => ({ ...r, anomalyFlags: flagsBySubmission.get(r.id) ?? [] }));
+    res.json({ data, total: Number(total), page: pageNum, pageSize });
   } catch (err: any) {
     logger.error({ err }, "request failed");
     res.status(500).json({ error: "Something went wrong. Please try again." });
@@ -418,6 +436,10 @@ router.post("/submissions/agent-submit", requireAuth, canSubmitResults, async (r
       return [f];
     });
 
+    // Anomaly engine — score before verification; high risk auto-escalates
+    // to exception. Fire-and-forget: a slow sweep must not delay the agent.
+    void evaluateSubmission(submissionId, t.id)
+      .catch((err) => logger.error({ err, submissionId }, "anomaly evaluation failed"));
     res.status(201).json({ submission: final, autoValidation: { valid, flags } });
   } catch (err: any) {
     logger.error({ err }, "request failed");
@@ -576,6 +598,9 @@ router.post("/submissions/:id/submit", requireAuth, canSubmitResults, async (req
 
     // "Station X just reported" — WhatsApp ping to campaign managers.
     void alertResultEvent(t.id, "reported", submission.pollingStationId);
+    // Anomaly engine — score before verification; high risk auto-escalates.
+    void evaluateSubmission(req.params.id, t.id)
+      .catch((err) => logger.error({ err, submissionId: req.params.id }, "anomaly evaluation failed"));
     res.json({ submission: updated, autoValidation: { valid, flags } });
   } catch (err: any) {
     logger.error({ err }, "request failed");
@@ -743,6 +768,11 @@ router.post("/submissions/:id/correct", requireAuth, canVerifyResults, async (re
       correctionReason,
       evidenceUrl,
     }).returning();
+    // Corrections change the numbers — clear the anomaly evaluation so the
+    // detector re-scores on its next sweep.
+    await db.update(resultSubmissionsTable)
+      .set({ anomalyScore: null, anomalyEvaluatedAt: null })
+      .where(eq(resultSubmissionsTable.id, req.params.id));
     res.status(201).json(row);
   } catch (err: any) {
     logger.error({ err }, "request failed");

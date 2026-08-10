@@ -7,6 +7,8 @@ import {
   uuid,
   doublePrecision,
   unique,
+  index,
+  jsonb,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -234,11 +236,40 @@ export const resultSubmissionsTable = pgTable("result_submissions", {
   gpsLon: doublePrecision("gps_lon"),
   fileHashes: text("file_hashes").array(),
   version: integer("version").notNull().default(1),
+  /**
+   * Anomaly engine output: 0-100 risk score (null = not yet evaluated).
+   * Score ≥ 50 auto-moves the submission to `exception` before verification.
+   */
+  anomalyScore: integer("anomaly_score"),
+  anomalyEvaluatedAt: timestamp("anomaly_evaluated_at", { withTimezone: true }),
+  /** SHA-256 of the sorted candidate:vote vector — powers indexed duplicate-pattern detection. */
+  voteVectorHash: text("vote_vector_hash"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
 
 export type ResultSubmission = typeof resultSubmissionsTable.$inferSelect;
+
+// ── Result Anomaly Flags ──────────────────────────────────────────────────────
+// One row per triggered detector per submission. Replaced wholesale on
+// re-evaluation; (submissionId, type) is unique so re-runs are idempotent.
+export const resultAnomalyFlagsTable = pgTable("result_anomaly_flags", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  submissionId: uuid("submission_id").notNull().references(() => resultSubmissionsTable.id, { onDelete: "cascade" }),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
+  /** impossible_turnout | statistical_outlier | round_number_bias | duplicate_pattern | gps_impossible | temporal_anomaly */
+  type: text("type").notNull(),
+  /** Contribution to the submission's anomaly score. */
+  weight: integer("weight").notNull().default(0),
+  /** Detector evidence (numbers, peer counts, distances) — no PII. */
+  details: jsonb("details"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  submissionTypeUniq: unique("result_anomaly_flags_sub_type_uniq").on(table.submissionId, table.type),
+  tenantIdx: index("result_anomaly_flags_tenant_idx").on(table.tenantId),
+}));
+
+export type ResultAnomalyFlag = typeof resultAnomalyFlagsTable.$inferSelect;
 
 // ── Incidents ─────────────────────────────────────────────────────────────────
 export const incidentsTable = pgTable("incidents", {
