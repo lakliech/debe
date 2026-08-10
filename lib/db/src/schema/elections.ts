@@ -15,9 +15,10 @@ import {
   timestamp,
   doublePrecision,
   jsonb,
+  index,
 } from "drizzle-orm/pg-core";
 
-import { electionsTable, candidatesTable, resultSubmissionsTable } from "./config";
+import { electionsTable, candidatesTable, resultSubmissionsTable, pollingAgentsTable } from "./config";
 import { pollingStationsTable, pollingCentresTable, wardsTable, constituenciesTable, countiesTable } from "./geography";
 import { usersTable, tenantsTable } from "./core";
 
@@ -356,3 +357,43 @@ export const electionIncidentReportsTable = pgTable("election_incident_reports",
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
 export type ElectionIncidentReport = typeof electionIncidentReportsTable.$inferSelect;
+
+// ── Agent Location Pings (Live Tracking) ──────────────────────────────────────
+// Append-only GPS heartbeats from the agent app (~every 5 min on election day).
+// Presence status is DERIVED at query time from the latest ping vs the assigned
+// station's coordinates — this table stays a pure fact log.
+export const agentLocationPingsTable = pgTable("agent_location_pings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
+  agentId: uuid("agent_id").notNull().references(() => pollingAgentsTable.id, { onDelete: "cascade" }),
+  /** Resolved server-side to the tenant's active election when the client omits it. */
+  electionId: uuid("election_id").references(() => electionsTable.id),
+  lat: doublePrecision("lat").notNull(),
+  lon: doublePrecision("lon").notNull(),
+  /** GPS accuracy radius in metres, when the device reports it. */
+  accuracyM: doublePrecision("accuracy_m"),
+  /** Client-side capture time (devices may be offline when sending). */
+  recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  // Latest-ping-per-agent lookup (live map + monitor sweep).
+  index("agent_location_pings_agent_latest_idx").on(t.tenantId, t.agentId, t.recordedAt),
+  index("agent_location_pings_tenant_time_idx").on(t.tenantId, t.recordedAt),
+]);
+export type AgentLocationPing = typeof agentLocationPingsTable.$inferSelect;
+
+// ── Agent Tracking Alerts ─────────────────────────────────────────────────────
+// One row per dispatched "agent missing" alert — enforces the re-alert cooldown
+// so supervisors aren't spammed every sweep tick.
+export const agentTrackingAlertsTable = pgTable("agent_tracking_alerts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),
+  agentId: uuid("agent_id").notNull().references(() => pollingAgentsTable.id, { onDelete: "cascade" }),
+  electionId: uuid("election_id").references(() => electionsTable.id),
+  /** missing | away */
+  kind: text("kind").notNull(),
+  sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("agent_tracking_alerts_agent_kind_idx").on(t.tenantId, t.agentId, t.kind, t.sentAt),
+]);
+export type AgentTrackingAlert = typeof agentTrackingAlertsTable.$inferSelect;

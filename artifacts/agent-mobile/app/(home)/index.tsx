@@ -22,6 +22,7 @@ import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
 import { useOffline } from '@/context/OfflineContext';
 import { useCampaignConfig } from '@/context/CampaignConfigContext';
+import { useHeartbeat } from '@/hooks/useHeartbeat';
 
 export default function Dashboard() {
   const { signOut, getToken, userId } = useAuth();
@@ -56,6 +57,9 @@ export default function Dashboard() {
     retry: 1,
     staleTime: 5 * 60_000,
   });
+
+  // GPS heartbeat every 5 min while assigned to a station (foreground, best-effort)
+  useHeartbeat(isOnline && !!agentData?.pollingStationId);
 
   const {
     data: stationData,

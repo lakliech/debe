@@ -6,6 +6,7 @@ import {
   CheckCircle2, AlertOctagon, Scale, Wifi, WifiOff, BarChart3
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import LiveAgentMap from "@/components/LiveAgentMap";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -245,6 +246,9 @@ export default function CommandCentre() {
           />
         </div>
       )}
+
+      {/* Live Agent Tracking — geofence map, refreshes every 30s */}
+      <LiveAgentMap />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Tally Summary */}
