@@ -1,4 +1,4 @@
-import { Shield, Flag, Users, Activity, Settings, MapPin, Search, Menu, LogOut, ChevronRight, DollarSign, Megaphone, Library, Calendar, AlertTriangle, Settings2, ClipboardList, BarChart3, AlertOctagon, Scale, Monitor, Globe, Download, Lock, Vote, Mail, Building2, ChevronsUpDown, Check, Radio, CreditCard, LifeBuoy } from "lucide-react";
+import { Shield, Flag, Users, Activity, Settings, MapPin, Search, Menu, LogOut, ChevronRight, DollarSign, Megaphone, Library, Calendar, AlertTriangle, Settings2, ClipboardList, BarChart3, AlertOctagon, Scale, Monitor, Globe, Download, Lock, Vote, Mail, Building2, ChevronsUpDown, Check, Radio, CreditCard, LifeBuoy, Ban } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useClerk, useUser } from "@clerk/react";
 import { useQuery } from "@tanstack/react-query";
@@ -6,7 +6,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { useBranding } from "@/contexts/BrandingContext";
+import { useBranding, useBrandingSuspended } from "@/contexts/BrandingContext";
 import { SECTION_RULES } from "@/lib/access";
 import { useIdentity, type ActiveTenant } from "@/hooks/useIdentity";
 import DemoTour from "@/components/DemoTour";
@@ -373,6 +373,49 @@ function MemberCampaignSwitcher() {
 }
 
 /**
+ * Shown when the campaign's account has been suspended by a platform admin.
+ * Replaces the entire page content so the admin does not see a wall of broken
+ * API states, and tells them exactly what happened and who to contact.
+ */
+function CampaignSuspendedPage() {
+  const { signOut } = useClerk();
+  return (
+    <div className="flex flex-col items-center justify-center flex-1 min-h-[60vh] px-6 text-center gap-6">
+      <div className="flex items-center justify-center h-16 w-16 rounded-full bg-red-100 text-red-600">
+        <Ban className="h-8 w-8" />
+      </div>
+      <div className="space-y-2 max-w-md">
+        <h1 className="text-2xl font-extrabold tracking-tight text-foreground">
+          Campaign Suspended
+        </h1>
+        <p className="text-muted-foreground">
+          This campaign's account has been suspended by the platform. You cannot
+          access the Command Centre until the suspension is lifted.
+        </p>
+        <p className="text-sm text-muted-foreground pt-2">
+          If you believe this is an error, please contact platform support at{" "}
+          <a
+            href="mailto:support@ushindi.app"
+            className="font-semibold text-foreground underline underline-offset-2 hover:text-primary"
+          >
+            support@ushindi.app
+          </a>{" "}
+          and reference your campaign name.
+        </p>
+      </div>
+      <Button
+        variant="outline"
+        className="rounded-sm"
+        onClick={() => signOut({ redirectUrl: "/" })}
+      >
+        <LogOut className="h-4 w-4 mr-2" />
+        Sign out
+      </Button>
+    </div>
+  );
+}
+
+/**
  * Shown to a platform operator who has landed on a campaign page without
  * entering a campaign. This is a normal state, not an error: operators hold no
  * campaign of their own, so there is simply nothing to render until they pick
@@ -402,6 +445,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const { user } = useUser();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { access, isPlatformOperator, activeTenant } = useIdentity();
+  const isSuspended = useBrandingSuspended();
 
   // A platform operator outside any campaign has no campaign data to show, so
   // the campaign sections would be dead links. Show only Platform until they
@@ -585,9 +629,17 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
           <div className="mx-auto max-w-7xl">
-            {/* Trial / billing state. Renders nothing on a healthy paid plan. */}
-            <TrialBanner />
-            {needsCampaign ? <NoCampaignSelected /> : children}
+            {/* Suspended campaign: show a clear explanation instead of a wall of broken API states.
+                Platform operators are exempt — they can still manage the campaign from platform admin. */}
+            {isSuspended && !isPlatformOperator ? (
+              <CampaignSuspendedPage />
+            ) : (
+              <>
+                {/* Trial / billing state. Renders nothing on a healthy paid plan. */}
+                <TrialBanner />
+                {needsCampaign ? <NoCampaignSelected /> : children}
+              </>
+            )}
           </div>
         </div>
       </main>
