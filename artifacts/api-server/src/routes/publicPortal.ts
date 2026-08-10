@@ -6,7 +6,7 @@ import { logger } from "../lib/logger";
 import { Readable } from "node:stream";
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { publicSubmitLimiter } from "../middlewares/rateLimits";
+import { publicSubmitLimiter, statusCheckLimiter } from "../middlewares/rateLimits";
 import {
   manifestoSectorsTable,
   manifestoItemsTable,
@@ -55,6 +55,10 @@ const aspirantsQuerySchema = z.object({
   county: z.string().trim().max(200).optional(),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(48).default(24),
+});
+const aspirantStatusQuerySchema = z.object({
+  nationalId: z.string().trim().min(1).max(50),
+  phone: z.string().trim().min(1).max(30),
 });
 const transparencySubmissionsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -478,6 +482,61 @@ router.post("/aspirants", publicSubmitLimiter, async (req: any, res: any) => {
     // Fire-and-forget: notify the review team. Must run after res.json() so a
     // slow provider never delays the response seen by the applicant.
     void notifyAspirantDeclaration(tenantId, fullName, position);
+  } catch (err: any) {
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+/**
+ * GET /api/public/aspirants/status?nationalId=...&phone=...
+ *
+ * Lets an applicant check the review status of their own declaration without
+ * calling the office.  Both nationalId and phone must match to prevent
+ * enumeration of a single identifier.  Only status and reviewNotes are
+ * returned — no other PII is exposed.
+ *
+ * Rate-limited to 20 requests per IP per 15 minutes.
+ */
+router.get("/aspirants/status", statusCheckLimiter, async (req: any, res: any) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) {
+      return res.status(400).json({
+        error: "Missing tenant context: please supply the X-Tenant-Slug header or ?tenant= query parameter",
+      });
+    }
+
+    const q = validate(aspirantStatusQuerySchema, req.query, res);
+    if (!q) return;
+
+    const { nationalId, phone } = q;
+
+    const [record] = await db
+      .select({
+        status: aspirantsTable.status,
+        reviewNotes: aspirantsTable.reviewNotes,
+      })
+      .from(aspirantsTable)
+      .where(
+        and(
+          eq(aspirantsTable.nationalId, nationalId),
+          eq(aspirantsTable.phoneNumber, phone),
+          tenantFilter(aspirantsTable, tenantId),
+        ),
+      )
+      .limit(1);
+
+    if (!record) {
+      return res.status(404).json({
+        error: "No declaration found for the supplied national ID and phone number. Please check your details or contact the campaign office.",
+      });
+    }
+
+    const response: { status: string; reviewNotes?: string } = { status: record.status };
+    if (record.reviewNotes) response.reviewNotes = record.reviewNotes;
+
+    res.json(response);
   } catch (err: any) {
     logger.error({ err }, "request failed");
     res.status(500).json({ error: "Something went wrong. Please try again." });

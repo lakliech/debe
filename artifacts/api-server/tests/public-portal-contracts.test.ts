@@ -24,12 +24,54 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
 
-// ─── Captured insert arguments ────────────────────────────────────────────────
-let _capturedInsertValues: Record<string, unknown> | null = null;
+// ─── Shared mock state — must be declared with vi.hoisted() so the factory ───
+// closures inside vi.mock() can access the same bindings that test code mutates.
+const mockState = vi.hoisted(() => ({
+  // Captured insert values (set by mock, read by tests)
+  capturedInsertValues: null as Record<string, unknown> | null,
+  // Queue of select-result rows — each shift() feeds one DB select call.
+  // Tests push arrays onto this queue before sending a request.
+  selectResultQueue: [] as Record<string, unknown>[][],
+  // Tenant injected by the resolveTenant middleware mock (tests can override).
+  testTenant: {
+    id: "tenant-uuid-test",
+    slug: "test-campaign",
+    isSuspended: false,
+    plan: "pro",
+  } as Record<string, unknown> | null,
+}));
 
-// ─── Mock rate limiter — bypass the 5-req/15-min cap so tests never throttle ─
+// ─── Convenience aliases used throughout the test file ────────────────────────
+function getCapturedInsertValues() { return mockState.capturedInsertValues; }
+
+// ─── Mock rate limiter — bypass caps so tests never throttle ──────────────────
 vi.mock("../src/middlewares/rateLimits", () => ({
-  publicSubmitLimiter: (_req: any, _res: any, next: any) => next(),
+  publicSubmitLimiter:  (_req: any, _res: any, next: any) => next(),
+  statusCheckLimiter:   (_req: any, _res: any, next: any) => next(),
+}));
+
+// ─── Mock resolveTenant middleware — always inject a synthetic tenant ─────────
+vi.mock("../src/middlewares/resolveTenant", () => ({
+  resolveTenantPublic: (req: any, _res: any, next: any) => {
+    if (mockState.testTenant) (req as any).tenant = mockState.testTenant;
+    next();
+  },
+  resolveTenant: (req: any, _res: any, next: any) => {
+    if (mockState.testTenant) (req as any).tenant = mockState.testTenant;
+    next();
+  },
+  resolveTenantMixed: (req: any, _res: any, next: any) => {
+    if (mockState.testTenant) (req as any).tenant = mockState.testTenant;
+    next();
+  },
+  resolveTenantOptional: (req: any, _res: any, next: any) => {
+    if (mockState.testTenant) (req as any).tenant = mockState.testTenant;
+    next();
+  },
+  requireTenantContext: (_req: any, _res: any, next: any) => next(),
+  assertTenant: (req: any) => (req as any).tenant,
+  tenantFilter: (_table: any, _id: string) => ({}),
+  NO_CAMPAIGN_SELECTED: "NO_CAMPAIGN_SELECTED",
 }));
 
 // ─── Mock Clerk (not needed for public routes, but app imports it) ────────────
@@ -76,7 +118,13 @@ vi.mock("@workspace/db", () => {
       offset()     { return qb; },
       groupBy()    { return qb; },
       select()     { return qb; },
-      limit()      { return Promise.resolve([]); },
+      limit() {
+        const rows = mockState.selectResultQueue.length > 0 ? mockState.selectResultQueue.shift()! : [];
+        return Promise.resolve(rows);
+      },
+      // then() is intentionally static — always returns [] — so background jobs
+      // that await a query builder directly (count queries without .limit()) don't
+      // accidentally drain the selectResultQueue intended for the route handler.
       then(resolve: any, reject: any) {
         return Promise.resolve([]).then(resolve, reject);
       },
@@ -90,7 +138,7 @@ vi.mock("@workspace/db", () => {
     insert: (_table?: unknown) => ({
       values: (v: Record<string, unknown>) => {
         // Capture every insert so tests can assert field names.
-        _capturedInsertValues = v;
+        mockState.capturedInsertValues = v;
         return {
           returning: () =>
             Promise.resolve([
@@ -125,6 +173,7 @@ vi.mock("@workspace/db", () => {
     policySubmissionsTable:  makeTable("policy_submissions"),
     contactMessagesTable:    makeTable("contact_messages"),
     dataSubjectRequestsTable: makeTable("data_subject_requests"),
+    tenantsTable:            makeTable("tenants"),
     // tables referenced at module load (avoid undefined crashes)
     manifestoSectorsTable:   makeTable("manifesto_sectors"),
     manifestoItemsTable:     makeTable("manifesto_items"),
@@ -192,7 +241,14 @@ const { default: app } = await import("../src/app");
 
 // ─── Reset captured state before every test ───────────────────────────────────
 beforeEach(() => {
-  _capturedInsertValues = null;
+  mockState.capturedInsertValues = null;
+  mockState.selectResultQueue = [];
+  mockState.testTenant = {
+    id: "tenant-uuid-test",
+    slug: "test-campaign",
+    isSuspended: false,
+    plan: "pro",
+  };
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -217,11 +273,11 @@ describe("POST /api/public/volunteer-register — field-name contract", () => {
       phoneNumber:  "+254712345678",
       consentGiven: true,
     });
-    expect(_capturedInsertValues).not.toBeNull();
+    expect(mockState.capturedInsertValues).not.toBeNull();
     // phoneNumber must be present under the correct key
-    expect(_capturedInsertValues).toHaveProperty("phoneNumber", "+254712345678");
+    expect(mockState.capturedInsertValues).toHaveProperty("phoneNumber", "+254712345678");
     // "phone" is the wrong key — must NOT appear
-    expect(_capturedInsertValues).not.toHaveProperty("phone");
+    expect(mockState.capturedInsertValues).not.toHaveProperty("phone");
   });
 
   it("passes consentGiven (not 'consent') as true to the database insert", async () => {
@@ -230,9 +286,9 @@ describe("POST /api/public/volunteer-register — field-name contract", () => {
       phoneNumber:  "+254700000001",
       consentGiven: true,
     });
-    expect(_capturedInsertValues).toHaveProperty("consentGiven", true);
+    expect(mockState.capturedInsertValues).toHaveProperty("consentGiven", true);
     // The insert should never forward a falsy consent (route hard-codes true)
-    expect((_capturedInsertValues as any)?.consentGiven).toBe(true);
+    expect(( mockState.capturedInsertValues as any)?.consentGiven).toBe(true);
   });
 
   it("rejects a payload missing consentGiven with 400", async () => {
@@ -276,8 +332,8 @@ describe("POST /api/public/supporter-register — field-name contract", () => {
       fullName:    "Grace Njoroge",
       phoneNumber: "+254733000002",
     });
-    expect(_capturedInsertValues).toHaveProperty("phoneNumber", "+254733000002");
-    expect(_capturedInsertValues).not.toHaveProperty("phone");
+    expect(mockState.capturedInsertValues).toHaveProperty("phoneNumber", "+254733000002");
+    expect(mockState.capturedInsertValues).not.toHaveProperty("phone");
   });
 
   it("passes consentMarketing, consentSms, consentEmail with correct boolean values", async () => {
@@ -288,17 +344,17 @@ describe("POST /api/public/supporter-register — field-name contract", () => {
       consentSms:       false,
       consentEmail:     true,
     });
-    expect(_capturedInsertValues).toHaveProperty("consentMarketing", true);
-    expect(_capturedInsertValues).toHaveProperty("consentSms",       false);
-    expect(_capturedInsertValues).toHaveProperty("consentEmail",     true);
+    expect(mockState.capturedInsertValues).toHaveProperty("consentMarketing", true);
+    expect(mockState.capturedInsertValues).toHaveProperty("consentSms",       false);
+    expect(mockState.capturedInsertValues).toHaveProperty("consentEmail",     true);
   });
 
   it("defaults consent fields to false when omitted", async () => {
     await request(app).post(ROUTE).send({ fullName: "Ida Kamau" });
     // Route uses `?? false` for all three consent flags
-    expect(_capturedInsertValues).toHaveProperty("consentMarketing", false);
-    expect(_capturedInsertValues).toHaveProperty("consentSms",       false);
-    expect(_capturedInsertValues).toHaveProperty("consentEmail",     false);
+    expect(mockState.capturedInsertValues).toHaveProperty("consentMarketing", false);
+    expect(mockState.capturedInsertValues).toHaveProperty("consentSms",       false);
+    expect(mockState.capturedInsertValues).toHaveProperty("consentEmail",     false);
   });
 
   it("rejects a payload missing fullName with 400", async () => {
@@ -329,20 +385,20 @@ describe("POST /api/public/aspirants — field-name contract", () => {
 
   it("passes phoneNumber (not 'phone') to the database insert", async () => {
     await request(app).post(ROUTE).send(VALID_ASPIRANT);
-    expect(_capturedInsertValues).toHaveProperty("phoneNumber", "+254722000001");
-    expect(_capturedInsertValues).not.toHaveProperty("phone");
+    expect(mockState.capturedInsertValues).toHaveProperty("phoneNumber", "+254722000001");
+    expect(mockState.capturedInsertValues).not.toHaveProperty("phone");
   });
 
   it("passes nationalId and position with the correct values", async () => {
     await request(app).post(ROUTE).send(VALID_ASPIRANT);
-    expect(_capturedInsertValues).toHaveProperty("nationalId", "12345678");
-    expect(_capturedInsertValues).toHaveProperty("position",   "parliamentary");
+    expect(mockState.capturedInsertValues).toHaveProperty("nationalId", "12345678");
+    expect(mockState.capturedInsertValues).toHaveProperty("position",   "parliamentary");
   });
 
   it("passes consentGiven: true (not 'consent') to the database insert", async () => {
     await request(app).post(ROUTE).send(VALID_ASPIRANT);
-    expect(_capturedInsertValues).toHaveProperty("consentGiven", true);
-    expect(_capturedInsertValues).not.toHaveProperty("consent");
+    expect(mockState.capturedInsertValues).toHaveProperty("consentGiven", true);
+    expect(mockState.capturedInsertValues).not.toHaveProperty("consent");
   });
 
   it("rejects an invalid position value with 400", async () => {
@@ -385,8 +441,8 @@ describe("POST /api/public/policy-submit — field-name contract", () => {
       title:   "Road Infrastructure",
       content: "Tarmac the road to Turkana.",
     });
-    expect(_capturedInsertValues).toHaveProperty("title",   "Road Infrastructure");
-    expect(_capturedInsertValues).toHaveProperty("content", "Tarmac the road to Turkana.");
+    expect(mockState.capturedInsertValues).toHaveProperty("title",   "Road Infrastructure");
+    expect(mockState.capturedInsertValues).toHaveProperty("content", "Tarmac the road to Turkana.");
   });
 
   it("passes submitterName for non-anonymous submissions", async () => {
@@ -396,7 +452,7 @@ describe("POST /api/public/policy-submit — field-name contract", () => {
       submitterName: "Mohamed Ali",
       anonymous:     false,
     });
-    expect(_capturedInsertValues).toHaveProperty("submitterName", "Mohamed Ali");
+    expect(mockState.capturedInsertValues).toHaveProperty("submitterName", "Mohamed Ali");
   });
 
   it("replaces submitterName with 'Anonymous' when anonymous: true", async () => {
@@ -406,9 +462,9 @@ describe("POST /api/public/policy-submit — field-name contract", () => {
       submitterName: "Real Name",
       anonymous:     true,
     });
-    expect(_capturedInsertValues).toHaveProperty("submitterName", "Anonymous");
+    expect(mockState.capturedInsertValues).toHaveProperty("submitterName", "Anonymous");
     // The submitter email must be suppressed for anonymous submissions
-    expect(_capturedInsertValues).toHaveProperty("submitterEmail", null);
+    expect(mockState.capturedInsertValues).toHaveProperty("submitterEmail", null);
   });
 
   it("rejects a payload missing content with 400", async () => {
@@ -439,21 +495,21 @@ describe("POST /api/public/contact — field-name contract", () => {
   it("maps client 'name' field to 'fullName' in the database insert", async () => {
     await request(app).post(ROUTE).send(VALID_CONTACT);
     // The route does: { fullName: name, email, subject, message }
-    expect(_capturedInsertValues).toHaveProperty("fullName", "Naomi Kiprotich");
+    expect(mockState.capturedInsertValues).toHaveProperty("fullName", "Naomi Kiprotich");
     // "name" must NOT leak through as a DB column — it is not a column
-    expect(_capturedInsertValues).not.toHaveProperty("name");
+    expect(mockState.capturedInsertValues).not.toHaveProperty("name");
   });
 
   it("passes email, subject, and message with correct values", async () => {
     await request(app).post(ROUTE).send(VALID_CONTACT);
-    expect(_capturedInsertValues).toHaveProperty("email",   "naomi@example.com");
-    expect(_capturedInsertValues).toHaveProperty("subject", "Volunteer Inquiry");
-    expect(_capturedInsertValues).toHaveProperty("message", "I would like to volunteer in Kisumu.");
+    expect(mockState.capturedInsertValues).toHaveProperty("email",   "naomi@example.com");
+    expect(mockState.capturedInsertValues).toHaveProperty("subject", "Volunteer Inquiry");
+    expect(mockState.capturedInsertValues).toHaveProperty("message", "I would like to volunteer in Kisumu.");
   });
 
   it("sets status to 'open' in the database insert", async () => {
     await request(app).post(ROUTE).send(VALID_CONTACT);
-    expect(_capturedInsertValues).toHaveProperty("status", "open");
+    expect(mockState.capturedInsertValues).toHaveProperty("status", "open");
   });
 
   it("rejects a payload missing any required field with 400", async () => {
@@ -486,9 +542,9 @@ describe("POST /api/data-requests — field-name contract", () => {
       requestType: "deletion",
       fullName:    "Pendo Achieng",
     });
-    expect(_capturedInsertValues).toHaveProperty("requestType", "deletion");
+    expect(mockState.capturedInsertValues).toHaveProperty("requestType", "deletion");
     // "type" is the wrong key — must NOT appear in the insert
-    expect(_capturedInsertValues).not.toHaveProperty("type");
+    expect(mockState.capturedInsertValues).not.toHaveProperty("type");
   });
 
   it("passes fullName with the correct value to the database insert", async () => {
@@ -497,7 +553,7 @@ describe("POST /api/data-requests — field-name contract", () => {
       fullName:    "Rehema Mwenda",
       email:       "rehema@example.com",
     });
-    expect(_capturedInsertValues).toHaveProperty("fullName", "Rehema Mwenda");
+    expect(mockState.capturedInsertValues).toHaveProperty("fullName", "Rehema Mwenda");
   });
 
   it("passes optional phoneNumber (not 'phone') to the database insert", async () => {
@@ -506,8 +562,8 @@ describe("POST /api/data-requests — field-name contract", () => {
       fullName:    "Samuel Njeri",
       phoneNumber: "+254799000001",
     });
-    expect(_capturedInsertValues).toHaveProperty("phoneNumber", "+254799000001");
-    expect(_capturedInsertValues).not.toHaveProperty("phone");
+    expect(mockState.capturedInsertValues).toHaveProperty("phoneNumber", "+254799000001");
+    expect(mockState.capturedInsertValues).not.toHaveProperty("phone");
   });
 
   it("rejects an unknown requestType with 400", async () => {
@@ -526,5 +582,95 @@ describe("POST /api/data-requests — field-name contract", () => {
   it("rejects a payload missing fullName with 400", async () => {
     const res = await request(app).post(ROUTE).send({ requestType: "access" });
     expect(res.status).toBe(400);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 7. GET /api/public/aspirants/status
+//    Critical: requires both nationalId AND phone; returns only status/reviewNotes
+// ═════════════════════════════════════════════════════════════════════════════
+
+describe("GET /api/public/aspirants/status — declaration status self-check", () => {
+  const ROUTE = "/api/public/aspirants/status";
+
+  // The resolveTenant mock always injects _testTenant (reset in beforeEach).
+  // For status endpoint tests, just seed the aspirant DB result directly.
+  function seedAspirant(aspirantRow: Record<string, unknown>) {
+    // app.ts has a global middleware that queries the DB on every request to
+    // resolve a tenant from a custom domain (app.ts ~line 257).  That middleware
+    // calls db.select().from().where().limit(1) — consuming one queue slot —
+    // before the route handler runs.  Push a blank slot first so the middleware
+    // gets [], and the real aspirant row is waiting for the route handler.
+    mockState.selectResultQueue.push([]);
+    mockState.selectResultQueue.push([aspirantRow]);
+  }
+
+  it("returns 400 when nationalId is missing", async () => {
+    const res = await request(app).get(ROUTE).query({ phone: "+254712345678" });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when phone is missing", async () => {
+    const res = await request(app).get(ROUTE).query({ nationalId: "12345678" });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when both params are missing", async () => {
+    const res = await request(app).get(ROUTE);
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 404 when no record matches the supplied nationalId and phone", async () => {
+    // Queue is empty → aspirant lookup returns [] → 404
+    const res = await request(app)
+      .get(ROUTE)
+      .query({ nationalId: "99999999", phone: "+254700000000" });
+    expect(res.status).toBe(404);
+    expect(res.body).toHaveProperty("error");
+  });
+
+  it("returns 200 with status when a matching record is found", async () => {
+    seedAspirant({ status: "pending", reviewNotes: null });
+    const res = await request(app)
+      .get(ROUTE)
+      .query({ nationalId: "12345678", phone: "+254712345678" });
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty("status", "pending");
+    // reviewNotes must be absent when null — no extra PII
+    expect(res.body).not.toHaveProperty("reviewNotes");
+  });
+
+  it("returns 200 with reviewNotes when the coordinator left a note", async () => {
+    seedAspirant({ status: "rejected", reviewNotes: "Missing supporting documents" });
+    const res = await request(app)
+      .get(ROUTE)
+      .query({ nationalId: "12345678", phone: "+254712345678" });
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty("status", "rejected");
+    expect(res.body).toHaveProperty("reviewNotes", "Missing supporting documents");
+  });
+
+  it("returns 200 with status 'approved' and no reviewNotes for an approved record", async () => {
+    seedAspirant({ status: "approved", reviewNotes: null });
+    const res = await request(app)
+      .get(ROUTE)
+      .query({ nationalId: "12345678", phone: "+254712345678" });
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty("status", "approved");
+    expect(res.body).not.toHaveProperty("reviewNotes");
+  });
+
+  it("does not expose PII beyond status and reviewNotes", async () => {
+    seedAspirant({ status: "pending", reviewNotes: null });
+    const res = await request(app)
+      .get(ROUTE)
+      .query({ nationalId: "12345678", phone: "+254712345678" });
+    expect(res.status).toBe(200);
+    const keys = Object.keys(res.body);
+    expect(keys).not.toContain("fullName");
+    expect(keys).not.toContain("nationalId");
+    expect(keys).not.toContain("phoneNumber");
+    expect(keys).not.toContain("email");
+    expect(keys).not.toContain("id");
   });
 });

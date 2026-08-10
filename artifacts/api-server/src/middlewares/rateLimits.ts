@@ -11,6 +11,24 @@
  */
 import rateLimit from "express-rate-limit";
 
+/**
+ * statusCheckLimiter — applied to the aspirant status-check endpoint.
+ * Limit: 20 lookups per IP per 15-minute window — enough for a genuine
+ * applicant to recheck their status without enabling bulk enumeration.
+ */
+export const statusCheckLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.ip ?? "unknown",
+  message: {
+    error:
+      "Too many status checks from this device — please wait 15 minutes before trying again.",
+  },
+  skipSuccessfulRequests: false,
+});
+
 export const publicSubmitLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 5,
