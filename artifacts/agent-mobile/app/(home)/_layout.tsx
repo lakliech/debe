@@ -344,6 +344,10 @@ export default function HomeLayout() {
           name="form"
           options={{ animation: 'slide_from_bottom', gestureEnabled: false }}
         />
+        <Stack.Screen
+          name="aspirants"
+          options={{ animation: 'slide_from_right' }}
+        />
       </Stack>
     </OfflineProvider>
   );

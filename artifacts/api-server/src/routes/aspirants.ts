@@ -5,7 +5,7 @@
 import { logger } from "../lib/logger";
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
-import { db, aspirantsTable, usersTable } from "@workspace/db";
+import { db, aspirantsTable, usersTable, pollingAgentsTable, pollingStationsTable } from "@workspace/db";
 import { eq, ilike, and, count, sql, desc } from "drizzle-orm";
 import { requireLevel } from "../middlewares/rbac";
 import { resolveTenant } from "../middlewares/resolveTenant";
@@ -87,6 +87,94 @@ router.get("/", requireAuth, resolveTenant, async (req: any, res: any) => {
       .offset(offset);
 
     res.json({ data, total, page: pageNum, limit: pageSize });
+  } catch (err: any) {
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// GET /api/aspirants/agent-directory — approved aspirants in the calling agent's county.
+// Access control:
+//   • Caller must have a tenant-scoped polling_agents record (verified field agent).
+//     Any authenticated user who is NOT a registered polling agent receives 403.
+//   • Unassigned agents (agent record exists but pollingStationId is null) are
+//     served the tenant-wide approved list — this is the only legitimate path to
+//     unfiltered results; arbitrary authenticated non-agents cannot reach it.
+//   • status=approved is hard-coded — callers cannot request pending/rejected records.
+//   • countyId is resolved server-side from the agent's station — callers cannot
+//     override geography via query params.
+//   • Only public-safe fields are returned (no email, phone, nationalId, reviewNotes).
+router.get("/agent-directory", requireAuth, resolveTenant, async (req: any, res: any) => {
+  try {
+    const t = assertTenant(req);
+
+    // 1. Resolve clerkId → local user id
+    const [user] = await db
+      .select({ id: usersTable.id })
+      .from(usersTable)
+      .where(eq(usersTable.clerkId, req.clerkId))
+      .limit(1);
+
+    if (!user) return res.status(403).json({ error: "No agent record found for this user" });
+
+    // 2. Require a tenant-scoped polling_agents record.
+    //    Users without one are not polling agents and must be denied.
+    const [agent] = await db
+      .select({ pollingStationId: pollingAgentsTable.pollingStationId })
+      .from(pollingAgentsTable)
+      .where(
+        and(
+          eq(pollingAgentsTable.userId, user.id),
+          tenantFilter(pollingAgentsTable, t.id),
+        ),
+      )
+      .limit(1);
+
+    if (!agent) {
+      return res.status(403).json({ error: "Access restricted to registered polling agents" });
+    }
+
+    // 3. Resolve the agent's countyId from their assigned polling station.
+    //    If pollingStationId is null the agent is confirmed unassigned — they may
+    //    see the full tenant approved list (no county restriction).
+    let countyId: string | null = null;
+    if (agent.pollingStationId) {
+      const [station] = await db
+        .select({ countyId: pollingStationsTable.countyId })
+        .from(pollingStationsTable)
+        .where(eq(pollingStationsTable.id, agent.pollingStationId))
+        .limit(1);
+      countyId = station?.countyId ?? null;
+    }
+
+    // 4. Fetch approved aspirants scoped to the resolved county (or all for
+    //    confirmed-unassigned agents). Return public-safe fields only.
+    const conditions: any[] = [
+      tenantFilter(aspirantsTable, t.id),
+      eq(aspirantsTable.status, "approved"),
+    ];
+    if (countyId) conditions.push(eq(aspirantsTable.countyId, countyId));
+
+    const data = await db
+      .select({
+        // Public-safe fields only — no email, phoneNumber, nationalId, reviewNotes
+        id: aspirantsTable.id,
+        fullName: aspirantsTable.fullName,
+        position: aspirantsTable.position,
+        countyName: aspirantsTable.countyName,
+        constituency: aspirantsTable.constituency,
+        ward: aspirantsTable.ward,
+        partyAffiliation: aspirantsTable.partyAffiliation,
+        isIndependent: aspirantsTable.isIndependent,
+        status: aspirantsTable.status,
+        createdAt: aspirantsTable.createdAt,
+      })
+      .from(aspirantsTable)
+      .where(and(...conditions))
+      .orderBy(aspirantsTable.fullName)
+      .limit(200);
+
+    res.json({ data, total: data.length, countyId });
   } catch (err: any) {
     logger.error({ err }, "request failed");
     res.status(500).json({ error: "Something went wrong. Please try again." });

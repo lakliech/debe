@@ -357,6 +357,46 @@ router.get("/polling-stations", requireAuth, async (req: any, res: any) => {
   res.json(stations);
 });
 
+// GET /api/geography/polling-stations/:id — fetch a single station by UUID
+// Used by the mobile app to resolve a station's countyId from the agent's
+// pollingStationId without relying on name/code search.
+// The campaign-scope filter is applied so callers cannot look up stations
+// outside their campaign's geographic scope.
+router.get("/polling-stations/:id", requireAuth, async (req: any, res: any) => {
+  try {
+    const { id } = req.params;
+    const filter = await scopeFilterFor(req);
+    const scopedWhere = stationScopeWhere(filter);
+
+    // Require BOTH the exact ID match AND the campaign scope.
+    const whereClause = scopedWhere
+      ? and(eq(pollingStationsTable.id, id), scopedWhere)
+      : eq(pollingStationsTable.id, id);
+
+    const [station] = await db
+      .select({
+        id: pollingStationsTable.id,
+        code: pollingStationsTable.code,
+        name: pollingStationsTable.name,
+        centreId: pollingStationsTable.centreId,
+        wardId: pollingStationsTable.wardId,
+        constituencyId: pollingStationsTable.constituencyId,
+        countyId: pollingStationsTable.countyId,
+        registeredVoters: pollingStationsTable.registeredVoters,
+        latitude: pollingStationsTable.latitude,
+        longitude: pollingStationsTable.longitude,
+      })
+      .from(pollingStationsTable)
+      .where(whereClause)
+      .limit(1);
+
+    if (!station) return res.status(404).json({ error: "Not found" });
+    res.json(station);
+  } catch (err: any) {
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
 // GET /api/geography/stats
 router.get("/stats", requireAuth, async (req: any, res: any) => {
   const filter = await scopeFilterFor(req);

@@ -122,6 +122,11 @@ export default function Dashboard() {
     router.push('/(home)/form');
   };
 
+  const handleViewAspirants = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push('/(home)/aspirants');
+  };
+
   const handleSync = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     syncNow();
@@ -250,6 +255,22 @@ export default function Dashboard() {
             </View>
           </View>
         )}
+
+        {/* Aspirants quick-link */}
+        <Pressable
+          style={({ pressed }) => [s.card, s.aspirantLink, pressed && { opacity: 0.82 }]}
+          onPress={handleViewAspirants}
+        >
+          <View style={s.cardHeader}>
+            <Ionicons name="people-outline" size={18} color={colors.primary} />
+            <Text style={s.cardTitle}>Approved Aspirants</Text>
+          </View>
+          <Text style={s.stationName}>View aspirants in your area</Text>
+          <View style={s.aspirantLinkRow}>
+            <Text style={s.aspirantLinkSub}>Tap to see approved candidates running in your county</Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+          </View>
+        </Pressable>
 
         {/* Pending sync */}
         {pendingCount > 0 && (
@@ -497,6 +518,22 @@ const styleSheet = (colors: ReturnType<typeof useColors>) =>
       fontSize: 12,
       fontFamily: 'Inter_500Medium',
       color: colors.success,
+    },
+    aspirantLink: {
+      // override card gap for tighter layout
+    },
+    aspirantLinkRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 8,
+    },
+    aspirantLinkSub: {
+      flex: 1,
+      fontSize: 13,
+      fontFamily: 'Inter_400Regular',
+      color: colors.mutedForeground,
+      lineHeight: 18,
     },
     syncCard: {
       backgroundColor: colors.warning,
