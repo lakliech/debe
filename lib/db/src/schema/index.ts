@@ -7,3 +7,4 @@ export * from "./elections";
 export * from "./compliance";
 export * from "./platform";
 export * from "./pvt";
+export * from "./logistics";

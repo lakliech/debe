@@ -1,0 +1,179 @@
+# Replit Agent Prompt: Election Day Logistics & Security Command Center
+
+Build a real-time election day logistics and security command center for Debe. This is a mission-critical module used on election day to track thousands of polling agents, vehicles, and security incidents across all 47 Kenyan counties.
+
+## Database Schema (lib/db/src/schema/logistics.ts)
+
+Create 5 tables:
+
+1. **vehiclesTable** — Campaign vehicle fleet
+   - id, tenantId, registrationNumber, make, model, capacity, vehicleType
+   - assignedDriverId, assignedCountyId, assignedConstituencyId
+   - status ("available" | "deployed" | "maintenance" | "broken_down")
+   - gpsDeviceId, lastGpsLat, lastGpsLon, lastGpsAt
+   - fuelCapacityLiters, currentFuelLevel
+   - createdAt, updatedAt
+
+2. **transportAssignmentsTable** — Election day transport plans
+   - id, tenantId, electionId, vehicleId, driverId
+   - origin/destination (countyId + text description)
+   - passengerAgentIds (JSONB array)
+   - planned/actual departure and arrival timestamps
+   - status ("scheduled" | "en_route" | "arrived" | "delayed" | "cancelled")
+   - delayReason, fuelIssuedLiters, fuelCostKes
+
+3. **agentCheckInsTable** — GPS check-ins throughout election day
+   - id, tenantId, electionId, agentId, pollingStationId
+   - checkInType ("arrival" | "setup_complete" | "voting_started" | "voting_ended" | "counting_started" | "results_submitted" | "departure")
+   - gpsLat, gpsLon, gpsAccuracy, photoUrl
+   - distanceFromStation, isWithinGeofence
+   - deviceId, source
+
+4. **securityIncidentsTable** — Incident reporting and tracking
+   - id, tenantId, electionId, reportedByAgentId, reportedByUserId
+   - countyId, constituencyId, pollingStationId, gpsLat, gpsLon
+   - incidentType ("violence" | "intimidation" | "vote_buying" | "ballot_stuffing" | "agent_exclusion" | "voter_suppression" | "property_damage" | "injury" | "death" | "other")
+   - severity ("low" | "medium" | "high" | "critical")
+   - title, description, photoUrls, videoUrls
+   - status ("reported" | "verified" | "escalated" | "resolved" | "false_alarm")
+   - assignedTo, escalationLevel, resolutionNotes, resolvedAt, resolvedBy
+   - isPanicButton, panicButtonAcknowledgedAt, panicButtonAcknowledgedBy
+
+5. **panicAlertsTable** — Fast-access panic button alerts
+   - id, tenantId, electionId, agentId, pollingStationId
+   - gpsLat, gpsLon, status ("active" | "acknowledged" | "resolved" | "false_alarm")
+   - acknowledgedAt, acknowledgedBy, resolvedAt, notes
+
+Add indexes on all foreign keys and frequently queried columns (status, createdAt, agentId, electionId).
+
+## API Routes (artifacts/api-server/src/routes/logistics.ts)
+
+Implement these endpoints with Zod validation, tenantFilter, and RBAC:
+
+**Vehicles:**
+- GET /api/logistics/vehicles
+- POST /api/logistics/vehicles
+- PATCH /api/logistics/vehicles/:id
+- PATCH /api/logistics/vehicles/:id/gps
+- DELETE /api/logistics/vehicles/:id
+
+**Transport:**
+- GET /api/logistics/transport-assignments
+- POST /api/logistics/transport-assignments
+- PATCH /api/logistics/transport-assignments/:id
+- POST /api/logistics/transport-assignments/:id/depart
+- POST /api/logistics/transport-assignments/:id/arrive
+
+**Check-ins:**
+- POST /api/logistics/check-ins — Agent checks in. Validate GPS against polling station coordinates. Compute distance. Set isWithinGeofence = distance &lt;= 200m.
+- GET /api/logistics/check-ins
+- GET /api/logistics/check-ins/missing — Returns agents assigned to stations who have NOT checked in within the expected window
+- GET /api/logistics/check-ins/status-summary — Count by check-in type
+
+**Security Incidents:**
+- POST /api/logistics/security-incidents
+- GET /api/logistics/security-incidents
+- PATCH /api/logistics/security-incidents/:id
+- POST /api/logistics/security-incidents/:id/escalate — Increment escalationLevel, auto-alert next level
+
+**Panic Button:**
+- POST /api/logistics/panic — Public endpoint (agent auth only). Creates panic alert + security incident. Triggers immediate notification.
+- POST /api/logistics/panic/:id/acknowledge
+- POST /api/logistics/panic/:id/resolve
+
+**Command Center:**
+- GET /api/logistics/command-center/overview — Aggregated stats: total agents, checked in %, missing count, active incidents, panic alerts, vehicles en route
+- GET /api/logistics/command-center/live-map — Returns all agents and vehicles with latest GPS for map rendering
+- GET /api/logistics/command-center/alerts-feed — Server-Sent Events (SSE) stream of real-time alerts (check-ins, panics, incidents, delays)
+
+## Frontend: Command Center Dashboard (client/src/components/logistics/CommandCenter.tsx)
+
+Build a real-time dashboard with:
+
+**Header Stats Row (6 cards):**
+- Total Agents, Checked In %, Missing Agents, Vehicles En Route, Active Incidents, Active Panic Alerts
+- Each card shows current count + trend indicator
+
+**Live Map Section:**
+- Reuse the KenyaTileMap component or create a new scatter map
+- Green dots = checked-in agents, Yellow = not checked in, Red = panic triggered, Blue = vehicles
+- Click any dot to see details panel
+- Auto-refresh every 10 seconds
+
+**Real-Time Alerts Feed (SSE):**
+- Scrollable feed on the right side
+- Shows: timestamp, type (check-in, panic, incident, delay), location, severity color
+- Panic alerts flash and play sound
+- Auto-scroll to newest
+
+**Tabs below map:**
+1. **Agents Grid** — Table of all agents with check-in status, last GPS, geofence status, action buttons
+2. **Transport** — Table of vehicles with status, ETA, fuel level, passenger list
+3. **Security** — Table of incidents with severity filters, assignee, status
+4. **Panic Log** — All panic alerts with acknowledgment/response times
+
+## Agent PWA Screens (client/src/components/logistics/AgentLogistics.tsx)
+
+Mobile-first interface for polling agents:
+
+**Home Screen:**
+- Big red PANIC button at top (always visible)
+- One-tap "Check In" button (captures GPS, optional photo)
+- "Submit Results" → links to existing Form 34A flow
+- "Report Security Incident" → form with photo upload
+- "My Transport" → shows vehicle assignment, driver contact, pickup time/location
+- "Messages" → chat with command center
+
+**Check-In Flow:**
+1. Tap "Check In"
+2. Select check-in type from dropdown
+3. Auto-capture GPS
+4. Optional: take photo of station
+5. Submit → shows confirmation + next expected check-in time
+
+**Panic Button Flow:**
+1. Tap and hold red button for 3 seconds (prevents accidental trigger)
+2. Confirms: "Are you in danger?"
+3. On confirm: sends GPS + agent ID + timestamp
+4. Shows: "Alert sent. Help is on the way."
+5. Updates when security officer acknowledges
+
+## Business Logic
+
+**Missing Agent Detection:**
+- Every 30 minutes, compare assigned agents vs latest check-in
+- Expected check-in windows: arrival by 6 AM, voting start by 9 AM, voting end by 5 PM, results by 9 PM
+- If window missed by &gt;30 min, flag as missing
+- Auto-SMS/WhatsApp to agent: "You have not checked in. Please confirm your status."
+
+**Geofence Validation:**
+- On check-in, compute haversine distance between agent GPS and polling station coordinates
+- isWithinGeofence = distance &lt;= 200 meters
+- If false, flag as "geofence_violation" but still accept check-in
+- Alert field officer
+
+**Transport Delay Detection:**
+- If actual departure &gt;15 min after planned, mark delayed
+- If en_route and ETA passed by &gt;30 min, auto-alert transport coordinator
+- Compute ETA from GPS speed + distance to destination
+
+**Incident Escalation:**
+- Level 1: Field officer
+- Level 2: County coordinator
+- Level 3: Regional director
+- Level 4: National security chief
+- Level 5: Campaign manager + legal team
+- Each escalation triggers WhatsApp/SMS to next level
+
+## Tech Requirements
+
+- Use existing Debe patterns: Drizzle ORM, Zod, tenantFilter, requireRoles, sendRouteError
+- SSE for real-time alerts feed (EventSource on frontend)
+- Haversine formula for GPS distance calculation
+- Service worker for PWA offline queue (check-ins queue if no signal, sync when back online)
+- Sound alerts for panic button (Web Audio API)
+- All tables must have tenantFilter on every query
+
+## Output
+
+Generate all files: schema, routes, CommandCenter dashboard, AgentLogistics PWA screens. Ensure TypeScript strict mode compiles.

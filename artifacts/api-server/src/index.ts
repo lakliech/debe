@@ -6,6 +6,7 @@ import { ensureMpesaConfigTable } from "./lib/mpesa";
 import { startCommsDispatcher } from "./lib/commsDispatcher";
 import { startAnomalyDetector } from "./lib/anomalyDetection";
 import { startAgentTrackingMonitor } from "./lib/agentTracking";
+import { startLogisticsMonitor } from "./lib/logisticsMonitor";
 import { db } from "@workspace/db";
 import { pollingStationsTable } from "@workspace/db";
 import { sql, like, count } from "drizzle-orm";
@@ -105,6 +106,7 @@ async function main() {
     startCommsDispatcher();
     startAnomalyDetector();
     startAgentTrackingMonitor();
+    startLogisticsMonitor();
 
     // Both are idempotent and swallow their own failures, so they are safe to
     // run in the background. The bootstrap recovers a deployment whose

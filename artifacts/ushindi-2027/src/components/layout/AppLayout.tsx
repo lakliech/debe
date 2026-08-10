@@ -28,6 +28,7 @@ const navigation = [
   { name: "Supporters / CRM", href: "/supporters", icon: Flag },
   { name: "Training", href: "/training", icon: Shield },
   { name: "Coordinator", href: "/coordinator", icon: MapPin },
+  { name: "Command Center", href: "/command-center", icon: Radio },
   { name: "Events", href: "/events-management", icon: Calendar },
   { name: "Aspirants", href: "/aspirants", icon: Vote },
   { name: "Contact Messages", href: "/contact-messages", icon: Mail },

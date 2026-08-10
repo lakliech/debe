@@ -124,6 +124,8 @@ import PrivilegedAccessPage from "./pages/admin/PrivilegedAccess";
 
 // Agent PWA — offline-first result submission (no AppLayout, standalone)
 import AgentResultFormPage from "./pages/agent/AgentResultForm";
+import AgentLogisticsPage from "./pages/agent/AgentLogistics";
+import LogisticsCommandCenter from "./pages/admin/LogisticsCommandCenter";
 
 const clerkPubKey = publishableKeyFromHost(
   window.location.hostname,
@@ -510,6 +512,9 @@ function BrandingAwareClerkProvider() {
           <Route path="/pvt/stations">
             <ProtectedRoute component={PVTStationsList} />
           </Route>
+          <Route path="/command-center">
+            <ProtectedRoute component={LogisticsCommandCenter} />
+          </Route>
           <Route path="/pvt/report/:stationId">
             <ProtectedRoute component={PVTQuickReportForm} />
           </Route>
@@ -569,6 +574,7 @@ function BrandingAwareClerkProvider() {
 
           {/* ── Agent PWA — standalone, no AppLayout ── */}
           <Route path="/agent/results" component={AgentResultFormPage} />
+          <Route path="/agent/field" component={AgentLogisticsPage} />
 
           <Route component={NotFound} />
         </Switch>

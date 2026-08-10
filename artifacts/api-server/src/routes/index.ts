@@ -34,6 +34,7 @@ import agentTrackingRouter from "./agentTracking";
 import electionResultsRouter from "./electionResults";
 import tallyRouter from "./tally";
 import pvtRouter from "./pvt";
+import logisticsRouter from "./logistics";
 import electionIncidentsRouter from "./electionIncidents";
 import electionDisputesRouter from "./electionDisputes";
 import transparencyPortalRouter from "./transparencyPortal";
@@ -125,6 +126,7 @@ router.use("/agent-tracking", withTenant(agentTrackingRouter));
 router.use("/election-results", withTenant(electionResultsRouter));
 router.use("/tally", withTenant(tallyRouter));
 router.use("/pvt", withTenant(pvtRouter));
+router.use("/logistics", withTenant(logisticsRouter));
 router.use("/election-incidents", withTenant(electionIncidentsRouter));
 router.use("/election-disputes", withTenant(electionDisputesRouter));
 router.use("/transparency", withTenantMixed(transparencyPortalRouter)); // GET /publications/:id is public
