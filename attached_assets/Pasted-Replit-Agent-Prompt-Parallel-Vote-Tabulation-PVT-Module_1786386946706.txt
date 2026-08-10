@@ -1,0 +1,227 @@
+Replit Agent Prompt: Parallel Vote Tabulation (PVT) Module for Debe
+You are building a Parallel Vote Tabulation (PVT) module for Debe, a multitenant election campaign management platform. PVT allows campaigns to project election results before the official IEBC announcement using statistical sampling.
+Background
+In Kenya's presidential elections, the margin of victory is often razor-thin (sometimes <0.5%, triggering automatic recount). Campaigns need real-time projections based on a representative sample of polling stations to:
+Know if they're winning before the official announcement
+Detect if the race is within recount territory
+Identify geographic strongholds and weak areas
+Make data-driven decisions about legal challenges or concession
+Statistical Methodology
+Stratified Probability-Proportional-to-Size (PPS) Sampling
+Divide all polling stations into strata (counties or constituencies)
+Within each stratum, select stations with probability proportional to registered voters
+This ensures high-voter stations (urban areas) are appropriately represented
+Bootstrap Confidence Intervals
+For each stratum, resample reported stations with replacement (2,000 iterations)
+Project stratum totals using design weights
+Aggregate to national level
+Extract 2.5th and 97.5th percentiles for 95% confidence intervals
+Margin Analysis
+Projected margin = difference between top 2 candidates' vote shares
+Recount territory = margin < 0.5% (Kenyan law)
+Win probability = fraction of bootstrap iterations where each candidate wins
+Files to Create
+1. Database Schema
+File: lib/db/src/schema/pvt.ts
+Create these tables:
+pvtSampleDesignsTable — Configuration for a PVT sample
+id, tenantId, electionId
+stratumLevel ("county" | "constituency")
+targetSampleSize, confidenceLevel, marginOfError
+selectionMethod (default "pps")
+status ("draft" | "active" | "closed" | "archived")
+generatedBy, generatedAt, activatedAt, closedAt
+createdAt, updatedAt
+pvtSampledStationsTable — Individual stations in the sample
+id, tenantId, sampleDesignId, electionId
+pollingStationId, countyId, constituencyId
+stratumId, stratumName
+registeredVoters
+selectionProbability, designWeight (1 / selectionProbability)
+reportStatus ("pending" | "quick_reported" | "full_reported" | "missing")
+quickReportedAt, fullReportedAt
+assignedAgentId
+createdAt
+pvtQuickReportsTable — Simplified results from sampled stations
+id, tenantId, sampleDesignId, sampledStationId, electionId
+agentId, submittedAt
+totalVotesCast, registeredVoters, rejectedBallots
+candidateVotes (JSONB: [{ candidateId, votes }])
+isValid, validationNotes
+source ("mobile" | "ussd" | "ivr" | "sms")
+createdAt
+pvtProjectionsTable — Computed projection snapshots
+id, tenantId, sampleDesignId, electionId
+computedAt
+totalSampledStations, reportedStations, reportingRate
+projectedTotalVotes, projectedTurnoutPercent
+candidateProjections (JSONB array with: candidateId, candidateName, partyId, partyName, color, projectedVotes, projectedVoteShare, voteShareLower, voteShareUpper, votesLower, votesUpper, winProbability)
+projectedMargin, marginLower, marginUpper
+isWithinRecountTerritory
+effectiveSampleSize, designEffect
+methodology
+createdAt
+pvtAlertsTable — Triggered alerts
+id, tenantId, sampleDesignId, projectionId
+alertType ("recount_territory" | "upset_warning" | "low_reporting" | "statistical_anomaly" | "turnout_spike")
+severity ("low" | "medium" | "high" | "critical")
+title, description
+contextData (JSONB)
+status ("active" | "acknowledged" | "resolved" | "dismissed")
+acknowledgedBy, acknowledgedAt
+createdAt
+pvtStratumSummariesTable — Pre-computed stratum aggregates
+id, tenantId, sampleDesignId, stratumId
+stratumName, totalStations, sampledStations, reportedStations, registeredVoters
+totalVotesCast, candidateVoteShares (JSONB), turnoutPercent
+updatedAt
+Add appropriate indexes on all foreign keys and frequently queried columns.
+Export all tables from the schema file.
+2. Statistical Engine
+File: artifacts/api-server/src/lib/pvtEngine.ts
+Implement these functions:
+generateStratifiedSample(tenantId, electionId, stratumLevel, targetSampleSize)
+Create a pvtSampleDesignsTable record
+Query all campaign polling stations (via campaignStationProfilesTable)
+Group by stratum (county or constituency)
+Allocate sample size proportionally to stratum voter population (Neyman allocation, minimum 2 per stratum)
+Use PPS sampling within each stratum (probability proportional to registered voters)
+Calculate selectionProbability and designWeight for each selected station
+Insert into pvtSampledStationsTable
+Return the design ID
+computeProjection(sampleDesignId, tenantId)
+Load all sampled stations and their quick reports
+Group reports by stratum
+For each stratum, compute weighted vote shares using design weights
+Run 2,000 bootstrap iterations:
+Resample reports with replacement within each stratum
+Project to full stratum population using scale factor
+Aggregate to national level
+Record candidate vote shares
+Compute point estimates, 95% confidence intervals, and win probabilities
+Calculate projected margin and recount territory flag
+Compute effective sample size and design effect
+Return PVTProjectionResult object
+generatePVTAlerts(projection)
+Check for recount territory (margin < 0.5%)
+Check for low reporting (< 50%)
+Check for upset warning (second place win probability > 30%)
+Insert alerts into pvtAlertsTable
+updateStratumSummaries(sampleDesignId, tenantId)
+Aggregate quick reports by stratum
+Upsert into pvtStratumSummariesTable
+3. API Routes
+File: artifacts/api-server/src/routes/pvt.ts
+Implement these endpoints with proper Zod validation, tenant filtering, and RBAC:
+POST /api/pvt/samples — Generate new sample
+Body: { electionId, stratumLevel, targetSampleSize, confidenceLevel, marginOfError }
+Requires manage_elections role
+Returns the created sample design
+GET /api/pvt/samples — List sample designs
+Requires view_results role
+POST /api/pvt/samples/:id/activate — Activate sample for live reporting
+Requires manage_elections role
+GET /api/pvt/samples/:id/stations — List sampled stations
+Query: ?status= filter
+Requires view_results role
+PATCH /api/pvt/stations/:id/assign-agent — Assign agent to sampled station
+Body: { agentId }
+Requires manage_polling_agents role
+POST /api/pvt/quick-reports — Submit quick report
+Body: { sampledStationId, totalVotesCast, registeredVoters, rejectedBallots, candidateVotes: [{ candidateId, votes }], source }
+Requires submit_results role
+Validates: candidate total ≤ totalVotesCast - rejectedBallots
+Prevents duplicate reports per station
+Auto-triggers projection computation on success
+Auto-generates alerts
+Updates stratum summaries
+GET /api/pvt/quick-reports — List quick reports
+Query: ?sampleDesignId=
+Requires view_results role
+GET /api/pvt/projections/latest — Get latest projection
+Query: ?sampleDesignId=
+Requires view_results role
+GET /api/pvt/projections/history — Projection over time
+Query: ?sampleDesignId=
+Requires view_results role
+POST /api/pvt/projections/compute — Manually trigger projection
+Body: { sampleDesignId }
+Requires manage_elections role
+GET /api/pvt/alerts — List alerts
+Query: ?status=, ?severity=
+Requires view_results role
+PATCH /api/pvt/alerts/:id/acknowledge — Acknowledge alert
+Requires manage_elections role
+GET /api/pvt/strata — Stratum-level breakdown
+Query: ?sampleDesignId=
+Requires view_results role
+Mount the router at /api/pvt in the main routes index.
+4. Frontend Dashboard
+File: client/src/components/pvt/PVTDashboard.tsx
+Create the main PVT dashboard with:
+Header:
+Title "Parallel Vote Tabulation"
+Live/Draft status badge
+"Compute Now" button (manual projection trigger)
+Critical Alerts Banner:
+Show Alert components for any critical severity alerts
+Recount territory warnings in red
+Key Metrics Cards (4-column grid):
+Sample Reporting — reported/total stations with progress bar
+Projected Turnout — percentage
+Effective Sample Size — with design effect note
+Projected Margin — red if within recount territory (<0.5%)
+Tabs:
+Projection — Bar chart with error bars showing candidate vote shares and 95% confidence intervals. Use Recharts (BarChart, ErrorBar). Below: margin analysis visualization with recount threshold line.
+Candidates — Card per candidate showing: rank badge, name, party, projected vote share (large), projected votes, confidence interval bar, win probability percentage.
+Strata Breakdown — List of strata with reporting progress bars, registered voters, turnout.
+Alerts — List of alerts with severity badges, acknowledge buttons.
+Auto-refresh every 30 seconds using refetchInterval.
+5. Agent Quick Report Form
+File: client/src/components/pvt/PVTQuickReportForm.tsx
+Mobile-optimized form for polling agents:
+Header:
+"PVT Sampled Station" badge
+Station name, county, registered voters
+Form fields:
+Total Votes Cast (number input)
+Registered Voters (pre-filled from station data)
+Rejected Ballots (number input, default 0)
+Candidate votes — one row per candidate with color bar, name, vote input
+Real-time balance check — shows if candidate total equals valid votes (green), under (yellow), or over (red)
+Accuracy confirmation checkbox with legal disclaimer
+Submit button (disabled if unbalanced)
+Use React Hook Form + Zod for validation.
+6. Setup/Configuration Page
+File: client/src/components/pvt/PVTSetup.tsx
+Sample configuration UI:
+Left column — Form:
+Election selector (dropdown)
+Stratification level (county = 47 strata, constituency = 290 strata)
+Target sample size slider (100–2000, default 500)
+Confidence level slider (80%–99%, default 95%)
+Margin of error slider (0.5%–5%, default 1.5%)
+Real-time recommended sample size calculation based on margin of error
+"Generate Sample" button
+Right column — Info:
+Methodology explanation cards
+If sample generated: preview card with "Review Stations" and "Activate Sample" buttons
+Key Design Decisions
+Quick reports are separate from full Form 34A submissions. Agents submit simplified counts first for PVT, then submit the full form through the existing agent-submit flow. This allows real-time projections while maintaining audit trails.
+Design weights account for PPS sampling. Urban stations with more voters have higher selection probability and lower weight. Rural stations have lower probability and higher weight. This ensures unbiased national estimates.
+Bootstrap resampling within strata. This preserves the stratified design and properly accounts for the complex sample design when computing confidence intervals.
+Auto-compute on each quick report. Every new report triggers a fresh projection, so the dashboard updates in real-time during election night.
+Recount threshold is 0.5%. Hardcoded to Kenyan presidential election law, but could be made configurable per-election type.
+Testing Checklist
+[ ] Sample generation creates correct number of stations per stratum
+[ ] Design weights sum approximately to population size
+[ ] Quick report submission updates station status
+[ ] Projection computation runs without errors with ≥1 report
+[ ] Confidence intervals are reasonable (not negative, not >100%)
+[ ] Margin analysis correctly flags recount territory
+[ ] Alerts generate for recount territory and low reporting
+[ ] Tenant isolation works (cannot access other tenant's PVT data)
+[ ] Duplicate quick report prevention works
+[ ] Balance validation catches over/under counts
+Output
+Generate all 6 files above. Ensure TypeScript compiles with strict mode. Use existing Debe patterns: Drizzle ORM, Zod validation, tenantFilter(), requireRoles(), sendRouteError(), TanStack Query, shadcn/ui components.
