@@ -253,7 +253,7 @@ export const aspirantsTable = pgTable("aspirants", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (table) => [
   // One declaration per national ID per seat per tenant.
-  unique("aspirants_national_id_position_unique").on(table.tenantId, table.nationalId, table.position),
+  unique("aspirants_national_id_position_unique").on(table.nationalId, table.position, table.tenantId),
 ]);
 
 export const insertAspirantSchema = createInsertSchema(aspirantsTable).omit({ id: true, createdAt: true, updatedAt: true });

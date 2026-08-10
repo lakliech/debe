@@ -24,7 +24,7 @@ export const systemConfigTable = pgTable("system_config", {
   updatedBy: uuid("updated_by"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (t) => [
-  unique("system_config_tenant_key_unique").on(t.tenantId, t.key),
+  unique("system_config_tenant_key_unique").on(t.key, t.tenantId),
 ]);
 
 export type SystemConfig = typeof systemConfigTable.$inferSelect;
@@ -187,7 +187,7 @@ export const electionsTable = pgTable("elections", {
   isActive: boolean("is_active").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
-  unique("elections_tenant_name_year_unique").on(t.tenantId, t.name, t.year),
+  unique("elections_tenant_name_year_unique").on(t.name, t.year, t.tenantId),
 ]);
 
 export type Election = typeof electionsTable.$inferSelect;

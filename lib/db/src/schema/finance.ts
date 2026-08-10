@@ -129,7 +129,10 @@ export const contributionsTable = pgTable("contributions", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (t) => [
-  unique("contributions_tenant_ref_unique").on(t.tenantId, t.referenceNumber),
+  // NOTE: column order matches drizzle-kit's canonical introspection order —
+  // declaring it (tenantId, referenceNumber) makes push want to recreate the
+  // constraint on every run (truncate prompt). Same constraint either way.
+  unique("contributions_tenant_ref_unique").on(t.referenceNumber, t.tenantId),
   index("contributions_donor_phone_idx").on(t.donorPhone),
   index("contributions_channel_idx").on(t.channel),
   index("contributions_compliance_flag_idx").on(t.complianceFlag),
@@ -261,7 +264,7 @@ export const expenditureRequestsTable = pgTable("expenditure_requests", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (t) => [
-  unique("expenditure_requests_tenant_ref_unique").on(t.tenantId, t.referenceNumber),
+  unique("expenditure_requests_tenant_ref_unique").on(t.referenceNumber, t.tenantId),
 ]);
 
 export type ExpenditureRequest = typeof expenditureRequestsTable.$inferSelect;
@@ -285,7 +288,7 @@ export const paymentVouchersTable = pgTable("payment_vouchers", {
   // Immutable audit — once created no fields updated; append-only
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
-  unique("payment_vouchers_tenant_voucher_unique").on(t.tenantId, t.voucherNumber),
+  unique("payment_vouchers_tenant_voucher_unique").on(t.voucherNumber, t.tenantId),
 ]);
 
 export type PaymentVoucher = typeof paymentVouchersTable.$inferSelect;
