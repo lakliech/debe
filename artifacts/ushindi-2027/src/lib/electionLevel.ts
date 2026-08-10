@@ -67,3 +67,26 @@ export function getLevelOptions(level: string | null | undefined): readonly stri
 export function isElectionLevel(v: string): v is ElectionLevel {
   return ELECTION_LEVELS.includes(v as ElectionLevel);
 }
+
+/**
+ * Tally levels per tenant seatType (authoritative scope from the campaign
+ * record). Falls back to the branding electionLevel string for legacy
+ * scope-less tenants.
+ */
+export const LEVEL_OPTIONS_BY_SEAT: Record<string, readonly string[]> = {
+  presidential: LEVEL_OPTIONS_BY_ELECTION.Presidential,
+  gubernatorial: LEVEL_OPTIONS_BY_ELECTION.Gubernatorial,
+  senator: LEVEL_OPTIONS_BY_ELECTION.Senatorial,
+  women_rep: LEVEL_OPTIONS_BY_ELECTION["Women Rep"],
+  mp: LEVEL_OPTIONS_BY_ELECTION.MP,
+  mca: LEVEL_OPTIONS_BY_ELECTION.MCA,
+};
+
+/** Level options from the authoritative seatType when set, else branding text. */
+export function getLevelOptionsForScope(
+  seatType: string | null | undefined,
+  electionLevel: string | null | undefined,
+): readonly string[] {
+  if (seatType && LEVEL_OPTIONS_BY_SEAT[seatType]) return LEVEL_OPTIONS_BY_SEAT[seatType];
+  return getLevelOptions(electionLevel);
+}

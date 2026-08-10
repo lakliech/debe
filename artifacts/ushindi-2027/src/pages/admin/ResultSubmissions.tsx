@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useBranding } from "@/contexts/BrandingContext";
-import { getLevelOptions } from "@/lib/electionLevel";
+import { getLevelOptionsForScope } from "@/lib/electionLevel";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -52,11 +52,11 @@ export default function ResultSubmissions() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
 
-  // Derive which geography filters are relevant for this campaign's election level.
-  // getLevelOptions returns the subset of ["national","county","constituency","ward"]
-  // that applies to the configured race — e.g. MCA only has ["ward"].
-  const { electionLevel } = useBranding();
-  const levelOptions = getLevelOptions(electionLevel);
+  // Derive which geography filters are relevant for this campaign's scope.
+  // The tenant seatType is authoritative (MCA → ["ward"]); the branding
+  // electionLevel string is only a fallback for scope-less legacy tenants.
+  const { electionLevel, seatType } = useBranding();
+  const levelOptions = getLevelOptionsForScope(seatType, electionLevel);
   const showCountyFilter = levelOptions.includes("county");
   const showConstituencyFilter = levelOptions.includes("constituency");
 

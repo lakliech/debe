@@ -17,6 +17,7 @@ import {
 import { eq, desc, and, sql, count, sum, countDistinct, inArray } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
 import { tenantFilter, assertTenant } from '../lib/withTenant';
+import { checkTallyAccess, scopeGeoCondition, snapshotScopeCondition } from "../lib/campaignScope";
 import { TALLY_ELIGIBLE_STATUSES } from "../lib/resultStatus";
 import { z } from "zod";
 import { validate } from "../lib/validate";
@@ -55,6 +56,10 @@ router.get("/snapshot", requireAuth, canViewResults, async (req: any, res: any) 
     const conditions: any[] = [tenantFilter(tallySnapshotsTable, t.id), eq(tallySnapshotsTable.electionId, electionId)];
     if (level) conditions.push(eq(tallySnapshotsTable.level, level));
     if (entityId) conditions.push(eq(tallySnapshotsTable.entityId, entityId));
+    // Never serve stored snapshots outside the campaign's scope — neither
+    // above-scope levels (national) nor same-level rows for foreign geography.
+    const scopeSql = await snapshotScopeCondition(t, tallySnapshotsTable);
+    if (scopeSql) conditions.push(scopeSql);
 
     const rows = await db.select().from(tallySnapshotsTable)
       .where(and(...conditions))
@@ -72,6 +77,15 @@ router.post("/compute", requireAuth, canManageElections, async (req: any, res: a
     const t = assertTenant(req);
     const { electionId, level, entityId } = req.body;
     if (!electionId) return res.status(400).json({ error: "electionId required" });
+
+    // Snapshots must never aggregate stations outside the campaign's scope.
+    const scopeCond = await scopeGeoCondition(t, pollingStationsTable);
+    const stationScope = scopeCond
+      ? inArray(
+          resultSubmissionsTable.pollingStationId,
+          db.select({ id: pollingStationsTable.id }).from(pollingStationsTable).where(scopeCond),
+        )
+      : undefined;
 
     // One transaction: reads see a single consistent snapshot (a submission
     // verified mid-compute can't skew the counts) and the snapshot rows
@@ -96,6 +110,7 @@ router.post("/compute", requireAuth, canManageElections, async (req: any, res: a
           eq(resultSubmissionsTable.electionId, electionId),
           inArray(resultSubmissionsTable.status, TALLY_ELIGIBLE_STATUSES),
           eq(submissionCandidateVotesTable.isVerified, true),
+          stationScope,
         ))
         .groupBy(
           submissionCandidateVotesTable.candidateId,
@@ -106,7 +121,7 @@ router.post("/compute", requireAuth, canManageElections, async (req: any, res: a
       const totalStations = await tx
         .select({ total: countDistinct(resultSubmissionsTable.pollingStationId) })
         .from(resultSubmissionsTable)
-        .where(and(tenantFilter(resultSubmissionsTable, t.id), eq(resultSubmissionsTable.electionId, electionId)));
+        .where(and(tenantFilter(resultSubmissionsTable, t.id), eq(resultSubmissionsTable.electionId, electionId), stationScope));
 
       const stationsReporting = await tx
         .select({ total: count(resultSubmissionsTable.id) })
@@ -114,6 +129,7 @@ router.post("/compute", requireAuth, canManageElections, async (req: any, res: a
         .where(and(
           tenantFilter(resultSubmissionsTable, t.id),
           eq(resultSubmissionsTable.electionId, electionId),
+          stationScope,
         ));
 
       const stationsVerified = await tx
@@ -123,6 +139,7 @@ router.post("/compute", requireAuth, canManageElections, async (req: any, res: a
           tenantFilter(resultSubmissionsTable, t.id),
           eq(resultSubmissionsTable.electionId, electionId),
           inArray(resultSubmissionsTable.status, TALLY_ELIGIBLE_STATUSES),
+          stationScope,
         ));
 
       const totalValidVotesResult = aggregated.reduce((s, r) => s + Number(r.votes ?? 0), 0);
@@ -170,6 +187,9 @@ router.get("/national/:electionId", requireAuth, canViewResults, async (req: any
   try {
     const t = assertTenant(req);
     const { electionId } = req.params;
+
+    const denied = await checkTallyAccess(t, "national");
+    if (denied) return res.status(403).json({ error: denied, code: "OUT_OF_SCOPE" });
 
     const votes = await db
       .select({
@@ -262,6 +282,9 @@ router.get("/county/:electionId/:countyId", requireAuth, canViewResults, async (
     const t = assertTenant(req);
     const { electionId, countyId } = req.params;
 
+    const denied = await checkTallyAccess(t, "county", countyId);
+    if (denied) return res.status(403).json({ error: denied, code: "OUT_OF_SCOPE" });
+
     const stationIds = await db.select({ id: pollingStationsTable.id })
       .from(pollingStationsTable).where(eq(pollingStationsTable.countyId, countyId));
     const ids = stationIds.map(s => s.id);
@@ -337,6 +360,9 @@ router.get("/constituency/:electionId/:constituencyId", requireAuth, canViewResu
   try {
     const t = assertTenant(req);
     const { electionId, constituencyId } = req.params;
+
+    const denied = await checkTallyAccess(t, "constituency", constituencyId);
+    if (denied) return res.status(403).json({ error: denied, code: "OUT_OF_SCOPE" });
 
     const stationIds = await db.select({ id: pollingStationsTable.id })
       .from(pollingStationsTable).where(eq(pollingStationsTable.constituencyId, constituencyId));
@@ -417,6 +443,9 @@ router.get("/ward/:electionId/:wardId", requireAuth, canViewResults, async (req:
   try {
     const t = assertTenant(req);
     const { electionId, wardId } = req.params;
+
+    const denied = await checkTallyAccess(t, "ward", wardId);
+    if (denied) return res.status(403).json({ error: denied, code: "OUT_OF_SCOPE" });
 
     const stationIds = await db.select({ id: pollingStationsTable.id })
       .from(pollingStationsTable).where(eq(pollingStationsTable.wardId, wardId));
@@ -527,6 +556,9 @@ router.get("/station/:electionId/:stationId", requireAuth, canViewResults, async
     const t = assertTenant(req);
     const { electionId, stationId } = req.params;
 
+    const denied = await checkTallyAccess(t, "station", stationId);
+    if (denied) return res.status(403).json({ error: denied, code: "OUT_OF_SCOPE" });
+
     const [submission] = await db.select().from(resultSubmissionsTable)
       .where(and(
         tenantFilter(resultSubmissionsTable, t.id),
@@ -558,6 +590,9 @@ router.get("/progress/:electionId", requireAuth, canViewResults, async (req: any
     const t = assertTenant(req);
     const { electionId } = req.params;
 
+    // Restrict station universe to the campaign's geographic scope.
+    const scopeCond = await scopeGeoCondition(t, pollingStationsTable);
+
     // Total stations by county
     const totalByCounty = await db
       .select({
@@ -565,6 +600,7 @@ router.get("/progress/:electionId", requireAuth, canViewResults, async (req: any
         total: count(pollingStationsTable.id),
       })
       .from(pollingStationsTable)
+      .where(scopeCond)
       .groupBy(pollingStationsTable.countyId);
 
     // Reporting by county (has any submission)
@@ -575,7 +611,7 @@ router.get("/progress/:electionId", requireAuth, canViewResults, async (req: any
       })
       .from(resultSubmissionsTable)
       .innerJoin(pollingStationsTable, eq(resultSubmissionsTable.pollingStationId, pollingStationsTable.id))
-      .where(and(tenantFilter(resultSubmissionsTable, t.id), eq(resultSubmissionsTable.electionId, electionId)))
+      .where(and(tenantFilter(resultSubmissionsTable, t.id), eq(resultSubmissionsTable.electionId, electionId), scopeCond))
       .groupBy(pollingStationsTable.countyId);
 
     // Verified by county
@@ -590,6 +626,7 @@ router.get("/progress/:electionId", requireAuth, canViewResults, async (req: any
         tenantFilter(resultSubmissionsTable, t.id),
         eq(resultSubmissionsTable.electionId, electionId),
         inArray(resultSubmissionsTable.status, TALLY_ELIGIBLE_STATUSES),
+        scopeCond,
       ))
       .groupBy(pollingStationsTable.countyId);
 

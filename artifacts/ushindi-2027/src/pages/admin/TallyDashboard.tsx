@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useBranding } from "@/contexts/BrandingContext";
-import { getLevelOptions } from "@/lib/electionLevel";
+import { getLevelOptionsForScope } from "@/lib/electionLevel";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { BarChart3, AlertCircle, RefreshCw, Clock, ChevronRight } from "lucide-react";
@@ -35,7 +35,9 @@ function CandidateCard({ candidate, totalVotes }: { candidate: any; totalVotes: 
 
 export default function TallyDashboard() {
   const branding = useBranding();
-  const levelOptions = getLevelOptions(branding.electionLevel) as Level[];
+  // seatType (authoritative tenant scope) wins over the branding electionLevel
+  // text — a Nairobi gubernatorial campaign never gets a National tally tab.
+  const levelOptions = getLevelOptionsForScope(branding.seatType, branding.electionLevel) as Level[];
   const [, navigate] = useLocation();
   const [level, setLevel] = useState<Level>(levelOptions[0] ?? "national");
 
@@ -47,10 +49,19 @@ export default function TallyDashboard() {
       setConstituencyId("all");
       setWardId("all");
     }
-  }, [branding.electionLevel]);
+  }, [branding.electionLevel, branding.seatType, branding.scopeCountyId, branding.scopeConstituencyId, branding.scopeWardId]);
   const [countyId, setCountyId] = useState("all");
   const [constituencyId, setConstituencyId] = useState("all");
   const [wardId, setWardId] = useState("all");
+
+  // Default the pickers to the campaign's scope geography so the tally loads
+  // straight onto the contested county/constituency/ward.
+  useEffect(() => {
+    if (branding.scopeCountyId) setCountyId((c) => (c === "all" ? branding.scopeCountyId! : c));
+    if (branding.scopeConstituencyId) setConstituencyId((c) => (c === "all" ? branding.scopeConstituencyId! : c));
+    if (branding.scopeWardId) setWardId((w) => (w === "all" ? branding.scopeWardId! : w));
+  }, [branding.scopeCountyId, branding.scopeConstituencyId, branding.scopeWardId]);
+
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
@@ -90,7 +101,14 @@ export default function TallyDashboard() {
       const url = buildTallyUrl();
       if (!url) return Promise.resolve(null);
       return fetch(url, { credentials: "include" })
-        .then((r) => r.json())
+        .then(async (r) => {
+          if (r.status === 403) {
+            const body = await r.json().catch(() => ({}));
+            if (body?.code === "OUT_OF_SCOPE") return { outOfScope: true, error: body.error };
+          }
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.json();
+        })
         .then((d) => { setLastUpdated(new Date()); return d; });
     },
     enabled: !!activeElectionId,
@@ -179,7 +197,15 @@ export default function TallyDashboard() {
         )}
       </div>
 
-      {isLoading ? (
+      {tally?.outOfScope ? (
+        <Card>
+          <CardContent className="p-6">
+            <p className="text-sm font-semibold text-amber-700 flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0" /> {tally.error}
+            </p>
+          </CardContent>
+        </Card>
+      ) : isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {[...Array(4)].map((_, i) => (
             <div key={i} className="h-32 bg-muted animate-pulse rounded" />

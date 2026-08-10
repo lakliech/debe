@@ -68,7 +68,14 @@ export default function TallyDrilldown() {
     queryFn: () => {
       const url = buildDrillUrl();
       if (!url) return Promise.resolve(null);
-      return fetch(url, { credentials: "include" }).then((r) => r.json());
+      return fetch(url, { credentials: "include" }).then(async (r) => {
+        if (r.status === 403) {
+          const body = await r.json().catch(() => ({}));
+          if (body?.code === "OUT_OF_SCOPE") return { outOfScope: true, error: body.error };
+        }
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      });
     },
     enabled: !!level && !!entityId && !!activeElectionId,
     refetchInterval: autoRefresh ? 30000 : false,
@@ -127,7 +134,15 @@ export default function TallyDrilldown() {
         </p>
       </div>
 
-      {isLoading ? (
+      {tally?.outOfScope ? (
+        <Card>
+          <CardContent className="p-6">
+            <p className="text-sm font-semibold text-amber-700 flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0" /> {tally.error}
+            </p>
+          </CardContent>
+        </Card>
+      ) : isLoading ? (
         <div className="space-y-4">
           {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-32 w-full" />)}
         </div>

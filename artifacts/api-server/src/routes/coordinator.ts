@@ -17,6 +17,7 @@ import {
 import { eq, and, desc, count, sql } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
 import { tenantFilter, assertTenant } from '../lib/withTenant';
+import { scopeGeoCondition, resolveScopeGeoFilter } from "../lib/campaignScope";
 import { z } from "zod";
 import { validate } from "../lib/validate";
 
@@ -61,8 +62,14 @@ router.get("/dashboard", requireAuth, canViewCoordinator, async (req: any, res: 
     if (!q) return;
     const { scope, id } = q;
 
-    const whereClause = (table: any) => {
+    // Campaign scope is ALWAYS applied — the scope/id params can only narrow
+    // further, never widen beyond the campaign's own geography.
+    const volScope = await scopeGeoCondition(t, volunteersTable);
+    const supScope = await scopeGeoCondition(t, supportersTable);
+
+    const whereClause = (table: any, scopeCond?: any) => {
       const conditions: any[] = [tenantFilter(table, t.id)];
+      if (scopeCond) conditions.push(scopeCond);
       if (id) {
         if (scope === "county") conditions.push(eq(table.countyId, id as string));
         else if (scope === "constituency") conditions.push(eq(table.constituencyId, id as string));
@@ -72,24 +79,24 @@ router.get("/dashboard", requireAuth, canViewCoordinator, async (req: any, res: 
     };
 
     const [volunteerTotal] = await db.select({ total: count() }).from(volunteersTable)
-      .where(whereClause(volunteersTable));
+      .where(whereClause(volunteersTable, volScope));
     const [activeVolunteers] = await db.select({ total: count() }).from(volunteersTable)
-      .where(and(eq(volunteersTable.status, "active"), whereClause(volunteersTable)));
+      .where(and(eq(volunteersTable.status, "active"), whereClause(volunteersTable, volScope)));
     const [pendingVolunteers] = await db.select({ total: count() }).from(volunteersTable)
-      .where(and(eq(volunteersTable.status, "pending"), whereClause(volunteersTable)));
+      .where(and(eq(volunteersTable.status, "pending"), whereClause(volunteersTable, volScope)));
     const [supporterTotal] = await db.select({ total: count() }).from(supportersTable)
-      .where(whereClause(supportersTable));
+      .where(whereClause(supportersTable, supScope));
 
     const statusBreakdown = await db
       .select({ status: volunteersTable.status, count: count() })
       .from(volunteersTable)
-      .where(whereClause(volunteersTable))
+      .where(whereClause(volunteersTable, volScope))
       .groupBy(volunteersTable.status);
 
     const roleBreakdown = await db
       .select({ role: volunteersTable.preferredRole, count: count() })
       .from(volunteersTable)
-      .where(and(eq(volunteersTable.status, "active"), whereClause(volunteersTable)))
+      .where(and(eq(volunteersTable.status, "active"), whereClause(volunteersTable, volScope)))
       .groupBy(volunteersTable.preferredRole)
       .limit(10);
 
@@ -102,7 +109,7 @@ router.get("/dashboard", requireAuth, canViewCoordinator, async (req: any, res: 
         createdAt: volunteersTable.createdAt,
       })
       .from(volunteersTable)
-      .where(whereClause(volunteersTable))
+      .where(whereClause(volunteersTable, volScope))
       .orderBy(desc(volunteersTable.createdAt))
       .limit(5);
 
@@ -132,6 +139,8 @@ router.get("/dashboard", requireAuth, canViewCoordinator, async (req: any, res: 
 router.get("/coverage", requireAuth, canViewCoordinator, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
+    const scopeCond = await scopeGeoCondition(t, volunteersTable);
+    const geoFilter = await resolveScopeGeoFilter(t);
     const countyCounts = await db
       .select({
         countyId: volunteersTable.countyId,
@@ -144,13 +153,15 @@ router.get("/coverage", requireAuth, canViewCoordinator, async (req: any, res: a
       })
       .from(volunteersTable)
       .leftJoin(countiesTable, eq(volunteersTable.countyId, countiesTable.id))
-      .where(and(tenantFilter(volunteersTable, t.id), sql`${volunteersTable.countyId} IS NOT NULL`))
+      .where(and(tenantFilter(volunteersTable, t.id), sql`${volunteersTable.countyId} IS NOT NULL`, scopeCond))
       .groupBy(volunteersTable.countyId, countiesTable.name, countiesTable.code, countiesTable.latitude, countiesTable.longitude)
       .orderBy(desc(count()));
 
+    // Only the campaign's scope county (or parent county for MP/MCA seats) is shown.
     const allCounties = await db
       .select({ id: countiesTable.id, name: countiesTable.name, code: countiesTable.code, lat: countiesTable.latitude, lng: countiesTable.longitude })
       .from(countiesTable)
+      .where(geoFilter?.countyId ? eq(countiesTable.id, geoFilter.countyId) : undefined)
       .orderBy(countiesTable.name);
 
     // Merge: counties with no volunteers show as 0
@@ -176,7 +187,8 @@ router.get("/coverage", requireAuth, canViewCoordinator, async (req: any, res: a
 router.get("/gap-alerts", requireAuth, canViewCoordinator, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
-    // Counties with fewer than 5 active volunteers (scoped to tenant)
+    const scopeCond = await scopeGeoCondition(t, volunteersTable);
+    // Counties with fewer than 5 active volunteers (scoped to tenant + campaign scope)
     const lowCoverageCounties = await db
       .select({
         countyId: volunteersTable.countyId,
@@ -185,7 +197,7 @@ router.get("/gap-alerts", requireAuth, canViewCoordinator, async (req: any, res:
       })
       .from(volunteersTable)
       .leftJoin(countiesTable, eq(volunteersTable.countyId, countiesTable.id))
-      .where(and(tenantFilter(volunteersTable, t.id), sql`${volunteersTable.countyId} IS NOT NULL`))
+      .where(and(tenantFilter(volunteersTable, t.id), sql`${volunteersTable.countyId} IS NOT NULL`, scopeCond))
       .groupBy(volunteersTable.countyId, countiesTable.name)
       .having(sql`COUNT(*) FILTER (WHERE ${volunteersTable.status} = 'active') < 5`)
       .orderBy(sql`COUNT(*) FILTER (WHERE ${volunteersTable.status} = 'active') ASC`)
@@ -199,7 +211,8 @@ router.get("/gap-alerts", requireAuth, canViewCoordinator, async (req: any, res:
         and(
           tenantFilter(volunteersTable, t.id),
           eq(volunteersTable.status, "pending"),
-          sql`${volunteersTable.createdAt} < NOW() - INTERVAL '7 days'`
+          sql`${volunteersTable.createdAt} < NOW() - INTERVAL '7 days'`,
+          scopeCond,
         )
       );
 
@@ -225,6 +238,9 @@ router.get("/volunteers", requireAuth, canViewCoordinator, async (req: any, res:
     const limit = 20;
     const offset = (pageNum - 1) * limit;
 
+    // Query params can only narrow within the campaign's scope, never widen it.
+    const scopeCond = await scopeGeoCondition(t, volunteersTable);
+
     const rows = await db
       .select({
         id: volunteersTable.id,
@@ -246,6 +262,7 @@ router.get("/volunteers", requireAuth, canViewCoordinator, async (req: any, res:
           constituencyId ? eq(volunteersTable.constituencyId, constituencyId as string) : undefined,
           wardId ? eq(volunteersTable.wardId, wardId as string) : undefined,
           status ? eq(volunteersTable.status, status as string) : undefined,
+          scopeCond,
         )
       )
       .orderBy(desc(volunteersTable.createdAt))
@@ -258,6 +275,7 @@ router.get("/volunteers", requireAuth, canViewCoordinator, async (req: any, res:
         countyId ? eq(volunteersTable.countyId, countyId as string) : undefined,
         constituencyId ? eq(volunteersTable.constituencyId, constituencyId as string) : undefined,
         status ? eq(volunteersTable.status, status as string) : undefined,
+        scopeCond,
       ));
 
     res.json({ data: rows, total: totalRow?.total ?? 0, page: pageNum });

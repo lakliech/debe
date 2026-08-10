@@ -28,6 +28,7 @@ import { requireRoles } from "../middlewares/rbac";
 import { validate } from "../lib/validate";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 import { tenantFilter, assertTenant } from "../lib/withTenant";
+import { scopeGeoCondition, checkTallyAccess } from "../lib/campaignScope";
 import { TALLY_ELIGIBLE_STATUSES } from "../lib/resultStatus";
 import { logActivity } from "../lib/activityFeed";
 import { alertResultEvent } from "../lib/resultAlerts";
@@ -291,6 +292,16 @@ router.get("/submissions", requireAuth, canViewResults, async (req: any, res: an
       else return res.json({ data: [], total: 0, page: pageNum, pageSize });
     }
 
+    // Restrict to stations inside the campaign's geographic scope — a
+    // gubernatorial campaign never sees submissions from other counties.
+    const scopeCond = await scopeGeoCondition(t, pollingStationsTable);
+    if (scopeCond) {
+      conditions.push(inArray(
+        resultSubmissionsTable.pollingStationId,
+        db.select({ id: pollingStationsTable.id }).from(pollingStationsTable).where(scopeCond),
+      ));
+    }
+
     const where = conditions.length ? and(...conditions) : undefined;
 
     const [rows, [{ total }]] = await Promise.all([
@@ -533,6 +544,10 @@ router.get("/submissions/:id", requireAuth, canViewResults, async (req: any, res
       .where(and(eq(resultSubmissionsTable.id, req.params.id), tenantFilter(resultSubmissionsTable, t.id))).limit(1);
     if (!submission) return res.status(404).json({ error: "Submission not found" });
 
+    // Direct-ID reads must respect campaign scope, not just tenant ownership.
+    const denied = await checkTallyAccess(t, "station", submission.pollingStationId);
+    if (denied) return res.status(403).json({ error: denied, code: "OUT_OF_SCOPE" });
+
     const [votes, images, steps, corrections] = await Promise.all([
       db.select().from(submissionCandidateVotesTable)
         .where(eq(submissionCandidateVotesTable.submissionId, req.params.id)),
@@ -560,6 +575,9 @@ router.post("/submissions/:id/submit", requireAuth, canSubmitResults, async (req
     const [submission] = await db.select().from(resultSubmissionsTable)
       .where(and(eq(resultSubmissionsTable.id, req.params.id), tenantFilter(resultSubmissionsTable, t.id))).limit(1);
     if (!submission) return res.status(404).json({ error: "Submission not found" });
+    // Scope check precedes ALL side effects — an out-of-scope draft cannot be submitted.
+    const deniedScope = await checkTallyAccess(t, "station", submission.pollingStationId);
+    if (deniedScope) return res.status(403).json({ error: deniedScope, code: "OUT_OF_SCOPE" });
     if (submission.status !== "draft") {
       return res.status(400).json({ error: `Cannot submit from status: ${submission.status}` });
     }
@@ -613,9 +631,12 @@ router.post("/submissions/:id/images", requireAuth, canSubmitResults, async (req
   try {
     const t = assertTenant(req);
     // Verify parent submission belongs to this tenant
-    const [parentSub] = await db.select({ id: resultSubmissionsTable.id }).from(resultSubmissionsTable)
+    const [parentSub] = await db.select({ id: resultSubmissionsTable.id, pollingStationId: resultSubmissionsTable.pollingStationId }).from(resultSubmissionsTable)
       .where(and(eq(resultSubmissionsTable.id, req.params.id), tenantFilter(resultSubmissionsTable, t.id))).limit(1);
     if (!parentSub) return res.status(404).json({ error: "Submission not found" });
+    // Direct-ID access must respect campaign scope, not just tenant ownership.
+    const deniedScope = await checkTallyAccess(t, "station", parentSub.pollingStationId);
+    if (deniedScope) return res.status(403).json({ error: deniedScope, code: "OUT_OF_SCOPE" });
 
     const parsed = validate(imageUploadSchema, req.body, res);
     if (!parsed) return;
@@ -647,9 +668,12 @@ router.get("/submissions/:id/images/:imageId/file", requireAuth, canViewResults,
   try {
     const t = assertTenant(req);
     // Verify the parent submission belongs to this tenant first
-    const [parentSub] = await db.select({ id: resultSubmissionsTable.id }).from(resultSubmissionsTable)
+    const [parentSub] = await db.select({ id: resultSubmissionsTable.id, pollingStationId: resultSubmissionsTable.pollingStationId }).from(resultSubmissionsTable)
       .where(and(eq(resultSubmissionsTable.id, req.params.id), tenantFilter(resultSubmissionsTable, t.id))).limit(1);
     if (!parentSub) return res.status(404).json({ error: "Submission not found" });
+    // Direct-ID access must respect campaign scope, not just tenant ownership.
+    const deniedScope = await checkTallyAccess(t, "station", parentSub.pollingStationId);
+    if (deniedScope) return res.status(403).json({ error: deniedScope, code: "OUT_OF_SCOPE" });
     // Verify the image row exists and belongs to this submission
     const [img] = await db
       .select({ id: submissionFormImagesTable.id, objectPath: submissionFormImagesTable.objectPath, mimeType: submissionFormImagesTable.mimeType })
@@ -703,6 +727,11 @@ router.post("/submissions/:id/verify", requireAuth, canVerifyResults, async (req
       .where(and(eq(resultSubmissionsTable.id, req.params.id), tenantFilter(resultSubmissionsTable, t.id))).limit(1);
     if (!submission) return res.status(404).json({ error: "Submission not found" });
 
+    // Scope check precedes ALL side effects — an out-of-scope submission must
+    // never become tally-eligible through this tenant's verify route.
+    const deniedScope = await checkTallyAccess(t, "station", submission.pollingStationId);
+    if (deniedScope) return res.status(403).json({ error: deniedScope, code: "OUT_OF_SCOPE" });
+
     // Status change, per-vote flag sync, and audit step commit together.
     // The tally aggregates only isVerified votes, and this endpoint is the
     // ONLY writer of a submission's status — so the votes must flip in
@@ -755,9 +784,12 @@ router.post("/submissions/:id/correct", requireAuth, canVerifyResults, async (re
     if (!parsed) return;
     const { fieldName, originalValue, correctedValue, correctionReason, evidenceUrl } = parsed;
     // Verify parent submission belongs to this tenant
-    const [parentSub] = await db.select({ id: resultSubmissionsTable.id }).from(resultSubmissionsTable)
+    const [parentSub] = await db.select({ id: resultSubmissionsTable.id, pollingStationId: resultSubmissionsTable.pollingStationId }).from(resultSubmissionsTable)
       .where(and(eq(resultSubmissionsTable.id, req.params.id), tenantFilter(resultSubmissionsTable, t.id))).limit(1);
     if (!parentSub) return res.status(404).json({ error: "Submission not found" });
+    // Direct-ID access must respect campaign scope, not just tenant ownership.
+    const deniedScope = await checkTallyAccess(t, "station", parentSub.pollingStationId);
+    if (deniedScope) return res.status(403).json({ error: deniedScope, code: "OUT_OF_SCOPE" });
 
     const [row] = await db.insert(submissionCorrectionsTable).values({
       submissionId: req.params.id,
@@ -785,9 +817,12 @@ router.get("/submissions/:id/corrections", requireAuth, canViewResults, async (r
   try {
     const t = assertTenant(req);
     // Verify the parent submission belongs to this tenant
-    const [parentSub] = await db.select({ id: resultSubmissionsTable.id }).from(resultSubmissionsTable)
+    const [parentSub] = await db.select({ id: resultSubmissionsTable.id, pollingStationId: resultSubmissionsTable.pollingStationId }).from(resultSubmissionsTable)
       .where(and(eq(resultSubmissionsTable.id, req.params.id), tenantFilter(resultSubmissionsTable, t.id))).limit(1);
     if (!parentSub) return res.status(404).json({ error: "Submission not found" });
+    // Direct-ID access must respect campaign scope, not just tenant ownership.
+    const deniedScope = await checkTallyAccess(t, "station", parentSub.pollingStationId);
+    if (deniedScope) return res.status(403).json({ error: deniedScope, code: "OUT_OF_SCOPE" });
     const rows = await db.select().from(submissionCorrectionsTable)
       .where(eq(submissionCorrectionsTable.submissionId, req.params.id))
       .orderBy(desc(submissionCorrectionsTable.createdAt));
@@ -803,9 +838,12 @@ router.get("/submissions/:id/ocr", requireAuth, canViewResults, async (req: any,
   try {
     const t = assertTenant(req);
     // Verify the parent submission belongs to this tenant
-    const [parentSub] = await db.select({ id: resultSubmissionsTable.id }).from(resultSubmissionsTable)
+    const [parentSub] = await db.select({ id: resultSubmissionsTable.id, pollingStationId: resultSubmissionsTable.pollingStationId }).from(resultSubmissionsTable)
       .where(and(eq(resultSubmissionsTable.id, req.params.id), tenantFilter(resultSubmissionsTable, t.id))).limit(1);
     if (!parentSub) return res.status(404).json({ error: "Submission not found" });
+    // Direct-ID access must respect campaign scope, not just tenant ownership.
+    const deniedScope = await checkTallyAccess(t, "station", parentSub.pollingStationId);
+    if (deniedScope) return res.status(403).json({ error: deniedScope, code: "OUT_OF_SCOPE" });
     const rows = await db.select().from(submissionOcrSuggestionsTable)
       .where(eq(submissionOcrSuggestionsTable.submissionId, req.params.id))
       .orderBy(desc(submissionOcrSuggestionsTable.createdAt));
@@ -825,9 +863,12 @@ router.post("/submissions/:id/ocr/review", requireAuth, canVerifyResults, async 
     if (!parsed) return;
     const { suggestionId, accepted } = parsed;
     // Verify parent submission belongs to this tenant
-    const [parentSub] = await db.select({ id: resultSubmissionsTable.id }).from(resultSubmissionsTable)
+    const [parentSub] = await db.select({ id: resultSubmissionsTable.id, pollingStationId: resultSubmissionsTable.pollingStationId }).from(resultSubmissionsTable)
       .where(and(eq(resultSubmissionsTable.id, req.params.id), tenantFilter(resultSubmissionsTable, t.id))).limit(1);
     if (!parentSub) return res.status(404).json({ error: "Submission not found" });
+    // Direct-ID access must respect campaign scope, not just tenant ownership.
+    const deniedScope = await checkTallyAccess(t, "station", parentSub.pollingStationId);
+    if (deniedScope) return res.status(403).json({ error: deniedScope, code: "OUT_OF_SCOPE" });
 
     const [row] = await db.update(submissionOcrSuggestionsTable).set({
       accepted,

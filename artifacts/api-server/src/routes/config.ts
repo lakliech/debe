@@ -74,6 +74,11 @@ router.get("/branding", resolveTenantMixed, async (req: any, res: any) => {
       electionYear: new Date().getFullYear() + 1,
       mpesaPaybill: "",
       electionLevel: "Presidential",
+      // Authoritative campaign scope (null = no scope defined → unrestricted UI)
+      seatType: null as string | null,
+      scopeCountyId: null as string | null,
+      scopeConstituencyId: null as string | null,
+      scopeWardId: null as string | null,
       websiteUrl: null,
       socialTwitter: null,
       socialFacebook: null,
@@ -90,11 +95,20 @@ router.get("/branding", resolveTenantMixed, async (req: any, res: any) => {
       .where(tenantFilter(brandingTable, t.id))
       .limit(1);
 
+    // The tenant's seatType/scope is the AUTHORITATIVE scope — branding's
+    // electionLevel is display text and may be stale or unset.
+    const tenantScope = {
+      seatType: t.seatType,
+      scopeCountyId: t.scopeCountyId,
+      scopeConstituencyId: t.scopeConstituencyId,
+      scopeWardId: t.scopeWardId,
+    };
+
     if (!branding) {
       // Tenant resolved but no branding row yet — still a real tenant
-      return res.json({ ...neutral, isTenant: true });
+      return res.json({ ...neutral, isTenant: true, ...tenantScope });
     }
-    res.json({ isTenant: true, ...branding, updatedAt: branding.updatedAt?.toISOString() });
+    res.json({ isTenant: true, ...branding, ...tenantScope, updatedAt: branding.updatedAt?.toISOString() });
   } catch (err: any) {
     sendRouteError(res, err);
   }

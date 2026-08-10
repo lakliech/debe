@@ -33,6 +33,12 @@ export interface BrandingData {
   electionYear: number;
   mpesaPaybill?: string | null;
   electionLevel: string;
+  /** Authoritative campaign scope (tenant seatType + scope geography) — drives
+   *  tally/dashboard restrictions. Null when no scope is defined. */
+  seatType?: string | null;
+  scopeCountyId?: string | null;
+  scopeConstituencyId?: string | null;
+  scopeWardId?: string | null;
   websiteUrl?: string | null;
   socialTwitter?: string | null;
   socialFacebook?: string | null;
