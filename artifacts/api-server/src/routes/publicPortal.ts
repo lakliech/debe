@@ -30,6 +30,7 @@ import { pollingStationsTable } from "@workspace/db";
 import { eq, and, desc, asc, count, sql, inArray } from "drizzle-orm";
 import { aspirantsTable, contactMessagesTable } from "@workspace/db";
 import { tenantFilter, assertTenant } from '../lib/withTenant';
+import { notifyAspirantDeclaration } from "../lib/aspirantNotifications";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { z } from "zod";
 import { validate } from "../lib/validate";
@@ -473,6 +474,10 @@ router.post("/aspirants", publicSubmitLimiter, async (req: any, res: any) => {
       message: "Declaration received. The campaign team will review your application.",
       aspirant,
     });
+
+    // Fire-and-forget: notify the review team. Must run after res.json() so a
+    // slow provider never delays the response seen by the applicant.
+    void notifyAspirantDeclaration(tenantId, fullName, position);
   } catch (err: any) {
     logger.error({ err }, "request failed");
     res.status(500).json({ error: "Something went wrong. Please try again." });

@@ -115,6 +115,12 @@ export interface TemplateData {
     summary: string;
     details: string[];
   };
+  aspirant_declaration: {
+    aspirantName: string;
+    position: string;
+    campaignName: string;
+    reviewUrl: string;
+  };
 }
 
 export type TemplateKey = keyof TemplateData;
@@ -319,6 +325,32 @@ Open your dashboard: ${d.dashboardUrl}`;
       d.summary,
     );
     return { subject: d.subjectLine, text, html };
+  },
+
+  aspirant_declaration: (d) => {
+    const subject = `New aspirant declaration — ${d.aspirantName} (${d.position})`;
+    const text = `A new aspirant declaration has been submitted on ${d.campaignName} and is waiting for review.
+
+Name:     ${d.aspirantName}
+Position: ${d.position}
+
+Review the application: ${d.reviewUrl}`;
+    const html = wrap(
+      `<p style="margin:0 0 16px;">A new aspirant declaration has been submitted on <strong>${escapeHtml(d.campaignName)}</strong> and is waiting for your review.</p>
+       <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;margin:20px 0;border-collapse:collapse;">
+         <tr>
+           <td style="padding:8px 0;color:#6b7280;width:100px;">Name</td>
+           <td style="padding:8px 0;font-weight:600;">${escapeHtml(d.aspirantName)}</td>
+         </tr>
+         <tr>
+           <td style="padding:8px 0;color:#6b7280;border-top:1px solid #eef0f2;">Position</td>
+           <td style="padding:8px 0;border-top:1px solid #eef0f2;">${escapeHtml(d.position)}</td>
+         </tr>
+       </table>
+       ${button(d.reviewUrl, "Review declaration")}`,
+      `New aspirant declaration from ${d.aspirantName} — pending review.`,
+    );
+    return { subject, text, html };
   },
 };
 
