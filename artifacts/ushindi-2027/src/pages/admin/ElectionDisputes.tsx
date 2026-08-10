@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { GeoCascadeSelect } from "@/components/GeoCascadeSelect";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -344,11 +345,12 @@ export default function ElectionDisputes() {
               </Select>
             </div>
             <div>
-              <Label>Polling Station ID</Label>
-              <Input
-                placeholder="Station UUID (optional)..."
+              <Label>Polling Station (optional)</Label>
+              <GeoCascadeSelect
+                level="station"
+                optional
                 value={form.pollingStationId}
-                onChange={(e) => setField("pollingStationId", e.target.value)}
+                onChange={(id) => setField("pollingStationId", id)}
               />
             </div>
             <div>
@@ -365,7 +367,12 @@ export default function ElectionDisputes() {
             <Button
               className="bg-purple-600 hover:bg-purple-700 text-white"
               disabled={!form.title || !form.description || createMutation.isPending}
-              onClick={() => createMutation.mutate(form)}
+              onClick={() => createMutation.mutate({
+                ...form,
+                // Optional geography: never post "" — must be a UUID or omitted.
+                // (undefined keys are dropped from the JSON body.)
+                pollingStationId: form.pollingStationId || undefined,
+              } as typeof form)}
             >
               {createMutation.isPending ? "Opening..." : "Open Dispute"}
             </Button>

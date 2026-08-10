@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { GeoCascadeSelect } from "@/components/GeoCascadeSelect";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -181,19 +182,21 @@ export default function ElectionIncidents() {
                 </Select>
               </div>
               <div>
-                <Label>Polling Station ID</Label>
-                <Input
-                  placeholder="Station UUID (optional)..."
+                <Label>Polling Station (optional)</Label>
+                <GeoCascadeSelect
+                  level="station"
+                  optional
                   value={form.pollingStationId}
-                  onChange={(e) => setField("pollingStationId", e.target.value)}
+                  onChange={(id) => setField("pollingStationId", id)}
                 />
               </div>
               <div>
-                <Label>County ID</Label>
-                <Input
-                  placeholder="County code (optional)..."
+                <Label>County (optional)</Label>
+                <GeoCascadeSelect
+                  level="county"
+                  optional
                   value={form.countyId}
-                  onChange={(e) => setField("countyId", e.target.value)}
+                  onChange={(id) => setField("countyId", id)}
                 />
               </div>
             </div>
@@ -202,7 +205,13 @@ export default function ElectionIncidents() {
               <Button
                 className="bg-red-600 hover:bg-red-700 text-white"
                 disabled={!form.title || !form.description || createMutation.isPending}
-                onClick={() => createMutation.mutate(form)}
+                onClick={() => createMutation.mutate({
+                  ...form,
+                  // Optional geography: never post "" — the API validates UUIDs.
+                  // (undefined keys are dropped from the JSON body.)
+                  pollingStationId: form.pollingStationId || undefined,
+                  countyId: form.countyId || undefined,
+                } as typeof form)}
               >
                 {createMutation.isPending ? "Reporting..." : "Report Incident"}
               </Button>

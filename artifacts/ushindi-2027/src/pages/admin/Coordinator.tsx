@@ -13,6 +13,7 @@ import { Link } from "wouter";
 import { cn } from "@/lib/utils";
 import { useBranding, useBrandingLoading } from "@/contexts/BrandingContext";
 import { getLevelOptionsForScope } from "@/lib/electionLevel";
+import { GeoCascadeSelect } from "@/components/GeoCascadeSelect";
 
 type Scope = "national" | "county" | "constituency" | "ward";
 
@@ -150,13 +151,9 @@ export default function Coordinator() {
             ))}
           </select>
           {scope !== "national" && !isOwnScope && (
-            <input
-              type="text"
-              placeholder={`Enter ${scope} ID...`}
-              value={scopeIdInput}
-              onChange={(e) => setScopeIdInput(e.target.value)}
-              className="border border-input px-3 py-2 text-sm bg-background focus:outline-none focus:border-primary min-w-[200px] font-medium"
-            />
+            <div className="min-w-[240px]">
+              <GeoCascadeSelect key={scope} level={scope} value={scopeIdInput} onChange={setScopeIdInput} />
+            </div>
           )}
         </div>
 
@@ -289,7 +286,7 @@ export default function Coordinator() {
             <h2 className="font-black text-sm uppercase tracking-wider flex items-center gap-2">
               <Activity className="h-4 w-4" />
               Volunteer List {queryScope !== "national" && `— ${queryScope} scope`}
-              {drilldownPending && <span className="text-muted-foreground normal-case font-medium">(enter an ID to drill down)</span>}
+              {drilldownPending && <span className="text-muted-foreground normal-case font-medium">(select an area to drill down)</span>}
             </h2>
           </div>
           {loadingVols ? (

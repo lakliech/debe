@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { GeoCascadeSelect } from "@/components/GeoCascadeSelect";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetFooter } from "@/components/ui/sheet";
@@ -151,11 +152,11 @@ export default function PollingAgents() {
                 />
               </div>
               <div>
-                <Label>Polling Station ID</Label>
-                <Input
-                  placeholder="Station UUID..."
+                <Label>Polling Station</Label>
+                <GeoCascadeSelect
+                  level="station"
                   value={form.pollingStationId}
-                  onChange={(e) => setField("pollingStationId", e.target.value)}
+                  onChange={(id) => setField("pollingStationId", id)}
                 />
               </div>
               <div>
@@ -184,7 +185,7 @@ export default function PollingAgents() {
               <Button variant="outline" onClick={() => setSheetOpen(false)}>Cancel</Button>
               <Button
                 className="bg-[#1D9BF0] hover:bg-[#1a8fd1]"
-                disabled={!form.fullName || !form.nationalId || !form.phoneNumber || createMutation.isPending}
+                disabled={!form.fullName || !form.nationalId || !form.phoneNumber || !form.pollingStationId || createMutation.isPending}
                 onClick={() => createMutation.mutate(form)}
               >
                 {createMutation.isPending ? "Registering..." : "Register Agent"}
