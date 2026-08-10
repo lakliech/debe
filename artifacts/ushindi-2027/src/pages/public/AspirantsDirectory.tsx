@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Vote, Search, ChevronLeft, ChevronRight, X, MapPin, Users } from "lucide-react";
+import { Vote, Search, ChevronLeft, ChevronRight, X, MapPin, Users, Share2 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -181,10 +181,9 @@ export default function AspirantsDirectory() {
             <>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {aspirants.map((a) => (
-                  <button
+                  <div
                     key={a.id}
-                    onClick={() => setSelected(a)}
-                    className="border border-border p-5 text-left hover:border-primary hover:shadow-md transition-all group bg-white"
+                    className="border border-border p-5 text-left hover:border-primary hover:shadow-md transition-all group bg-white flex flex-col"
                   >
                     {/* Position badge */}
                     <div className="flex items-start justify-between gap-2 mb-3">
@@ -202,10 +201,15 @@ export default function AspirantsDirectory() {
                       ) : null}
                     </div>
 
-                    {/* Name */}
-                    <h3 className="font-black text-base uppercase tracking-tight text-foreground group-hover:text-primary transition-colors mb-2 line-clamp-2">
-                      {a.fullName}
-                    </h3>
+                    {/* Name — clicking opens the quick-view sheet */}
+                    <button
+                      onClick={() => setSelected(a)}
+                      className="text-left"
+                    >
+                      <h3 className="font-black text-base uppercase tracking-tight text-foreground group-hover:text-primary transition-colors mb-2 line-clamp-2">
+                        {a.fullName}
+                      </h3>
+                    </button>
 
                     {/* Location */}
                     {(a.countyName || a.constituency || a.ward) && (
@@ -224,11 +228,25 @@ export default function AspirantsDirectory() {
                       </p>
                     )}
 
-                    <span className="mt-3 inline-flex items-center gap-1 text-xs font-black text-primary uppercase tracking-wider group-hover:gap-2 transition-all">
-                      {t("View Profile", "Angalia Wasifu")}
-                      <ChevronRight className="h-3 w-3" />
-                    </span>
-                  </button>
+                    {/* Actions */}
+                    <div className="mt-3 flex items-center gap-3">
+                      <button
+                        onClick={() => setSelected(a)}
+                        className="inline-flex items-center gap-1 text-xs font-black text-primary uppercase tracking-wider hover:gap-2 transition-all"
+                      >
+                        {t("Quick View", "Tazama Haraka")}
+                        <ChevronRight className="h-3 w-3" />
+                      </button>
+                      <a
+                        href={`/aspirants-directory/${a.id}`}
+                        className="inline-flex items-center gap-1 text-xs font-bold text-muted-foreground hover:text-foreground uppercase tracking-wider transition-colors"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Share2 className="h-3 w-3" />
+                        {t("Share", "Shiriki")}
+                      </a>
+                    </div>
+                  </div>
                 ))}
               </div>
 
@@ -353,6 +371,29 @@ export default function AspirantsDirectory() {
                   </blockquote>
                 </div>
               )}
+
+              {/* Share / full profile link */}
+              <div className="mb-4 space-y-2">
+                <button
+                  onClick={() => {
+                    // The share URL points to the server-rendered HTML page so
+                    // social crawlers (WhatsApp, Facebook, X) receive proper OG tags.
+                    const shareUrl = `${window.location.origin}${BASE}/api/public/aspirants/${selected.id}/page`;
+                    void navigator.clipboard.writeText(shareUrl);
+                  }}
+                  className="w-full flex items-center justify-center gap-2 border border-primary text-primary hover:bg-primary/5 py-2.5 font-black text-sm tracking-widest uppercase transition-colors"
+                >
+                  <Share2 className="h-4 w-4" />
+                  {t("Copy Shareable Link", "Nakili Kiungo cha Kushiriki")}
+                </button>
+                <a
+                  href={`/aspirants-directory/${selected.id}`}
+                  className="w-full flex items-center justify-center gap-2 border border-border text-muted-foreground hover:text-foreground hover:border-foreground py-2 font-bold text-xs tracking-widest uppercase transition-colors"
+                >
+                  {t("View Full Profile Page", "Angalia Ukurasa Kamili")}
+                  <ChevronRight className="h-3 w-3" />
+                </a>
+              </div>
 
               {/* CTA */}
               <div className="border-t border-border pt-5">

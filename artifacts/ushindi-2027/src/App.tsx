@@ -43,6 +43,7 @@ import VolunteerRegisterPage from "./pages/public/VolunteerRegister";
 import SupporterRegisterPage from "./pages/public/SupporterRegister";
 import AspirantRegisterPage from "./pages/public/AspirantRegister";
 import AspirantsDirectoryPage from "./pages/public/AspirantsDirectory";
+import AspirantProfilePage from "./pages/public/AspirantProfile";
 import CrowdfundingPage from "./pages/public/Crowdfunding";
 import DataRequestPage from "./pages/public/DataRequest";
 import PublicTransparencyPortalPage from "./pages/public/TransparencyPortal";
@@ -346,6 +347,7 @@ function BrandingAwareClerkProvider() {
           <Route path="/supporter-register" component={SupporterRegisterPage} />
           <Route path="/aspirant-register" component={AspirantRegisterPage} />
           <Route path="/aspirants-directory" component={AspirantsDirectoryPage} />
+          <Route path="/aspirants-directory/:id" component={AspirantProfilePage} />
           <Route path="/crowdfunding" component={CrowdfundingPage} />
           <Route path="/data-request" component={DataRequestPage} />
           <Route path="/request-access" component={RequestAccessPage} />

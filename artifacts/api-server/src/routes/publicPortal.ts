@@ -534,6 +534,148 @@ router.get("/aspirants", async (req: any, res: any) => {
   }
 });
 
+// GET /api/public/aspirants/:id — single approved aspirant profile (no PII)
+router.get("/aspirants/:id", async (req: any, res: any) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.status(404).json({ error: "Aspirant not found" });
+
+    const [aspirant] = await db
+      .select({
+        id:               aspirantsTable.id,
+        fullName:         aspirantsTable.fullName,
+        position:         aspirantsTable.position,
+        countyName:       aspirantsTable.countyName,
+        constituency:     aspirantsTable.constituency,
+        ward:             aspirantsTable.ward,
+        partyAffiliation: aspirantsTable.partyAffiliation,
+        isIndependent:    aspirantsTable.isIndependent,
+        statementOfIntent: aspirantsTable.statementOfIntent,
+        createdAt:        aspirantsTable.createdAt,
+      })
+      .from(aspirantsTable)
+      .where(and(
+        eq(aspirantsTable.id, req.params.id),
+        eq(aspirantsTable.status, "approved"),
+        tenantFilter(aspirantsTable, tenantId),
+      ))
+      .limit(1);
+
+    if (!aspirant) return res.status(404).json({ error: "Aspirant not found" });
+    res.json(aspirant);
+  } catch (err: any) {
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// ── HTML entity escaping for server-rendered OG pages ─────────────────────
+function escHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#x27;");
+}
+
+const POSITION_LABELS: Record<string, string> = {
+  parliamentary: "Member of Parliament",
+  gubernatorial: "Governor",
+  senatorial:    "Senator",
+  women_rep:     "Women Representative",
+  mca:           "Member of County Assembly",
+};
+
+/**
+ * GET /api/public/aspirants/:id/page
+ *
+ * Returns a minimal server-rendered HTML document with per-aspirant Open Graph
+ * and Twitter Card meta tags so social-sharing crawlers (WhatsApp, Facebook,
+ * X/Twitter) can build rich link previews without executing JavaScript.
+ *
+ * Human browsers are immediately redirected (via <meta refresh> + JS) to the
+ * SPA profile page at /aspirants-directory/:id.
+ *
+ * Only approved aspirants are served; unapproved / cross-tenant IDs return 404.
+ */
+router.get("/aspirants/:id/page", async (req: any, res: any) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.status(404).send("Not found");
+
+    const [aspirant] = await db
+      .select({
+        id:               aspirantsTable.id,
+        fullName:         aspirantsTable.fullName,
+        position:         aspirantsTable.position,
+        countyName:       aspirantsTable.countyName,
+        constituency:     aspirantsTable.constituency,
+        statementOfIntent: aspirantsTable.statementOfIntent,
+      })
+      .from(aspirantsTable)
+      .where(and(
+        eq(aspirantsTable.id, req.params.id),
+        eq(aspirantsTable.status, "approved"),
+        tenantFilter(aspirantsTable, tenantId),
+      ))
+      .limit(1);
+
+    if (!aspirant) return res.status(404).send("Aspirant not found");
+
+    const posLabel   = POSITION_LABELS[aspirant.position] ?? aspirant.position;
+    const location   = [aspirant.constituency, aspirant.countyName].filter(Boolean).join(", ");
+    const titleText  = `${aspirant.fullName} — ${posLabel}${location ? ` · ${location}` : ""}`;
+    const descText   = aspirant.statementOfIntent
+      ? aspirant.statementOfIntent.slice(0, 200)
+      : `Approved aspirant for ${posLabel} under the Linda Mwananchi movement.`;
+
+    // Canonical URL (this page itself) — what crawlers see.
+    const origin     = `${req.protocol}://${req.get("host")}`;
+    const canonUrl   = `${origin}/api/public/aspirants/${aspirant.id}/page`;
+    // SPA URL — where human browsers are redirected.
+    const spaUrl     = `${origin}/aspirants-directory/${aspirant.id}`;
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${escHtml(titleText)}</title>
+  <meta name="description" content="${escHtml(descText)}" />
+
+  <!-- Open Graph -->
+  <meta property="og:type"        content="profile" />
+  <meta property="og:title"       content="${escHtml(titleText)}" />
+  <meta property="og:description" content="${escHtml(descText)}" />
+  <meta property="og:url"         content="${escHtml(canonUrl)}" />
+
+  <!-- Twitter / X Card -->
+  <meta name="twitter:card"        content="summary" />
+  <meta name="twitter:title"       content="${escHtml(titleText)}" />
+  <meta name="twitter:description" content="${escHtml(descText)}" />
+
+  <!-- Redirect browsers to the SPA immediately -->
+  <meta http-equiv="refresh" content="0;url=${escHtml(spaUrl)}" />
+</head>
+<body>
+  <script>window.location.replace(${JSON.stringify(spaUrl)});</script>
+  <noscript>
+    <p><a href="${escHtml(spaUrl)}">View aspirant profile: ${escHtml(aspirant.fullName)}</a></p>
+  </noscript>
+</body>
+</html>`;
+
+    res
+      .setHeader("Content-Type", "text/html; charset=utf-8")
+      .setHeader("Cache-Control", "public, max-age=300")
+      .send(html);
+  } catch (err: any) {
+    logger.error({ err }, "request failed");
+    res.status(500).send("Something went wrong.");
+  }
+});
+
 // POST /api/public/contact — general contact form (no auth)
 router.post("/contact", publicSubmitLimiter, async (req: any, res: any) => {
   try {
