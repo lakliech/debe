@@ -56,6 +56,8 @@ const electionNav = [
   { name: "Polling Agents", href: "/polling-agents", icon: Users },
   { name: "Results", href: "/election-results", icon: ClipboardList },
   { name: "Tally Dashboard", href: "/tally", icon: BarChart3 },
+  { name: "PVT Dashboard", href: "/pvt", icon: BarChart3 },
+  { name: "PVT Setup", href: "/pvt/setup", icon: Settings2 },
   { name: "Incidents", href: "/election-incidents", icon: AlertOctagon },
   { name: "Disputes", href: "/election-disputes", icon: Scale },
   { name: "Command Centre", href: "/command-centre", icon: Monitor },

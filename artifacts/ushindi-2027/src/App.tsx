@@ -68,6 +68,10 @@ import ResultSubmissionsPage from "./pages/admin/ResultSubmissions";
 import SubmissionDetailPage from "./pages/admin/SubmissionDetail";
 import TallyDashboardPage from "./pages/admin/TallyDashboard";
 import TallyDrilldownPage from "./pages/admin/TallyDrilldown";
+import PVTDashboard from "./components/pvt/PVTDashboard";
+import PVTSetup from "./components/pvt/PVTSetup";
+import PVTStationsList from "./components/pvt/PVTStationsList";
+import PVTQuickReportForm from "./components/pvt/PVTQuickReportForm";
 import ElectionIncidentsPage from "./pages/admin/ElectionIncidents";
 import ElectionDisputesPage from "./pages/admin/ElectionDisputes";
 import CommandCentrePage from "./pages/admin/CommandCentre";
@@ -485,6 +489,18 @@ function BrandingAwareClerkProvider() {
           </Route>
           <Route path="/tally/:level/:entityId">
             <ProtectedRoute component={TallyDrilldownPage} />
+          </Route>
+          <Route path="/pvt">
+            <ProtectedRoute component={PVTDashboard} />
+          </Route>
+          <Route path="/pvt/setup">
+            <ProtectedRoute component={PVTSetup} />
+          </Route>
+          <Route path="/pvt/stations">
+            <ProtectedRoute component={PVTStationsList} />
+          </Route>
+          <Route path="/pvt/report/:stationId">
+            <ProtectedRoute component={PVTQuickReportForm} />
           </Route>
           <Route path="/election-incidents">
             <ProtectedRoute component={ElectionIncidentsPage} />
