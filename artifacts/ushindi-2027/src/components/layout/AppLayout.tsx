@@ -11,6 +11,7 @@ import { SECTION_RULES } from "@/lib/access";
 import { useIdentity, type ActiveTenant } from "@/hooks/useIdentity";
 import DemoTour from "@/components/DemoTour";
 import TrialBanner from "@/components/TrialBanner";
+import { MultiOrgGate } from "@/components/NoActiveOrgPrompt";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -637,7 +638,14 @@ export default function AppLayout({ children }: AppLayoutProps) {
               <>
                 {/* Trial / billing state. Renders nothing on a healthy paid plan. */}
                 <TrialBanner />
-                {needsCampaign ? <NoCampaignSelected /> : children}
+                {needsCampaign ? (
+                  <NoCampaignSelected />
+                ) : (
+                  // MultiOrgGate intercepts multi-campaign consultants who have
+                  // not yet selected a campaign, showing a clear picker instead
+                  // of a wall of broken API states.
+                  <MultiOrgGate>{children}</MultiOrgGate>
+                )}
               </>
             )}
           </div>
