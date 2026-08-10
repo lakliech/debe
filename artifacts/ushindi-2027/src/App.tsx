@@ -138,12 +138,21 @@ const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 //
 // Priority:
 //   1. VITE_TENANT_SLUG baked at build time (explicit per-campaign deploy)
-//   2. Leading subdomain of the hostname (e.g. ushindi2027.ushindi.app)
-// Falls back gracefully: no slug → branding API returns neutral defaults.
+//   2. ?tenant= query param (dev/staging convenience — no subdomain required)
+//   3. Leading subdomain of the hostname (e.g. ushindi2027.ushindi.app)
+// Falls back gracefully: no slug → branding API returns neutral defaults,
+// and the root route shows the Debe platform landing page (DebeHome).
 (function initTenantSlug() {
   const envSlug = (import.meta.env.VITE_TENANT_SLUG as string | undefined)?.trim();
   if (envSlug) {
     setTenantSlug(envSlug);
+    return;
+  }
+  // ?tenant= lets a visitor (or developer) scope the portal to a specific
+  // campaign without needing a subdomain — e.g. /?tenant=ushindi2027.
+  const urlSlug = new URLSearchParams(window.location.search).get("tenant")?.trim();
+  if (urlSlug) {
+    setTenantSlug(urlSlug);
     return;
   }
   const parts = window.location.hostname.split(".");

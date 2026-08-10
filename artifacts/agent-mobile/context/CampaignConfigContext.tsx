@@ -21,8 +21,8 @@
  */
 import React, { createContext, useContext, ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useAuth } from '@clerk/expo';
 import { useOrganization } from '@clerk/expo';
+import { customFetch } from '@workspace/api-client-react';
 
 // ── IEBC result form name by election level ──────────────────────────────────
 const FORM_NAME_BY_ELECTION: Record<string, string> = {
@@ -107,13 +107,7 @@ function toReactNativeColor(color: string | null | undefined): string {
 
 const CampaignConfigContext = createContext<CampaignConfig>(DEFAULTS);
 
-const domain = process.env.EXPO_PUBLIC_DOMAIN;
-/** Build-time tenant slug — used as X-Tenant-Slug on unauthenticated calls so
- *  the sign-in screen shows the correct campaign branding before auth. */
-const buildTimeTenantSlug = process.env.EXPO_PUBLIC_TENANT_SLUG;
-
 export function CampaignConfigProvider({ children }: { children: ReactNode }) {
-  const { isSignedIn, getToken } = useAuth();
   // Re-fetch whenever the active org changes so the correct tenant's branding
   // is loaded immediately after the org picker activates an organisation.
   const { organization } = useOrganization();
@@ -121,24 +115,15 @@ export function CampaignConfigProvider({ children }: { children: ReactNode }) {
   const { data, isLoading } = useQuery({
     queryKey: ['campaign-config', organization?.id ?? null],
     queryFn: async () => {
-      if (!domain) return null;
       try {
-        const headers: Record<string, string> = {};
-
-        if (isSignedIn) {
-          // Authenticated path — include JWT so server resolves tenant from
-          // the active Clerk org (resolveTenantMixed prefers this).
-          const token = await getToken();
-          if (token) headers['Authorization'] = `Bearer ${token}`;
-        } else if (buildTimeTenantSlug) {
-          // Unauthenticated path — use build-time slug so sign-in screen shows
-          // the correct campaign branding before the user logs in.
-          headers['X-Tenant-Slug'] = buildTimeTenantSlug;
-        }
-
-        const res = await fetch(`https://${domain}/api/config/branding`, { headers });
-        if (!res.ok) return null;
-        return res.json() as Promise<Record<string, unknown>>;
+        // customFetch automatically attaches:
+        //   - Authorization: Bearer <token> when setAuthTokenGetter has been
+        //     called in (home)/_layout.tsx (authenticated path)
+        //   - X-Tenant-Slug when setTenantSlug has been called in _layout.tsx
+        //     with EXPO_PUBLIC_TENANT_SLUG (unauthenticated pre-login path)
+        // Both are set globally at startup so all API calls benefit, not just
+        // this one.
+        return await customFetch<Record<string, unknown>>('/api/config/branding');
       } catch {
         return null;
       }

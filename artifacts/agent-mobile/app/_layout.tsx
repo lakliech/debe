@@ -15,15 +15,21 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { ClerkProvider, ClerkLoaded } from '@clerk/expo';
 import { tokenCache } from '@clerk/expo/token-cache';
-import { setBaseUrl } from '@workspace/api-client-react';
+import { setBaseUrl, setTenantSlug } from '@workspace/api-client-react';
 import { CampaignConfigProvider } from '@/context/CampaignConfigContext';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
 
-// Set the API base URL for the generated API client
+// Set the API base URL and tenant slug for the generated API client.
+// setTenantSlug ensures every unauthenticated request carries X-Tenant-Slug so
+// the server can route public calls (branding, registration forms, etc.) to the
+// correct campaign without requiring authentication.  Authenticated requests are
+// unaffected — the server resolves tenant from the JWT in that path.
 const domain = process.env.EXPO_PUBLIC_DOMAIN;
+const buildTimeTenantSlug = process.env.EXPO_PUBLIC_TENANT_SLUG;
 if (domain) setBaseUrl(`https://${domain}`);
+if (buildTimeTenantSlug) setTenantSlug(buildTimeTenantSlug);
 
 const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!;
 const proxyUrl = process.env.EXPO_PUBLIC_CLERK_PROXY_URL || undefined;
