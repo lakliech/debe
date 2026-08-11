@@ -9,7 +9,7 @@ import { resolveTenant, resolveTenantPublic, resolveTenantMixed } from "../middl
 import { tenantFilter, assertTenant, requireTenantContext } from "../lib/withTenant";
 import { sendRouteError } from "../lib/routeError";
 import { triggerTlsProvisioning } from "../lib/tlsCert";
-import { PLANS, getEffectivePlan, minimumTierFor } from "../lib/plans";
+import { requirePlanFeatureWhen } from "../middlewares/requirePlan";
 import { z } from "zod";
 import { validate } from "../lib/validate";
 
@@ -222,7 +222,16 @@ const canUpdateDomain = requireRoles([
   "national-campaign-manager",
 ]);
 
-router.patch("/domain", requireAuth, resolveTenant, requireTenantContext, canUpdateDomain, async (req: any, res: any) => {
+// Custom domains are a paid feature, and this direct mutator needs the gate as
+// much as the settings request queue does. Clearing a domain stays open to
+// everyone, so a downgraded campaign can still tidy up after losing the
+// entitlement.
+const canUseCustomDomain = requirePlanFeatureWhen(
+  "customDomain",
+  (req) => typeof (req.body as any)?.customDomain === "string" && (req.body as any).customDomain.trim() !== "",
+);
+
+router.patch("/domain", requireAuth, resolveTenant, requireTenantContext, canUpdateDomain, canUseCustomDomain, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
     const { customDomain } = req.body as { customDomain?: string | null };
@@ -235,35 +244,6 @@ router.patch("/domain", requireAuth, resolveTenant, requireTenantContext, canUpd
     // Basic hostname validation when a value is provided
     if (normalised && !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(normalised)) {
       return res.status(400).json({ error: "Invalid domain format. Use e.g. vote.example.ke" });
-    }
-
-    // Custom domains are a paid feature. This gate must live here as well as on
-    // the settings request queue — otherwise this older direct mutator hands the
-    // feature to Free and lapsed campaigns for free.
-    // Clearing a domain is always allowed, so a downgraded campaign can still
-    // tidy up after losing the entitlement.
-    if (normalised) {
-      // resolveTenant only carries identity fields, so read the billing columns
-      // the plan resolver needs.
-      const [planRow] = await db
-        .select({
-          plan: tenantsTable.plan,
-          planOverrideUntil: tenantsTable.planOverrideUntil,
-          stripeSubscriptionStatus: tenantsTable.stripeSubscriptionStatus,
-        })
-        .from(tenantsTable)
-        .where(eq(tenantsTable.id, t.id))
-        .limit(1);
-
-      const effective = getEffectivePlan(planRow ?? { plan: "free" });
-      if (!PLANS[effective.plan].customDomain) {
-        return res.status(402).json({
-          error: `Custom domains require the ${PLANS[minimumTierFor("customDomain")!].label} plan.`,
-          feature: "customDomain",
-          currentPlan: effective.plan,
-          requiredPlan: minimumTierFor("customDomain"),
-        });
-      }
     }
 
     // DNS verification — required before a domain can be saved.

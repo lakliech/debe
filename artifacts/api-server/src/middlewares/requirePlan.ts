@@ -18,8 +18,14 @@
  */
 
 import type { Request, Response, NextFunction } from "express";
-import { db, tenantsTable } from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
+import {
+  db,
+  tenantsTable,
+  pollingAgentsTable,
+  campaignStationProfilesTable,
+} from "@workspace/db";
+import { eq, count } from "drizzle-orm";
+import { logger } from "../lib/logger";
 import { hasPlatformOverride } from "../lib/platformOverride";
 import {
   PLANS,
@@ -74,6 +80,32 @@ export function requirePlanFeature(feature: PlanFeature) {
       requiredPlan: required,
       upgradeUrl: upgradeUrl(),
     });
+  };
+}
+
+/**
+ * Same gate, but only for the requests that actually use the paid feature.
+ *
+ * Some endpoints serve both a free and a paid variant of the same work — the
+ * report exporter returns CSV to everyone and Excel only to paying campaigns.
+ * Gating the whole route would take the free variant away too, so the caller
+ * supplies a predicate that says whether this particular request needs the
+ * feature.
+ */
+export function requirePlanFeatureWhen(
+  feature: PlanFeature,
+  applies: (req: Request) => boolean,
+) {
+  const gate = requirePlanFeature(feature);
+  return function conditionalPlanFeatureGate(req: Request, res: Response, next: NextFunction) {
+    let needed: boolean;
+    try {
+      needed = applies(req);
+    } catch {
+      needed = false;
+    }
+    if (!needed) return next();
+    return gate(req, res, next);
   };
 }
 
@@ -143,26 +175,83 @@ export function requireCapacity(
         limit,
         upgradeUrl: upgradeUrl(),
       });
-    } catch {
-      // A counting failure must not block legitimate work.
-      next();
+    } catch (err) {
+      // Fail closed. A gate that cannot count is a gate that isn't there: the
+      // first version of this middleware allowed the request on a counting
+      // error and the cap silently stopped existing for every campaign.
+      // Refusing is recoverable (the operator retries); leaking the cap is not.
+      logger.error({ err, limitKey, tenantId: tenant.id }, "capacity check failed — refusing request");
+      res.status(503).json({
+        error: `We couldn't check your plan's ${entityLabel} limit just now. Please try again in a moment.`,
+        feature: limitKey,
+        retryable: true,
+      });
     }
   };
 }
 
-/** Current agent count for a tenant — used by requireCapacity. */
+/**
+ * Capacity check for bulk work, where the request adds many rows at once.
+ *
+ * requireCapacity only refuses once a campaign has already reached its cap,
+ * which is the right answer for a one-row create but lets a 500-row import
+ * sail past a 50-agent limit. Handlers that add `incoming` rows call this and
+ * refuse the whole batch when it would not fit.
+ *
+ * Returns the 402 body to send, or null when the batch fits.
+ */
+export async function capacityViolation(
+  tenantId: string,
+  limitKey: "maxAgents" | "maxStations",
+  countRows: (tenantId: string) => Promise<number>,
+  entityLabel: string,
+  incoming: number,
+): Promise<Record<string, unknown> | null> {
+  const effective = await loadEffectivePlan(tenantId);
+  if (!effective) return null;
+
+  const limit = PLANS[effective.plan][limitKey];
+  if (limit === null) return null; // unlimited
+
+  // No try/catch on purpose: the caller must not be able to treat a failed
+  // count as "the batch fits". A thrown error surfaces as a 500 and the import
+  // is refused, which is the safe direction for a paid limit.
+  const current = await countRows(tenantId);
+  if (current + incoming <= limit) return null;
+
+  return {
+    error: `Your ${PLANS[effective.plan].label} plan allows up to ${limit} ${entityLabel}. This import would take you to ${current + incoming}. Upgrade to add more.`,
+    feature: limitKey,
+    currentPlan: effective.plan,
+    requiredPlan: effective.plan === "free" ? "pro" : "enterprise",
+    current,
+    incoming,
+    limit,
+    upgradeUrl: upgradeUrl(),
+  };
+}
+
+/**
+ * Current agent count for a tenant — used by requireCapacity.
+ *
+ * Counted through the query builder on purpose: db.execute() resolves to a
+ * pg Result object, not an array, so destructuring its first row yields
+ * undefined and every capacity check would read zero.
+ */
 export async function countAgents(tenantId: string): Promise<number> {
-  const [row] = await db.execute<{ n: number }>(
-    sql`SELECT COUNT(*)::int AS n FROM polling_agents WHERE tenant_id = ${tenantId}`,
-  ) as unknown as Array<{ n: number }>;
+  const [row] = await db
+    .select({ n: count() })
+    .from(pollingAgentsTable)
+    .where(eq(pollingAgentsTable.tenantId, tenantId));
   return Number(row?.n ?? 0);
 }
 
 /** Current polling-station-profile count for a tenant. */
 export async function countStations(tenantId: string): Promise<number> {
-  const [row] = await db.execute<{ n: number }>(
-    sql`SELECT COUNT(*)::int AS n FROM campaign_station_profiles WHERE tenant_id = ${tenantId}`,
-  ) as unknown as Array<{ n: number }>;
+  const [row] = await db
+    .select({ n: count() })
+    .from(campaignStationProfilesTable)
+    .where(eq(campaignStationProfilesTable.tenantId, tenantId));
   return Number(row?.n ?? 0);
 }
 

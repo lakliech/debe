@@ -305,6 +305,31 @@ export default function Pricing() {
                         >
                           Current Plan
                         </Button>
+                      ) : plan.tier === "free" ? (
+                        // Free needs no sales conversation and no checkout —
+                        // signing up IS the upgrade path. A signed-in campaign
+                        // on a paid tier has to talk to us before dropping
+                        // features, so route them to contact instead.
+                        user ? (
+                          <a href="#contact">
+                            <Button
+                              size="lg"
+                              className="w-full bg-white/10 hover:bg-white/20 text-white font-bold border border-white/20"
+                            >
+                              Contact Us to Downgrade
+                            </Button>
+                          </a>
+                        ) : (
+                          <Button
+                            size="lg"
+                            onClick={() => setLocation("/sign-up")}
+                            className="w-full bg-white/10 hover:bg-white/20 text-white font-bold border border-white/20"
+                            data-testid="button-get-started-free"
+                          >
+                            Get Started Free
+                            <ArrowRight className="ml-2 h-4 w-4" />
+                          </Button>
+                        )
                       ) : plan.tier === "enterprise" ? (
                         <a href="#contact">
                           <Button
@@ -335,11 +360,7 @@ export default function Pricing() {
                               : "bg-white/10 hover:bg-white/20 text-white border border-white/20"
                           )}
                         >
-                          {user
-                            ? plan.tier === "free"
-                              ? "Downgrade to Free"
-                              : "Upgrade Now"
-                            : "Start Free Trial"}
+                          {user ? "Upgrade Now" : "Start Free Trial"}
                           <ArrowRight className="ml-2 h-4 w-4" />
                         </Button>
                       )}

@@ -41,7 +41,7 @@ A production-ready Kenyan presidential campaign management platform. Manages vol
 - **AppLayout/nav**: `artifacts/ushindi-2027/src/components/layout/AppLayout.tsx`
 - **Tests**: `artifacts/api-server/src/tests/`
 - **Seed data**: `scripts/seed.ts`
-- **Documentation**: `docs/` (14 guides)
+- **Documentation**: `docs/` (15 guides)
 
 ## Artifacts
 
@@ -153,5 +153,6 @@ eas build --platform android --profile production
 ## Pointers
 
 - See `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
-- See `docs/` for full documentation (14 guides)
+- See `docs/` for full documentation (15 guides)
 - See `docs/roles-permissions.md` for the full role and permission matrix
+- See `docs/billing-plans.md` for the plan tiers, what each one unlocks, and where the gates are enforced

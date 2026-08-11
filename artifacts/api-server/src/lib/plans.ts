@@ -12,6 +12,13 @@
 
 export type PlanTier = "free" | "pro" | "enterprise";
 
+/**
+ * The writable tiers, in ascending order. Mirrors the `plan_tier` DB enum —
+ * use it to validate anything arriving from a request body before it reaches
+ * an insert, so a bad tier fails as a 400 and not as a driver error.
+ */
+export const PLAN_TIERS: readonly PlanTier[] = ["free", "pro", "enterprise"];
+
 /** Feature keys that can be gated. Keep in sync with PlanLimits booleans. */
 export type PlanFeature =
   | "customDomain"
@@ -53,6 +60,7 @@ export const PLANS: Record<PlanTier, PlanDefinition> = {
     prioritySupport: false,
     description: "Get your campaign organised — ideal for ward and constituency races.",
     features: [
+      "1 campaign",
       "Up to 50 polling agents",
       "Up to 100 polling stations",
       "Volunteer & supporter management",

@@ -30,6 +30,8 @@ import { tenantFilter, assertTenant } from '../lib/withTenant';
 import { z } from "zod";
 import { validate } from "../lib/validate";
 import { resolveScopeGeoFilter, type ScopeGeoFilter } from "../lib/campaignScope";
+import { capacityViolation, countStations } from "../middlewares/requirePlan";
+import { hasPlatformOverride } from "../lib/platformOverride";
 
 const router = Router();
 
@@ -323,6 +325,22 @@ router.patch("/stations/:id", requireAuth, resolveTenant, canManageStations, asy
       .limit(1);
     if (!exists) return res.status(404).json({ error: "Station not found" });
 
+    // Profiling a station the campaign has not covered before consumes a slot
+    // against the plan's station cap. Re-profiling one it already covers does
+    // not, so a capped campaign can always keep its existing stations current.
+    const [alreadyProfiled] = await db
+      .select({ id: campaignStationProfilesTable.id })
+      .from(campaignStationProfilesTable)
+      .where(and(
+        eq(campaignStationProfilesTable.tenantId, t.id),
+        eq(campaignStationProfilesTable.stationId, req.params.id),
+      ))
+      .limit(1);
+    if (!alreadyProfiled && !(await hasPlatformOverride(req, res))) {
+      const violation = await capacityViolation(t.id, "maxStations", countStations, "polling stations", 1);
+      if (violation) return res.status(402).json(violation);
+    }
+
     const [profile] = await db.insert(campaignStationProfilesTable)
       .values({ tenantId: t.id, stationId: req.params.id, ...updateData })
       .onConflictDoUpdate({
@@ -411,6 +429,26 @@ router.post("/stations/bulk-status", requireAuth, resolveTenant, canManageStatio
         .where(and(inArray(pollingStationsTable.id, stationIds), stationScopeCondition(filter)));
       if (Number(inScope) !== stationIds.length) {
         return res.status(403).json({ error: "One or more stations are unknown or outside this campaign's scope." });
+      }
+    }
+
+    // Only the stations this campaign has never profiled count against the
+    // cap — a bulk status update over stations it already covers is free.
+    // Checked for the whole batch up front: refusing halfway would leave the
+    // update half-applied.
+    if (!(await hasPlatformOverride(req, res))) {
+      const covered = await db
+        .select({ stationId: campaignStationProfilesTable.stationId })
+        .from(campaignStationProfilesTable)
+        .where(and(
+          eq(campaignStationProfilesTable.tenantId, t.id),
+          inArray(campaignStationProfilesTable.stationId, stationIds),
+        ));
+      const coveredIds = new Set(covered.map((r) => r.stationId));
+      const incoming = new Set(stationIds.filter((id: string) => !coveredIds.has(id))).size;
+      if (incoming > 0) {
+        const violation = await capacityViolation(t.id, "maxStations", countStations, "polling stations", incoming);
+        if (violation) return res.status(402).json(violation);
       }
     }
 

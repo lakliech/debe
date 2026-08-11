@@ -45,6 +45,7 @@ import { grantCampaignAdminByEmail } from "../lib/grantCampaignAdmin";
 import { recordPlatformAction } from "../lib/platformAudit";
 import { z } from "zod";
 import { validate } from "../lib/validate";
+import { PLANS, PLAN_TIERS, getEffectivePlan, type PlanTier } from "../lib/plans";
 
 const router = Router();
 
@@ -265,6 +266,12 @@ router.post("/tenants", requireAuth, requireLevel(0), async (req: any, res: any)
     if (!/^[a-z0-9-]+$/.test(slug)) {
       return res.status(400).json({ error: "slug must be lowercase alphanumeric and hyphens only" });
     }
+    // The DB column is an enum, so an unrecognised tier would fail deep inside
+    // the insert with a driver error. Refuse it here with an explanation.
+    if (!PLAN_TIERS.includes(plan as PlanTier)) {
+      return res.status(400).json({ error: `plan must be one of: ${PLAN_TIERS.join(", ")}` });
+    }
+    const planTier = plan as PlanTier;
 
     // Every campaign contests a seat — platform-provisioned tenants are no
     // exception. The seat's geography rule is enforced here and mirrored by
@@ -294,7 +301,7 @@ router.post("/tenants", requireAuth, requireLevel(0), async (req: any, res: any)
     const [tenant] = await db.transaction(async (tx) => {
       const [t] = await tx
         .insert(tenantsTable)
-        .values({ name, slug, plan, ...scope })
+        .values({ name, slug, plan: planTier, ...scope })
         .returning();
 
       await recordPlatformAction(
@@ -360,6 +367,8 @@ router.get("/tenants/:id", requireAuth, requireLevel(0), async (req: any, res: a
         name: tenantsTable.name,
         slug: tenantsTable.slug,
         plan: tenantsTable.plan,
+        planOverrideUntil: tenantsTable.planOverrideUntil,
+        stripeSubscriptionStatus: tenantsTable.stripeSubscriptionStatus,
         isSuspended: tenantsTable.isSuspended,
         customDomain: tenantsTable.customDomain,
         tlsStatus: tenantsTable.tlsStatus,
@@ -375,6 +384,8 @@ router.get("/tenants/:id", requireAuth, requireLevel(0), async (req: any, res: a
         tenantsTable.name,
         tenantsTable.slug,
         tenantsTable.plan,
+        tenantsTable.planOverrideUntil,
+        tenantsTable.stripeSubscriptionStatus,
         tenantsTable.isSuspended,
         tenantsTable.customDomain,
         tenantsTable.tlsStatus,
@@ -383,6 +394,11 @@ router.get("/tenants/:id", requireAuth, requireLevel(0), async (req: any, res: a
       .limit(1);
 
     if (!row) return res.status(404).json({ error: "Tenant not found" });
+
+    // The stored plan is what they bought; the effective plan is what they can
+    // use today. An operator looking at this sheet needs both — "Pro (expired)"
+    // is a very different support conversation from "Pro".
+    const effective = getEffectivePlan(row);
 
     // Attach branding snapshot (counts only — no private data)
     const [branding] = await db
@@ -397,7 +413,13 @@ router.get("/tenants/:id", requireAuth, requireLevel(0), async (req: any, res: a
       .where(eq(brandingTable.tenantId, id))
       .limit(1);
 
-    res.json({ ...row, branding: branding ?? null });
+    res.json({
+      ...row,
+      effectivePlan: effective.plan,
+      effectivePlanLabel: PLANS[effective.plan].label,
+      isTrial: effective.isTrial,
+      branding: branding ?? null,
+    });
   } catch (err: any) {
     logger.error({ err }, "request failed");
     res.status(500).json({ error: "Something went wrong. Please try again." });

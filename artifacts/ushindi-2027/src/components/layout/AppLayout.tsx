@@ -11,6 +11,7 @@ import { SECTION_RULES } from "@/lib/access";
 import { useIdentity, type ActiveTenant } from "@/hooks/useIdentity";
 import DemoTour from "@/components/DemoTour";
 import TrialBanner from "@/components/TrialBanner";
+import UpgradeBanner from "@/components/UpgradeBanner";
 import { MultiOrgGate } from "@/components/NoActiveOrgPrompt";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -639,6 +640,9 @@ export default function AppLayout({ children }: AppLayoutProps) {
               <>
                 {/* Trial / billing state. Renders nothing on a healthy paid plan. */}
                 <TrialBanner />
+                {/* Capacity against the plan's agent cap. Renders nothing on an
+                    uncapped plan or below 80% usage. */}
+                {inCampaignContext && <UpgradeBanner />}
                 {needsCampaign ? (
                   <NoCampaignSelected />
                 ) : (

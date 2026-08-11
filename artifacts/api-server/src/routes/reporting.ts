@@ -19,6 +19,7 @@ import {
 } from "@workspace/db";
 import { eq, and, desc, count, sum, sql } from "drizzle-orm";
 import { requireRoles, resolveActor } from "../middlewares/rbac";
+import { requirePlanFeatureWhen } from "../middlewares/requirePlan";
 import ExcelJS from "exceljs";
 import { validate } from "../lib/validate";
 import { tenantFilter, assertTenant } from '../lib/withTenant';
@@ -151,8 +152,16 @@ router.get("/list", requireAuth, (_req, res) => {
   });
 });
 
+// Excel is a paid format. CSV stays available on every plan, so the gate only
+// trips on the requests that actually ask for a workbook — a Free campaign can
+// still get all 19 reports, just not formatted.
+const requireExcelPlan = requirePlanFeatureWhen(
+  "excelExport",
+  (req) => (req.body as any)?.format === "excel",
+);
+
 // ── POST /api/reporting/export ─────────────────────────────────────────────
-router.post("/export", requireAuth, resolveActor, canExport, async (req: any, res: any) => {
+router.post("/export", requireAuth, resolveActor, canExport, requireExcelPlan, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
     const parsed = validate(exportSchema, req.body, res);

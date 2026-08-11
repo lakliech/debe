@@ -35,6 +35,7 @@ pnpm run dev                  # start API + frontend
 | [results-verification.md](results-verification.md) | Results verification workflow |
 | [backup-disaster-recovery.md](backup-disaster-recovery.md) | Backup and disaster recovery |
 | [api-documentation.md](api-documentation.md) | API reference |
+| [billing-plans.md](billing-plans.md) | Plan tiers, feature gates, and upgrade prompts |
 | [administrator-guide.md](administrator-guide.md) | Administrator guide |
 | [polling-agent-quickstart.md](polling-agent-quickstart.md) | Polling agent quick-start (field guide) |
 

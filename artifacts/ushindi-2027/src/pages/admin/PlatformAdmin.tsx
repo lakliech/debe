@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -36,7 +37,20 @@ interface TenantRow {
   userCount: number;
 }
 
+type PlanTier = "free" | "pro" | "enterprise";
+
+const PLAN_TIERS: { value: PlanTier; label: string; blurb: string }[] = [
+  { value: "free", label: "Free", blurb: "1 campaign, up to 50 agents, no custom domain or Excel export" },
+  { value: "pro", label: "Pro", blurb: "Unlimited agents, custom domain, full reporting" },
+  { value: "enterprise", label: "Enterprise", blurb: "White-label mobile build and a dedicated support SLA" },
+];
+
 interface TenantDetail extends TenantRow {
+  /** Tier actually in force today — a lapsed grant reads back as "free". */
+  effectivePlan?: PlanTier;
+  effectivePlanLabel?: string;
+  isTrial?: boolean;
+  planOverrideUntil?: string | null;
   branding: {
     campaignName: string;
     candidateName: string;
@@ -189,6 +203,96 @@ function CopyableUrl({ url }: { url: string }) {
   );
 }
 
+/**
+ * Manual plan control for platform operators.
+ *
+ * Paid tiers are granted for a fixed number of months rather than forever:
+ * the API records the grant as an override that lapses, so a comped campaign
+ * cannot quietly keep Enterprise features for the rest of time. Moving a
+ * campaign back to Free clears the grant immediately.
+ */
+function PlanPanel({
+  detail,
+  onChange,
+  pending,
+}: {
+  detail: TenantDetail;
+  onChange: (plan: PlanTier, months?: number) => void;
+  pending: boolean;
+}) {
+  const stored = (detail.plan ?? "free") as PlanTier;
+  const [plan, setPlan] = useState<PlanTier>(stored);
+  const [months, setMonths] = useState("12");
+
+  const selected = PLAN_TIERS.find((p) => p.value === plan) ?? PLAN_TIERS[0];
+  const dirty = plan !== stored;
+  const effective = detail.effectivePlan ?? stored;
+  const lapsed = effective !== stored;
+
+  return (
+    <div className="rounded-sm border border-border p-4 space-y-3">
+      <p className="text-[10px] font-black tracking-widest text-muted-foreground uppercase">Billing Plan</p>
+
+      <div className="flex items-center gap-2 flex-wrap text-xs">
+        <span className="text-muted-foreground">In force today:</span>
+        <Badge variant="outline" className="font-mono">{effective}</Badge>
+        {detail.isTrial && <Badge variant="outline" className="border-primary text-primary">Trial</Badge>}
+        {lapsed && (
+          <span className="text-muted-foreground">
+            (bought <span className="font-mono">{stored}</span> — grant has lapsed)
+          </span>
+        )}
+        {detail.planOverrideUntil && !lapsed && (
+          <span className="text-muted-foreground">
+            until {new Date(detail.planOverrideUntil).toLocaleDateString("en-KE", { year: "numeric", month: "short", day: "numeric" })}
+          </span>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label className="text-xs font-semibold">Plan</Label>
+          <Select value={plan} onValueChange={(v) => setPlan(v as PlanTier)}>
+            <SelectTrigger data-testid="select-tenant-plan">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PLAN_TIERS.map((tier) => (
+                <SelectItem key={tier.value} value={tier.value}>{tier.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        {plan !== "free" && (
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold">Duration (months)</Label>
+            <Input
+              type="number"
+              min={1}
+              max={60}
+              value={months}
+              onChange={(e) => setMonths(e.target.value)}
+              data-testid="input-tenant-plan-months"
+            />
+          </div>
+        )}
+      </div>
+
+      <p className="text-xs text-muted-foreground">{selected.blurb}</p>
+
+      <Button
+        size="sm"
+        disabled={!dirty || pending}
+        onClick={() => onChange(plan, plan === "free" ? undefined : Number(months))}
+        data-testid="button-save-tenant-plan"
+      >
+        {pending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+        {plan === "free" ? "Move to Free" : `Grant ${selected.label}`}
+      </Button>
+    </div>
+  );
+}
+
 function TenantDetail({ tenant, onClose }: { tenant: TenantRow; onClose: () => void }) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -211,6 +315,20 @@ function TenantDetail({ tenant, onClose }: { tenant: TenantRow; onClose: () => v
       toast({ title: "Tenant status updated" });
     },
     onError: (err: any) => toast({ title: "Update failed", description: err.message, variant: "destructive" }),
+  });
+
+  const planMutation = useMutation({
+    mutationFn: ({ plan, months }: { plan: PlanTier; months?: number }) =>
+      apiFetch(`/tenants/${tenant.id}/plan`, {
+        method: "PATCH",
+        body: JSON.stringify({ plan, months }),
+      }),
+    onSuccess: (data: any) => {
+      qc.invalidateQueries({ queryKey: ["platform-tenants"] });
+      qc.invalidateQueries({ queryKey: ["platform-tenant-detail", tenant.id] });
+      toast({ title: "Plan updated", description: data?.message });
+    },
+    onError: (err: any) => toast({ title: "Plan change failed", description: err.message, variant: "destructive" }),
   });
 
   const inviteMutation = useMutation({
@@ -307,6 +425,9 @@ function TenantDetail({ tenant, onClose }: { tenant: TenantRow; onClose: () => v
         ) : (
           <div className="text-sm text-muted-foreground italic">No branding configured yet.</div>
         )}
+
+        {/* Plan */}
+        <PlanPanel detail={d} onChange={(plan, months) => planMutation.mutate({ plan, months })} pending={planMutation.isPending} />
 
         {/* Suspend toggle */}
         <div className="rounded-sm border border-border p-4 space-y-2">

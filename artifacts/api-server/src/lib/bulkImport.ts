@@ -29,6 +29,19 @@ export class ImportParseError extends Error {}
 /** Thrown by insertRows when a URL-scoped parent (e.g. election) is not found. */
 export class ImportNotFoundError extends Error {}
 
+/**
+ * Thrown by insertRows when the batch would push the campaign past a plan
+ * limit. Answered as 402 with the machine-readable body the plan gates use, so
+ * the client can show the same upgrade prompt it shows for a blocked create.
+ */
+export class ImportCapacityError extends Error {
+  readonly details: Record<string, unknown>;
+  constructor(message: string, details: Record<string, unknown> = {}) {
+    super(message);
+    this.details = details;
+  }
+}
+
 /** Parse an uploaded CSV/Excel buffer into row objects keyed by header row. */
 export function parseTabularFile(buffer: Buffer): Record<string, unknown>[] {
   let workbook: XLSX.WorkBook;
@@ -178,6 +191,9 @@ export function makeImportHandler<T>(opts: ImportHandlerOptions<T>) {
       } catch (err: any) {
         if (err instanceof ImportParseError) return res.status(400).json({ error: err.message });
         if (err instanceof ImportNotFoundError) return res.status(404).json({ error: err.message });
+        if (err instanceof ImportCapacityError) {
+          return res.status(402).json({ error: err.message, ...err.details });
+        }
         opts.logger.error({ err }, "bulk import failed");
         res.status(500).json({ error: "Something went wrong. Please try again." });
       }

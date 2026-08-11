@@ -25,6 +25,7 @@ import {
   PAST_DUE_GRACE_DAYS,
   type PlanTier,
 } from "../lib/plans";
+import { countAgents, countStations } from "../middlewares/requirePlan";
 import {
   stripeConfigured,
   ensureCustomer,
@@ -91,6 +92,47 @@ router.get("/subscription", requireAuth, async (req: any, res: any) => {
         maxStations: PLANS[effective.plan].maxStations,
       },
       catalogue: publicPlanCatalogue(),
+    });
+  } catch (err: any) {
+    sendRouteError(res, err);
+  }
+});
+
+// ── GET /api/billing/usage ───────────────────────────────────────────────────
+// Metered usage against the plan's caps. Any signed-in campaign member may
+// read it: the command centre shows the upgrade banner to whoever is looking,
+// and hiding the reason a create is about to fail helps nobody.
+router.get("/usage", requireAuth, async (req: any, res: any) => {
+  try {
+    const tenantId = assertTenant(req, res);
+    if (!tenantId) return;
+
+    const [tenant] = await db
+      .select({
+        plan: tenantsTable.plan,
+        planOverrideUntil: tenantsTable.planOverrideUntil,
+        stripeSubscriptionStatus: tenantsTable.stripeSubscriptionStatus,
+      })
+      .from(tenantsTable)
+      .where(eq(tenantsTable.id, tenantId))
+      .limit(1);
+    if (!tenant) return res.status(404).json({ error: "Campaign not found" });
+
+    const effective = getEffectivePlan(tenant);
+    const limits = PLANS[effective.plan];
+    const [agents, stations] = await Promise.all([
+      countAgents(tenantId),
+      countStations(tenantId),
+    ]);
+
+    res.json({
+      plan: effective.plan,
+      planLabel: limits.label,
+      isTrial: effective.isTrial,
+      agents,
+      stations,
+      maxAgents: limits.maxAgents,
+      maxStations: limits.maxStations,
     });
   } catch (err: any) {
     sendRouteError(res, err);

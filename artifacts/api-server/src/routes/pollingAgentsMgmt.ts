@@ -2,7 +2,13 @@
  * Polling Agents Management API
  */
 import { logger } from "../lib/logger";
-import { makeImportHandler, chunks, cellString, cellBool } from "../lib/bulkImport";
+import {
+  makeImportHandler,
+  chunks,
+  cellString,
+  cellBool,
+  ImportCapacityError,
+} from "../lib/bulkImport";
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
 import { z } from "zod";
@@ -23,6 +29,7 @@ import {
 } from "@workspace/db";
 import { eq, desc, and, or, ilike, count, inArray } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
+import { requireCapacity, capacityViolation, countAgents } from "../middlewares/requirePlan";
 import { validate } from "../lib/validate";
 import { tenantFilter, assertTenant } from '../lib/withTenant';
 import { logActivity } from "../lib/activityFeed";
@@ -202,6 +209,20 @@ router.post("/import", requireAuth, canManageAgents, makeImportHandler({
   aliases: AGENT_IMPORT_ALIASES,
   getTenantId: (req) => assertTenant(req).id,
   insertRows: async (rows, tenantId) => {
+    // An import adds hundreds of agents in one request, so the per-request
+    // capacity gate ("are you already full?") is not enough — check that the
+    // whole batch fits before writing any of it.
+    const violation = await capacityViolation(
+      tenantId,
+      "maxAgents",
+      countAgents,
+      "polling agents",
+      rows.length,
+    );
+    if (violation) {
+      throw new ImportCapacityError(String(violation.error), violation);
+    }
+
     let created = 0;
     for (const chunk of chunks(rows, 500)) {
       created += (await db.insert(pollingAgentsTable)
@@ -214,7 +235,11 @@ router.post("/import", requireAuth, canManageAgents, makeImportHandler({
 }));
 
 // POST /api/polling-agents/
-router.post("/", requireAuth, canManageAgents, async (req: any, res: any) => {
+// Agent headcount is the metered limit on the Free plan — the gate answers 402
+// with the current count and cap so the UI can prompt an upgrade in place.
+const withinAgentCap = requireCapacity("maxAgents", countAgents, "polling agents");
+
+router.post("/", requireAuth, canManageAgents, withinAgentCap, async (req: any, res: any) => {
   try {
     const t = assertTenant(req);
     const parsed = validate(createAgentSchema, req.body, res);

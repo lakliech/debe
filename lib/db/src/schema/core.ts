@@ -1,5 +1,6 @@
 import {
   pgTable,
+  pgEnum,
   text,
   timestamp,
   boolean,
@@ -14,6 +15,12 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { countiesTable, constituenciesTable, wardsTable } from "./geography";
 
+// ── Billing tiers ─────────────────────────────────────────────────────────────
+// The three subscription tiers the platform sells. Their limits and features
+// live in the API server's plan catalogue (lib/plans.ts); the database only
+// enforces that the stored value is one of them.
+export const planTierEnum = pgEnum("plan_tier", ["free", "pro", "enterprise"]);
+
 // ── Tenants ───────────────────────────────────────────────────────────────────
 // One row per campaign deployment. Membership is owned by the app (user_roles),
 // NOT by the identity provider. clerk_org_id is a legacy reference to a Clerk
@@ -25,8 +32,14 @@ export const tenantsTable = pgTable("tenants", {
   name: text("name").notNull(),
   /** URL-safe identifier used in subdomains / public links */
   slug: text("slug").notNull().unique(),
-  /** Billing tier — free | pro | enterprise */
-  plan: text("plan").notNull().default("free"),
+  /**
+   * Billing tier the campaign has bought or been granted. This is NOT the tier
+   * currently in force — trials and manual grants expire via planOverrideUntil,
+   * so entitlement must always be resolved through the API server's
+   * getEffectivePlan(). Constrained by the plan_tier enum so an unknown tier can
+   * never be written and silently fall back to free at read time.
+   */
+  plan: planTierEnum("plan").notNull().default("free"),
   /**
    * When set and in the future, the tenant retains `plan` access regardless of
    * subscription status. Used for trials and manual platform-admin grants.

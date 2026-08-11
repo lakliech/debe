@@ -37,6 +37,7 @@ import {
   ScopeValidationError,
 } from "../lib/campaignScope";
 import { PLANS, getEffectivePlan } from "../lib/plans";
+import { requirePlanFeatureWhen } from "../middlewares/requirePlan";
 import { stripeConfigured } from "../lib/stripe";
 
 const router = Router();
@@ -365,7 +366,15 @@ router.get("/domain-requests", requireAuth, requireLevel(2), async (req: any, re
   }
 });
 
-router.post("/domain-requests", requireAuth, requireLevel(1), async (req: any, res: any) => {
+// A custom-domain request is only worth queueing if the campaign is entitled
+// to the feature — refuse up front rather than leaving the admin waiting on a
+// request the platform will reject. Slug changes are free on every plan.
+const canRequestCustomDomain = requirePlanFeatureWhen(
+  "customDomain",
+  (req) => (req.body as any)?.kind === "custom_domain",
+);
+
+router.post("/domain-requests", requireAuth, requireLevel(1), canRequestCustomDomain, async (req: any, res: any) => {
   try {
     const tenantId = assertTenant(req, res);
     if (!tenantId) return;
@@ -384,20 +393,6 @@ router.post("/domain-requests", requireAuth, requireLevel(1), async (req: any, r
     }
     if (kind === "custom_domain" && !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(value)) {
       return res.status(400).json({ error: "Enter a valid domain, e.g. campaign.co.ke" });
-    }
-
-    // Custom domains are a paid feature — check before queueing the request so
-    // the admin isn't left waiting on something that will be rejected.
-    if (kind === "custom_domain") {
-      const effective = getEffectivePlan(req.tenant);
-      if (!PLANS[effective.plan].customDomain) {
-        return res.status(402).json({
-          error: "Custom domains require the Pro plan.",
-          feature: "customDomain",
-          currentPlan: effective.plan,
-          requiredPlan: "pro",
-        });
-      }
     }
 
     const [existing] = await db
