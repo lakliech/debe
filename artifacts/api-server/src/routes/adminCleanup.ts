@@ -6,6 +6,7 @@
  *
  * NOT mounted through tenant/auth middleware — runs as a super-admin operation.
  */
+import { createHash, timingSafeEqual } from "node:crypto";
 import { logger } from "../lib/logger";
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
@@ -31,7 +32,17 @@ router.post("/cleanup-demo-stations", async (req: any, res: any) => {
   if (!secret) {
     return res.status(503).json({ error: "ADMIN_CLEANUP_SECRET not configured — endpoint disabled" });
   }
-  if (req.headers["x-admin-secret"] !== secret) {
+  // Constant-time comparison — a plain !== short-circuits on the first
+  // mismatched character and leaks a timing side-channel that lets an
+  // attacker recover the secret byte-by-byte. Hash both sides to equal-length
+  // buffers first so timingSafeEqual never throws on length mismatch (and the
+  // length itself is not observable via timing).
+  const provided = req.headers["x-admin-secret"];
+  const providedBuf = createHash("sha256")
+    .update(typeof provided === "string" ? provided : "")
+    .digest();
+  const secretBuf = createHash("sha256").update(secret).digest();
+  if (typeof provided !== "string" || !timingSafeEqual(providedBuf, secretBuf)) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 

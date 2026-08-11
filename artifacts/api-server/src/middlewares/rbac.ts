@@ -45,9 +45,17 @@ interface CachedActor {
 
 const _actorCache = new Map<string, CachedActor>();
 
+// TTL is deliberately short (5 s). The cache is process-local, and the
+// production autoscale deployment runs multiple instances behind a load
+// balancer: bustActorCache() only evicts on the instance that handled the
+// role mutation, so every OTHER instance keeps serving stale roles until its
+// own TTL lapses. A 5 s ceiling bounds the cross-instance revocation window
+// (e.g. stripping a compromised admin) to at most 5 seconds while still
+// absorbing request bursts. Do not raise this without moving the cache to a
+// shared store (Redis/Valkey) where bustActorCache is cluster-wide.
 const ACTOR_CACHE_TTL_MS = process.env.ACTOR_CACHE_TTL_MS
   ? parseInt(process.env.ACTOR_CACHE_TTL_MS, 10)
-  : 30_000; // 30 seconds default
+  : 5_000; // 5 seconds default
 
 function _cacheKey(clerkId: string, tenantId: string | undefined): string {
   return `${clerkId}:${tenantId ?? ""}`;

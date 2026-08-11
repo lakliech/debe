@@ -67,6 +67,16 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "Too many authentication attempts." },
 });
+// Strict brute-force limiter for shared-secret admin endpoints. The
+// destructive /api/admin cleanup route is guarded only by a header secret,
+// so it gets a tight 5 req/15min ceiling to make brute-forcing infeasible.
+const adminLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many admin requests — please try again later." },
+});
 const exportLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 20,
@@ -79,6 +89,7 @@ app.use(globalLimiter);
 // Route-specific limiters (applied before body parsers and main router)
 app.use(CLERK_PROXY_PATH, authLimiter);       // Clerk sign-in/sign-up flows
 app.use("/api/reporting/export", exportLimiter); // Data export endpoint
+app.use("/api/admin", adminLimiter);              // Secret-guarded destructive admin ops
 
 app.use(
   pinoHttp({
