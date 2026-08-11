@@ -104,11 +104,11 @@ function alertText(e: AlertEvent): string {
 
 // ─── Page ───────────────────────────────────────────────────────────────────
 
-const TABS = ["Overview", "Agents", "Transport", "Security", "Panic Log"] as const;
+const TABS = ["Operations", "Agents", "Transport", "Security"] as const;
 
 export default function LogisticsCommandCenter() {
   const electionId = useElectionId();
-  const [tab, setTab] = useState<(typeof TABS)[number]>("Overview");
+  const [tab, setTab] = useState<(typeof TABS)[number]>("Operations");
   const [selectedDot, setSelectedDot] = useState<MapDot | null>(null);
   const [alerts, setAlerts] = useState<AlertEvent[]>([]);
   const feedRef = useRef<HTMLDivElement>(null);
@@ -223,12 +223,12 @@ export default function LogisticsCommandCenter() {
       <div className="flex gap-1 border-b border-border">
         {TABS.map((t) => (
           <button key={t} onClick={() => setTab(t)} className={cn("px-4 py-2 text-xs font-black uppercase tracking-wider border-b-2 -mb-px", tab === t ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground")}>
-            {t}{t === "Panic Log" && (o?.activePanicAlerts ?? 0) > 0 && <span className="ml-1.5 bg-red-600 text-white px-1.5 py-0.5 rounded-sm">{o.activePanicAlerts}</span>}
+            {t}{t === "Security" && (o?.activePanicAlerts ?? 0) > 0 && <span className="ml-1.5 bg-red-600 text-white px-1.5 py-0.5 rounded-sm">{o.activePanicAlerts}</span>}
           </button>
         ))}
       </div>
 
-      {tab === "Overview" && <OpsOverview />}
+      {tab === "Operations" && <OpsOverview />}
       {tab === "Agents" && (
         <AgentsTab checkIns={(checkIns.data as any[]) ?? []} missing={(missing.data as any[]) ?? []} loading={checkIns.isLoading} />
       )}
@@ -242,18 +242,29 @@ export default function LogisticsCommandCenter() {
         />
       )}
       {tab === "Security" && (
-        <SecurityTab
-          incidents={(incidents.data as any[]) ?? []}
-          onEscalate={(id) => act(`/security-incidents/${id}/escalate`).then(() => incidents.refetch())}
-          onResolve={(id) => api(`/security-incidents/${id}`, { method: "PATCH", body: JSON.stringify({ status: "resolved" }) }).then(() => incidents.refetch())}
-        />
-      )}
-      {tab === "Panic Log" && (
-        <PanicTab
-          panics={(panics.data as any[]) ?? []}
-          onAck={(id) => act(`/panic/${id}/acknowledge`).then(() => panics.refetch())}
-          onResolve={(id) => act(`/panic/${id}/resolve`, {}).then(() => panics.refetch())}
-        />
+        <div className="space-y-6">
+          <section>
+            <h2 className="font-black text-sm uppercase tracking-wider mb-3 flex items-center gap-2">
+              <Siren className="h-4 w-4 text-red-600" />Panic Alerts
+              {(o?.activePanicAlerts ?? 0) > 0 && <span className="bg-red-600 text-white text-xs px-1.5 py-0.5 rounded-sm">{o.activePanicAlerts} active</span>}
+            </h2>
+            <PanicTab
+              panics={(panics.data as any[]) ?? []}
+              onAck={(id) => act(`/panic/${id}/acknowledge`).then(() => panics.refetch())}
+              onResolve={(id) => act(`/panic/${id}/resolve`, {}).then(() => panics.refetch())}
+            />
+          </section>
+          <section>
+            <h2 className="font-black text-sm uppercase tracking-wider mb-3 flex items-center gap-2">
+              <ShieldAlert className="h-4 w-4 text-orange-600" />Security Incidents
+            </h2>
+            <SecurityTab
+              incidents={(incidents.data as any[]) ?? []}
+              onEscalate={(id) => act(`/security-incidents/${id}/escalate`).then(() => incidents.refetch())}
+              onResolve={(id) => api(`/security-incidents/${id}`, { method: "PATCH", body: JSON.stringify({ status: "resolved" }) }).then(() => incidents.refetch())}
+            />
+          </section>
+        </div>
       )}
     </div>
   );
