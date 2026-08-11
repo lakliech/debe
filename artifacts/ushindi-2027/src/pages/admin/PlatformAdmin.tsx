@@ -30,6 +30,8 @@ interface TenantRow {
   name: string;
   slug: string;
   plan: string;
+  /** Stripe subscription state, or null for a campaign that never subscribed. */
+  subscriptionStatus: string | null;
   isSuspended: boolean;
   customDomain: string | null;
   tlsStatus: "pending" | "active" | "error" | null;
@@ -38,6 +40,36 @@ interface TenantRow {
 }
 
 type PlanTier = "free" | "pro" | "enterprise";
+
+/**
+ * Stripe subscription state, at a glance.
+ *
+ * Colour carries the operational meaning: past_due and unpaid are the two that
+ * need someone to chase a customer before access lapses, so they are the two
+ * that must be visible without opening a row. A campaign with no subscription
+ * at all is not a problem — it is simply on the free tier or a manual grant.
+ */
+function SubscriptionBadge({ status }: { status: string | null | undefined }) {
+  if (!status) {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+  const tone: Record<string, string> = {
+    active: "border-green-500 text-green-600",
+    trialing: "border-primary text-primary",
+    past_due: "border-amber-500 text-amber-600",
+    unpaid: "border-red-500 text-red-600",
+    canceled: "border-muted-foreground/40 text-muted-foreground",
+  };
+  return (
+    <Badge
+      variant="outline"
+      className={cn("font-mono text-xs capitalize", tone[status] ?? "text-muted-foreground")}
+      data-testid={`badge-subscription-${status}`}
+    >
+      {status.replace("_", " ")}
+    </Badge>
+  );
+}
 
 const PLAN_TIERS: { value: PlanTier; label: string; blurb: string }[] = [
   { value: "free", label: "Free", blurb: "1 campaign, up to 50 agents, no custom domain or Excel export" },
@@ -246,6 +278,11 @@ function PlanPanel({
       <div className="flex items-center gap-2 flex-wrap text-xs">
         <span className="text-muted-foreground">In force today:</span>
         <Badge variant="outline" className="font-mono">{effective}</Badge>
+        {detail.subscriptionStatus && (
+          <span className="text-muted-foreground">
+            Stripe: <span className="font-mono">{detail.subscriptionStatus}</span>
+          </span>
+        )}
         {detail.isTrial && <Badge variant="outline" className="border-primary text-primary">Trial</Badge>}
         {lapsed && (
           <span className="text-muted-foreground">
@@ -469,6 +506,7 @@ function TenantDetail({ tenant, onClose }: { tenant: TenantRow; onClose: () => v
             </span>
           </div>
           <Badge variant="outline" className="font-mono text-xs">{d.plan}</Badge>
+          <SubscriptionBadge status={d.subscriptionStatus} />
           {d.isSuspended ? (
             <Badge variant="destructive" className="gap-1"><AlertCircle className="h-3 w-3" /> Suspended</Badge>
           ) : (
@@ -683,6 +721,7 @@ export default function PlatformAdmin() {
                 <th className="px-4 py-3 text-left font-black text-xs tracking-widest text-muted-foreground uppercase">Campaign</th>
                 <th className="px-4 py-3 text-left font-black text-xs tracking-widest text-muted-foreground uppercase hidden sm:table-cell">Slug</th>
                 <th className="px-4 py-3 text-left font-black text-xs tracking-widest text-muted-foreground uppercase hidden md:table-cell">Plan</th>
+                <th className="px-4 py-3 text-left font-black text-xs tracking-widest text-muted-foreground uppercase hidden md:table-cell">Subscription</th>
                 <th className="px-4 py-3 text-left font-black text-xs tracking-widest text-muted-foreground uppercase hidden lg:table-cell">Created</th>
                 <th className="px-4 py-3 text-right font-black text-xs tracking-widest text-muted-foreground uppercase">Users</th>
                 <th className="px-4 py-3 text-left font-black text-xs tracking-widest text-muted-foreground uppercase">Status</th>
@@ -705,6 +744,9 @@ export default function PlatformAdmin() {
                   <td className="px-4 py-3 font-mono text-xs text-muted-foreground hidden sm:table-cell">{t.slug}</td>
                   <td className="px-4 py-3 hidden md:table-cell">
                     <Badge variant="outline" className="font-mono text-xs capitalize">{t.plan}</Badge>
+                  </td>
+                  <td className="px-4 py-3 hidden md:table-cell">
+                    <SubscriptionBadge status={t.subscriptionStatus} />
                   </td>
                   <td className="px-4 py-3 text-muted-foreground hidden lg:table-cell">
                     {new Date(t.createdAt).toLocaleDateString("en-KE", { year: "numeric", month: "short", day: "numeric" })}

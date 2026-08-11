@@ -144,6 +144,10 @@ async function listTenantsWithCounts() {
       name: tenantsTable.name,
       slug: tenantsTable.slug,
       plan: tenantsTable.plan,
+      // Subscription health belongs in the list, not just the detail sheet:
+      // "who is past due?" is a scan-the-column question, and making an
+      // operator open every campaign to answer it means it never gets asked.
+      subscriptionStatus: tenantsTable.stripeSubscriptionStatus,
       isSuspended: tenantsTable.isSuspended,
       customDomain: tenantsTable.customDomain,
       tlsStatus: tenantsTable.tlsStatus,
@@ -158,6 +162,7 @@ async function listTenantsWithCounts() {
       tenantsTable.name,
       tenantsTable.slug,
       tenantsTable.plan,
+      tenantsTable.stripeSubscriptionStatus,
       tenantsTable.isSuspended,
       tenantsTable.customDomain,
       tenantsTable.tlsStatus,
@@ -433,6 +438,9 @@ router.get("/tenants/:id", requireAuth, requireLevel(0), async (req: any, res: a
         slug: tenantsTable.slug,
         plan: tenantsTable.plan,
         planOverrideUntil: tenantsTable.planOverrideUntil,
+        // Kept under the schema name here because getEffectivePlan() reads it
+        // off this row; the response below also exposes it as
+        // `subscriptionStatus` so detail and list agree on one field name.
         stripeSubscriptionStatus: tenantsTable.stripeSubscriptionStatus,
         isSuspended: tenantsTable.isSuspended,
         customDomain: tenantsTable.customDomain,
@@ -480,6 +488,7 @@ router.get("/tenants/:id", requireAuth, requireLevel(0), async (req: any, res: a
 
     res.json({
       ...row,
+      subscriptionStatus: row.stripeSubscriptionStatus,
       effectivePlan: effective.plan,
       effectivePlanLabel: PLANS[effective.plan].label,
       isTrial: effective.isTrial,

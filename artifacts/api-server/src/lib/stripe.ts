@@ -1,45 +1,134 @@
 /**
  * Stripe billing integration.
  *
- * Environment:
- *   STRIPE_SECRET_KEY            sk_live_… / sk_test_…
- *   STRIPE_WEBHOOK_SECRET        whsec_…  (from the webhook endpoint config)
+ * Credential resolution (in priority order):
+ *   1. Replit Stripe connector  — used in the Replit workspace and deployments.
+ *      Credentials are fetched at runtime from the connector API so rotated
+ *      keys are always picked up without a redeploy.
+ *   2. Environment variables     — for self-hosted / CI environments without
+ *      the Replit connector:
+ *        STRIPE_SECRET_KEY            sk_live_… / sk_test_…
+ *        STRIPE_WEBHOOK_SECRET        whsec_… (from the webhook endpoint config)
+ *
+ * Price IDs must always be supplied via env vars (the connector doesn't carry them):
  *   STRIPE_PRO_PRICE_ID          price_…  monthly Pro price
  *   STRIPE_ENTERPRISE_PRICE_ID   price_…  monthly Enterprise price (optional)
  *   PLATFORM_URL                 used to build success/cancel/return URLs
  *
- * Billing is optional infrastructure: when STRIPE_SECRET_KEY is absent the
- * module reports itself unconfigured and the routes return 503 rather than
- * crashing the server. This keeps development and self-hosted deployments
- * working without a Stripe account.
+ * Billing is optional infrastructure: when neither the connector nor env vars
+ * are present the module reports itself unconfigured and routes return 503
+ * rather than crashing the server.
  */
 
 import Stripe from "stripe";
 import type { PlanTier } from "./plans";
 
-let client: Stripe | null = null;
+// ── Credential resolution ─────────────────────────────────────────────────────
 
+interface StripeCredentials {
+  secretKey: string;
+  webhookSecret?: string;
+}
+
+/**
+ * Fetch Stripe credentials from the Replit connector API, falling back to
+ * environment variables for self-hosted deployments.
+ *
+ * Not cached — tokens can rotate, so each call fetches a fresh copy.
+ * The Stripe client itself is cached separately after the first successful
+ * credential fetch.
+ */
+async function getStripeCredentials(): Promise<StripeCredentials> {
+  const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
+  const token = process.env.REPL_IDENTITY
+    ? `repl ${process.env.REPL_IDENTITY}`
+    : process.env.WEB_REPL_RENEWAL
+      ? `depl ${process.env.WEB_REPL_RENEWAL}`
+      : null;
+
+  if (hostname && token) {
+    try {
+      const resp = await fetch(
+        `https://${hostname}/api/v2/connection?include_secrets=true&connector_names=stripe`,
+        {
+          headers: { Accept: "application/json", X_REPLIT_TOKEN: token },
+          signal: AbortSignal.timeout(10_000),
+        },
+      );
+      if (resp.ok) {
+        const data = await resp.json() as any;
+        const settings = data.items?.[0]?.settings;
+        if (settings?.secret_key) {
+          return {
+            secretKey: settings.secret_key,
+            webhookSecret: settings.webhook_secret ?? undefined,
+          };
+        }
+      }
+    } catch {
+      // Connector unavailable — fall through to env var fallback.
+    }
+  }
+
+  // Env var fallback (self-hosted / CI).
+  const secretKey = process.env.STRIPE_SECRET_KEY;
+  if (secretKey) {
+    return { secretKey, webhookSecret: process.env.STRIPE_WEBHOOK_SECRET };
+  }
+
+  throw new Error(
+    "Stripe is not configured. Connect via the Replit Stripe integration or set STRIPE_SECRET_KEY.",
+  );
+}
+
+// ── Client ────────────────────────────────────────────────────────────────────
+
+/**
+ * Whether billing is available.
+ *
+ * Returns true when the Replit connector is present OR when STRIPE_SECRET_KEY
+ * is set in the environment. A false result means the billing routes should
+ * return 503 rather than attempting Stripe API calls.
+ */
 export function stripeConfigured(): boolean {
-  return !!process.env.STRIPE_SECRET_KEY;
+  return !!(
+    process.env.REPLIT_CONNECTORS_HOSTNAME || process.env.STRIPE_SECRET_KEY
+  );
 }
 
-export function getStripe(): Stripe {
-  if (!process.env.STRIPE_SECRET_KEY) {
-    throw new Error("STRIPE_SECRET_KEY is not set — billing is not configured.");
-  }
-  if (!client) {
-    client = new Stripe(process.env.STRIPE_SECRET_KEY, {
-      // Pin so a Stripe-side default bump can't change response shapes.
-      apiVersion: "2025-10-29.clover" as Stripe.LatestApiVersion,
-      typescript: true,
-    });
-  }
-  return client;
+/**
+ * Return an authenticated Stripe client.
+ *
+ * Credentials are fetched fresh on the first call. The client instance is
+ * cached for subsequent calls within the same process lifetime — this is safe
+ * because the Stripe SDK uses the key at construction time, and the connector
+ * provides short-lived tokens that remain valid for the process lifetime.
+ */
+let _client: Stripe | null = null;
+
+export async function getStripe(): Promise<Stripe> {
+  if (_client) return _client;
+  const { secretKey } = await getStripeCredentials();
+  _client = new Stripe(secretKey, {
+    // Pin so a Stripe-side default bump can't change response shapes.
+    apiVersion: "2025-10-29.clover" as Stripe.LatestApiVersion,
+    typescript: true,
+  });
+  return _client;
 }
+
+/** Reset cached client (useful in tests). */
+export function _resetStripeClient() {
+  _client = null;
+}
+
+// ── URL helpers ───────────────────────────────────────────────────────────────
 
 export function platformUrl(): string {
   return (process.env.PLATFORM_URL ?? "http://localhost:5173").replace(/\/$/, "");
 }
+
+// ── Price / tier mapping ──────────────────────────────────────────────────────
 
 /** Stripe price id for a paid tier, or null when not configured. */
 export function priceIdFor(tier: PlanTier): string | null {
@@ -56,6 +145,8 @@ export function tierForPriceId(priceId: string | null | undefined): PlanTier | n
   return null;
 }
 
+// ── Customer management ───────────────────────────────────────────────────────
+
 export interface EnsureCustomerArgs {
   tenantId: string;
   tenantName: string;
@@ -70,7 +161,7 @@ export interface EnsureCustomerArgs {
  * without a database lookup on the customer email.
  */
 export async function ensureCustomer(args: EnsureCustomerArgs): Promise<string> {
-  const stripe = getStripe();
+  const stripe = await getStripe();
 
   if (args.existingCustomerId) {
     try {
@@ -92,6 +183,8 @@ export async function ensureCustomer(args: EnsureCustomerArgs): Promise<string> 
   return customer.id;
 }
 
+// ── Checkout / portal ─────────────────────────────────────────────────────────
+
 export interface CheckoutArgs {
   customerId: string;
   priceId: string;
@@ -102,7 +195,7 @@ export interface CheckoutArgs {
 
 /** Create a Checkout session and return its hosted URL. */
 export async function createCheckoutSession(args: CheckoutArgs): Promise<string> {
-  const stripe = getStripe();
+  const stripe = await getStripe();
   const base = platformUrl();
 
   const session = await stripe.checkout.sessions.create({
@@ -128,7 +221,7 @@ export async function createCheckoutSession(args: CheckoutArgs): Promise<string>
 
 /** Create a Billing Portal session and return its hosted URL. */
 export async function createPortalSession(customerId: string): Promise<string> {
-  const stripe = getStripe();
+  const stripe = await getStripe();
   const session = await stripe.billingPortal.sessions.create({
     customer: customerId,
     return_url: `${platformUrl()}/settings?tab=plan`,
@@ -138,7 +231,7 @@ export async function createPortalSession(customerId: string): Promise<string> {
 
 /** Cancel a subscription immediately — used when a tenant is purged. */
 export async function cancelSubscription(subscriptionId: string): Promise<void> {
-  const stripe = getStripe();
+  const stripe = await getStripe();
   try {
     await stripe.subscriptions.cancel(subscriptionId);
   } catch (err: any) {
@@ -147,12 +240,47 @@ export async function cancelSubscription(subscriptionId: string): Promise<void> 
   }
 }
 
-/** Verify and parse a webhook payload. Throws if the signature is invalid. */
-export function constructWebhookEvent(rawBody: Buffer, signature: string): Stripe.Event {
-  const secret = process.env.STRIPE_WEBHOOK_SECRET;
-  if (!secret) throw new Error("STRIPE_WEBHOOK_SECRET is not set");
-  return getStripe().webhooks.constructEvent(rawBody, signature, secret);
+// ── Webhook ───────────────────────────────────────────────────────────────────
+
+/**
+ * Verify and parse a webhook payload.
+ *
+ * The webhook secret is fetched from the Replit connector when available, with
+ * a fallback to the STRIPE_WEBHOOK_SECRET environment variable. Throws when the
+ * signature is invalid or the secret is not configured.
+ */
+export async function constructWebhookEvent(
+  rawBody: Buffer,
+  signature: string,
+): Promise<Stripe.Event> {
+  let webhookSecret: string | undefined;
+
+  try {
+    const creds = await getStripeCredentials();
+    webhookSecret = creds.webhookSecret;
+  } catch {
+    // getStripeCredentials throws when completely unconfigured; let the guard
+    // below produce the clearer "not set" error message.
+  }
+
+  // Fallback: explicit env var always wins if set, handles cases where the
+  // connector provides the secret key but a separate webhook endpoint uses a
+  // different signing secret.
+  if (process.env.STRIPE_WEBHOOK_SECRET) {
+    webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  }
+
+  if (!webhookSecret) {
+    throw new Error(
+      "STRIPE_WEBHOOK_SECRET is not set. Configure it in the Stripe dashboard or set the env var.",
+    );
+  }
+
+  const stripe = await getStripe();
+  return stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
 }
+
+// ── Utilities ─────────────────────────────────────────────────────────────────
 
 /** Monthly amount in KES for a subscription, derived from its first item. */
 export function monthlyAmountKes(subscription: Stripe.Subscription): number {

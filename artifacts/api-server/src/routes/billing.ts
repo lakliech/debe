@@ -12,7 +12,13 @@
 import { Router } from "express";
 import { sendRouteError } from "../lib/routeError";
 import { getAuth } from "@clerk/express";
-import { db, tenantsTable, brandingTable, processedWebhookEventsTable } from "@workspace/db";
+import {
+  db,
+  tenantsTable,
+  usersTable,
+  brandingTable,
+  processedWebhookEventsTable,
+} from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireLevel } from "../middlewares/rbac";
 import { logger } from "../lib/logger";
@@ -172,7 +178,20 @@ router.post("/checkout", requireAuth, requireLevel(1), async (req: any, res: any
       .limit(1);
     if (!tenant) return res.status(404).json({ error: "Campaign not found" });
 
-    const email = billingEmail || tenant.billingEmail;
+    // Billing email precedence: what the admin typed → what the campaign has
+    // on file → the signed-in admin's own address. The last fallback is what
+    // makes a one-click "Upgrade to Pro" from a banner possible: Stripe needs
+    // a customer email, and stopping to ask for one the platform already knows
+    // turns a single click into a form.
+    let email = billingEmail || tenant.billingEmail;
+    if (!email) {
+      const [me] = await db
+        .select({ email: usersTable.email })
+        .from(usersTable)
+        .where(eq(usersTable.clerkId, req.clerkId))
+        .limit(1);
+      email = me?.email ?? null;
+    }
     if (!email) {
       return res.status(400).json({ error: "billingEmail is required" });
     }
@@ -304,7 +323,7 @@ export async function stripeWebhookHandler(req: any, res: any) {
 
   let event: any;
   try {
-    event = constructWebhookEvent(req.body, signature as string);
+    event = await constructWebhookEvent(req.body, signature as string);
   } catch (err: any) {
     logger.warn({ err: err.message }, "[billing] webhook signature verification failed");
     return res.status(400).send(`Webhook Error: ${err.message}`);

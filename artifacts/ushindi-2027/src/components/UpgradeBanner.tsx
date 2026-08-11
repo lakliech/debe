@@ -12,8 +12,9 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { ArrowUpRight, TrendingUp, X } from "lucide-react";
+import { ArrowUpRight, Loader2, TrendingUp, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useCheckout } from "@/hooks/useCheckout";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -37,6 +38,7 @@ function dismissKey(usage: PlanUsage, atCap: boolean): string {
 
 export default function UpgradeBanner() {
   const [dismissed, setDismissed] = useState(false);
+  const { canPurchase, startCheckout, isPending } = useCheckout();
 
   const { data } = useQuery<PlanUsage>({
     queryKey: ["/api/billing/usage"],
@@ -88,13 +90,37 @@ export default function UpgradeBanner() {
         </p>
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        <Link
-          href="/pricing"
-          className="inline-flex items-center gap-1 text-xs font-black uppercase tracking-wider hover:underline"
-          data-testid="link-upgrade-plan"
-        >
-          See plans <ArrowUpRight className="h-3.5 w-3.5" />
-        </Link>
+        {canPurchase ? (
+          // Straight to Stripe Checkout — the campaign is being told it is out
+          // of agents, so anything between the warning and paying for headroom
+          // is a step too many.
+          <button
+            onClick={() => startCheckout("pro")}
+            disabled={isPending}
+            className="inline-flex items-center gap-1 text-xs font-black uppercase tracking-wider hover:underline disabled:opacity-50"
+            data-testid="button-upgrade-plan"
+          >
+            {isPending ? (
+              <>
+                Opening checkout <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              </>
+            ) : (
+              <>
+                Upgrade to Pro <ArrowUpRight className="h-3.5 w-3.5" />
+              </>
+            )}
+          </button>
+        ) : (
+          // Not an admin, or this deployment has no Stripe configured — send
+          // them somewhere that explains the plans instead of a dead button.
+          <Link
+            href="/pricing"
+            className="inline-flex items-center gap-1 text-xs font-black uppercase tracking-wider hover:underline"
+            data-testid="link-upgrade-plan"
+          >
+            See plans <ArrowUpRight className="h-3.5 w-3.5" />
+          </Link>
+        )}
         <button
           onClick={handleDismiss}
           className="p-1 rounded-sm hover:bg-black/5 transition-colors"
