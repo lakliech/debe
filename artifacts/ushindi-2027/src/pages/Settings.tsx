@@ -101,9 +101,9 @@ interface OverviewData {
 
 interface PlanDetail {
   tier: string;
-  name: string;
-  priceKes: number;
-  billingPeriod: string;
+  label: string;
+  priceMonthlyKes: number;
+  description: string;
   maxAgents: number | null;
   maxStations: number | null;
   features: string[];
@@ -364,10 +364,11 @@ function PlanTab({ overview }: { overview: OverviewData }) {
                       </div>
                     )}
                     <CardHeader className="pb-3">
-                      <CardTitle className="text-base">{p.name}</CardTitle>
+                      <CardTitle className="text-base">{p.label}</CardTitle>
+                      <CardDescription className="text-xs">{p.description}</CardDescription>
                       <div className="text-2xl font-black">
-                        KES {p.priceKes.toLocaleString()}
-                        <span className="text-sm font-normal text-muted-foreground">/{p.billingPeriod}</span>
+                        KES {(p.priceMonthlyKes ?? 0).toLocaleString()}
+                        <span className="text-sm font-normal text-muted-foreground">/month</span>
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-3">
