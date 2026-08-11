@@ -30,6 +30,12 @@ interface TenantRow {
   name: string;
   slug: string;
   plan: string;
+  /** Tier in force today — a lapsed grant or trial reads back as "free". */
+  effectivePlan?: PlanTier;
+  /** True while an unpaid override (a trial) is what grants the plan. */
+  isTrial?: boolean;
+  trialDaysLeft?: number | null;
+  planOverrideUntil?: string | null;
   /** Stripe subscription state, or null for a campaign that never subscribed. */
   subscriptionStatus: string | null;
   isSuspended: boolean;
@@ -88,11 +94,7 @@ interface TenantEmailLog {
 }
 
 interface TenantDetail extends TenantRow {
-  /** Tier actually in force today — a lapsed grant reads back as "free". */
-  effectivePlan?: PlanTier;
   effectivePlanLabel?: string;
-  isTrial?: boolean;
-  planOverrideUntil?: string | null;
   branding: {
     campaignName: string;
     candidateName: string;
@@ -257,19 +259,28 @@ function PlanPanel({
   detail,
   onChange,
   pending,
+  onExtendTrial,
+  extending,
 }: {
   detail: TenantDetail;
   onChange: (plan: PlanTier, months?: number) => void;
   pending: boolean;
+  onExtendTrial: (days: number) => void;
+  extending: boolean;
 }) {
   const stored = (detail.plan ?? "free") as PlanTier;
   const [plan, setPlan] = useState<PlanTier>(stored);
   const [months, setMonths] = useState("12");
+  const [trialDays, setTrialDays] = useState("7");
 
   const selected = PLAN_TIERS.find((p) => p.value === plan) ?? PLAN_TIERS[0];
   const dirty = plan !== stored;
   const effective = detail.effectivePlan ?? stored;
   const lapsed = effective !== stored;
+  // A Stripe subscription — including one in its own Stripe trial — grants the
+  // plan on its own, so the override this panel writes would be inert.
+  const paying =
+    detail.subscriptionStatus === "active" || detail.subscriptionStatus === "trialing";
 
   return (
     <div className="rounded-sm border border-border p-4 space-y-3">
@@ -336,6 +347,54 @@ function PlanPanel({
         {pending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
         {plan === "free" ? "Move to Free" : `Grant ${selected.label}`}
       </Button>
+
+      {/*
+        Extending a trial is a different act from granting a plan: it is days,
+        not months, and it keeps the campaign in the trial funnel instead of
+        recording them as comped. Granting Pro "for a month" to buy someone a
+        few extra days is what this exists to stop.
+      */}
+      <div className="pt-3 border-t border-border space-y-2">
+        <p className="text-[10px] font-black tracking-widest text-muted-foreground uppercase">Trial</p>
+        {paying ? (
+          <p className="text-xs text-muted-foreground">
+            This campaign pays through Stripe ({detail.subscriptionStatus}), so its access is
+            governed there — there is no trial to extend.
+          </p>
+        ) : (
+          <>
+            <p className="text-xs text-muted-foreground">
+              {detail.isTrial && detail.trialDaysLeft != null
+                ? `On trial with ${detail.trialDaysLeft} day${detail.trialDaysLeft === 1 ? "" : "s"} left — extra days are added on top.`
+                : "No trial running. Extending starts a fresh Pro trial from today."}
+            </p>
+            <div className="flex items-end gap-2">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold">Extra days</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={90}
+                  value={trialDays}
+                  onChange={(e) => setTrialDays(e.target.value)}
+                  className="w-28"
+                  data-testid="input-extend-trial-days"
+                />
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={extending || !(Number(trialDays) >= 1 && Number(trialDays) <= 90)}
+                onClick={() => onExtendTrial(Number(trialDays))}
+                data-testid="button-extend-trial"
+              >
+                {extending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                Extend trial
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -459,6 +518,21 @@ function TenantDetail({ tenant, onClose }: { tenant: TenantRow; onClose: () => v
     onError: (err: any) => toast({ title: "Plan change failed", description: err.message, variant: "destructive" }),
   });
 
+  const trialMutation = useMutation({
+    mutationFn: (days: number) =>
+      apiFetch(`/tenants/${tenant.id}/trial`, {
+        method: "PATCH",
+        body: JSON.stringify({ days }),
+      }),
+    onSuccess: (data: any) => {
+      qc.invalidateQueries({ queryKey: ["platform-tenants"] });
+      qc.invalidateQueries({ queryKey: ["platform-tenant-detail", tenant.id] });
+      toast({ title: "Trial extended", description: data?.message });
+    },
+    onError: (err: any) =>
+      toast({ title: "Could not extend trial", description: err.message, variant: "destructive" }),
+  });
+
   const inviteMutation = useMutation({
     mutationFn: () =>
       apiFetch(`/tenants/${tenant.id}/invite`, {
@@ -556,7 +630,13 @@ function TenantDetail({ tenant, onClose }: { tenant: TenantRow; onClose: () => v
         )}
 
         {/* Plan */}
-        <PlanPanel detail={d} onChange={(plan, months) => planMutation.mutate({ plan, months })} pending={planMutation.isPending} />
+        <PlanPanel
+          detail={d}
+          onChange={(plan, months) => planMutation.mutate({ plan, months })}
+          pending={planMutation.isPending}
+          onExtendTrial={(days) => trialMutation.mutate(days)}
+          extending={trialMutation.isPending}
+        />
 
         {/* Suspend toggle */}
         <div className="rounded-sm border border-border p-4 space-y-2">
@@ -743,7 +823,28 @@ export default function PlatformAdmin() {
                   </td>
                   <td className="px-4 py-3 font-mono text-xs text-muted-foreground hidden sm:table-cell">{t.slug}</td>
                   <td className="px-4 py-3 hidden md:table-cell">
-                    <Badge variant="outline" className="font-mono text-xs capitalize">{t.plan}</Badge>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <Badge variant="outline" className="font-mono text-xs capitalize">{t.plan}</Badge>
+                      {/*
+                        Stored plan and paid plan look identical in this column,
+                        so a fortnight-old signup reads as a customer. The badge
+                        is the difference between a renewal and a sales call.
+                      */}
+                      {t.isTrial && (
+                        <Badge
+                          variant="outline"
+                          className="border-primary text-primary text-[10px] font-black uppercase tracking-wider"
+                          title={
+                            t.trialDaysLeft != null
+                              ? `Trial ends in ${t.trialDaysLeft} day${t.trialDaysLeft === 1 ? "" : "s"}`
+                              : "On trial"
+                          }
+                          data-testid={`badge-trial-${t.slug}`}
+                        >
+                          Trial{t.trialDaysLeft != null ? ` · ${t.trialDaysLeft}d` : ""}
+                        </Badge>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3 hidden md:table-cell">
                     <SubscriptionBadge status={t.subscriptionStatus} />

@@ -137,13 +137,14 @@ function requireAuth(req: any, res: any, next: any) {
 
 // ── Shared: all-tenant query with user counts ─────────────────────────────────
 async function listTenantsWithCounts() {
-  return db
+  const rows = await db
     .select({
       id: tenantsTable.id,
       clerkOrgId: tenantsTable.clerkOrgId,
       name: tenantsTable.name,
       slug: tenantsTable.slug,
       plan: tenantsTable.plan,
+      planOverrideUntil: tenantsTable.planOverrideUntil,
       // Subscription health belongs in the list, not just the detail sheet:
       // "who is past due?" is a scan-the-column question, and making an
       // operator open every campaign to answer it means it never gets asked.
@@ -162,6 +163,7 @@ async function listTenantsWithCounts() {
       tenantsTable.name,
       tenantsTable.slug,
       tenantsTable.plan,
+      tenantsTable.planOverrideUntil,
       tenantsTable.stripeSubscriptionStatus,
       tenantsTable.isSuspended,
       tenantsTable.customDomain,
@@ -169,6 +171,24 @@ async function listTenantsWithCounts() {
       tenantsTable.createdAt,
     )
     .orderBy(tenantsTable.createdAt);
+
+  // The stored plan alone cannot tell a trial from a paid subscription, so a
+  // list built on it shows a fortnight-old signup and a paying customer
+  // identically. Resolve the effective plan per row so "who is on trial, and
+  // for how much longer?" is answerable without opening every campaign.
+  return rows.map((r) => {
+    const effective = getEffectivePlan({
+      plan: r.plan,
+      planOverrideUntil: r.planOverrideUntil,
+      stripeSubscriptionStatus: r.subscriptionStatus,
+    });
+    return {
+      ...r,
+      effectivePlan: effective.plan,
+      isTrial: effective.isTrial,
+      trialDaysLeft: effective.trialDaysLeft,
+    };
+  });
 }
 
 // ── GET /api/platform/tenants ─────────────────────────────────────────────────

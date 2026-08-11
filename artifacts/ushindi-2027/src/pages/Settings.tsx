@@ -240,7 +240,24 @@ function PlanTab({ overview }: { overview: OverviewData }) {
         <CardContent className="space-y-4">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-2xl font-black">{plan.label}</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-2xl font-black">{plan.label}</p>
+                {/*
+                  On a trial the plan name alone is misleading — it reads as
+                  "you are on Pro" when the entitlement is borrowed and about
+                  to lapse. The badge is what makes the countdown below make
+                  sense at a glance.
+                */}
+                {plan.isTrial && (
+                  <Badge
+                    variant="outline"
+                    className="border-amber-500 text-amber-600 text-[10px] font-black uppercase tracking-widest"
+                    data-testid="badge-trial"
+                  >
+                    Trial
+                  </Badge>
+                )}
+              </div>
               {plan.isTrial && plan.trialDaysLeft !== null && (
                 <p className="text-sm text-amber-600 font-semibold mt-1 flex items-center gap-1.5">
                   <Clock className="h-4 w-4" />

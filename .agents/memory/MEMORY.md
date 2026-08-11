@@ -2,6 +2,7 @@
 
 - [Effective plan vs stored plan](saas-plan-resolution.md) — never trust `tenants.plan`; trials and manual grants ride on an override expiry, so one resolver is the only truth.
 - [Plan gates must fail loud](plan-gate-failure-modes.md) — a capacity check that swallows its own error reads as unlimited; test the 402, not just the happy path.
+- [Manual trial extension rules](trial-extension-rules.md) — extend from the later of now/expiry, refuse when Stripe governs the plan, restore the tier, bound the days.
 - [Stripe webhook body parsing](stripe-webhook-raw-body.md) — the webhook route must be mounted before the global JSON parser or every signature check fails.
 - [Tenant deletion is two-phase](tenant-deletion-two-phase.md) — schedule then purge, and detach external systems before the DB row that records them.
 - [Service worker masks dev changes](vite-service-worker-stale-bundle.md) — a cached bundle can survive HMR; rule out staleness before debugging the code.

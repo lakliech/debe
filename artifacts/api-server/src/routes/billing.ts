@@ -196,12 +196,17 @@ router.post("/checkout", requireAuth, requireLevel(1), async (req: any, res: any
       return res.status(400).json({ error: "billingEmail is required" });
     }
 
+    // Resolved before the customer is created so the trial can be recorded on
+    // the customer itself, and reused below for the checkout trial window.
+    const effective = getEffectivePlan(tenant);
+
     const customerId = await ensureCustomer({
       tenantId: tenant.id,
       tenantName: tenant.name,
       tenantSlug: tenant.slug,
       email,
       existingCustomerId: tenant.stripeCustomerId,
+      trialEndsAt: effective.isTrial ? effective.trialEndsAt : null,
     });
 
     // Persist the customer id and billing email so we don't recreate them.
@@ -213,7 +218,6 @@ router.post("/checkout", requireAuth, requireLevel(1), async (req: any, res: any
     }
 
     // Honour any trial time still remaining so upgrading early isn't penalised.
-    const effective = getEffectivePlan(tenant);
     const trialDaysRemaining = effective.isTrial ? effective.trialDaysLeft : null;
 
     const url = await createCheckoutSession({

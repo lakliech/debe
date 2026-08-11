@@ -29,6 +29,11 @@ const billingTenantsQuerySchema = z.object({
 const billingEmailsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
+// A trial extension is measured in days, not months: the cap keeps "extend the
+// trial" from quietly becoming an unbounded free plan.
+const extendTrialSchema = z.object({
+  days: z.coerce.number().int().min(1).max(90),
+});
 
 function requireAuth(req: any, res: any, next: any) {
   const auth = getAuth(req);
@@ -320,6 +325,104 @@ router.patch("/tenants/:id/plan", requireAuth, requireLevel(0), async (req: any,
         plan === "free"
           ? "Campaign moved to the Free plan."
           : `Granted ${PLANS[plan].label} until ${new Date(patch.planOverrideUntil as Date).toLocaleDateString("en-KE")}.`,
+    });
+  } catch (err: any) {
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// ── PATCH /api/platform/tenants/:id/trial ────────────────────────────────────
+// Extend a Pro trial. Sales asks for this constantly ("they lost a week to the
+// IEBC roll") and the alternative — granting a plan by the month — overshoots
+// by weeks and reads as a comp rather than a trial in every billing view.
+router.patch("/tenants/:id/trial", requireAuth, requireLevel(0), async (req: any, res: any) => {
+  try {
+    const { id } = req.params;
+    const body = validate(extendTrialSchema, req.body, res);
+    if (!body) return;
+
+    const [tenant] = await db
+      .select({
+        id: tenantsTable.id,
+        name: tenantsTable.name,
+        slug: tenantsTable.slug,
+        plan: tenantsTable.plan,
+        planOverrideUntil: tenantsTable.planOverrideUntil,
+        stripeSubscriptionStatus: tenantsTable.stripeSubscriptionStatus,
+      })
+      .from(tenantsTable)
+      .where(eq(tenantsTable.id, id))
+      .limit(1);
+
+    if (!tenant) return res.status(404).json({ error: "Campaign not found" });
+
+    const effective = getEffectivePlan(tenant);
+
+    // A paying campaign's access comes from Stripe, not from the override, so
+    // writing a new expiry here would change nothing while looking like it had.
+    // Refuse loudly instead of silently no-opping.
+    if (effective.hasActiveSubscription) {
+      return res.status(409).json({
+        error:
+          `This campaign has a Stripe subscription (${tenant.stripeSubscriptionStatus}). ` +
+          `Its access is governed by Stripe, not by a trial — change the subscription there instead.`,
+      });
+    }
+
+    // Extend from whichever is later: an unexpired trial keeps the days it has
+    // left (extending from "now" would quietly shorten it), while a trial that
+    // already lapsed restarts from today.
+    const now = Date.now();
+    const currentEnd = tenant.planOverrideUntil
+      ? new Date(tenant.planOverrideUntil).getTime()
+      : 0;
+    const base = currentEnd > now ? currentEnd : now;
+    const trialEndsAt = new Date(base + body.days * 86_400_000);
+
+    // A campaign whose trial already expired was downgraded to Free by the
+    // cron, so extending has to put the trial tier back — an override alone
+    // would just extend Free.
+    const plan: PlanTier = isPlanTier(tenant.plan) && tenant.plan !== "free" ? tenant.plan : "pro";
+
+    let updated: any;
+    await db.transaction(async (tx) => {
+      [updated] = await tx
+        .update(tenantsTable)
+        .set({ plan, planOverrideUntil: trialEndsAt, trialUsed: true })
+        .where(eq(tenantsTable.id, id))
+        .returning();
+
+      if (!updated) return; // nothing written — falls through to the 404
+
+      await recordPlatformAction(
+        req,
+        {
+          action: "platform.tenant.trial-extend",
+          resource: "tenant",
+          tenantId: id,
+          resourceId: id,
+          details: {
+            slug: updated.slug,
+            name: updated.name,
+            days: body.days,
+            plan,
+            previousTrialEndsAt: tenant.planOverrideUntil
+              ? new Date(tenant.planOverrideUntil).toISOString()
+              : null,
+            trialEndsAt: trialEndsAt.toISOString(),
+          },
+        },
+        tx,
+      );
+    });
+
+    if (!updated) return res.status(404).json({ error: "Campaign not found" });
+
+    res.json({
+      tenant: updated,
+      trialEndsAt: trialEndsAt.toISOString(),
+      message: `Trial extended by ${body.days} day${body.days === 1 ? "" : "s"} — ${PLANS[plan].label} now runs until ${trialEndsAt.toLocaleDateString("en-KE")}.`,
     });
   } catch (err: any) {
     logger.error({ err }, "request failed");

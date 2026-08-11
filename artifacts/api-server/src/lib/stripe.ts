@@ -153,12 +153,19 @@ export interface EnsureCustomerArgs {
   tenantSlug: string;
   email: string;
   existingCustomerId?: string | null;
+  /** Trial expiry at the moment the customer is created, when one is running. */
+  trialEndsAt?: Date | null;
 }
 
 /**
  * Return an existing Stripe customer id, or create one for this tenant.
  * The tenant id is stored in customer metadata so webhooks can map back
  * without a database lookup on the customer email.
+ *
+ * A customer created while the campaign is still on its platform trial is
+ * tagged as such: in the Stripe dashboard a trial conversion and a cold
+ * signup otherwise look identical, and that difference is the whole question
+ * anyone asks of this data.
  */
 export async function ensureCustomer(args: EnsureCustomerArgs): Promise<string> {
   const stripe = await getStripe();
@@ -178,6 +185,12 @@ export async function ensureCustomer(args: EnsureCustomerArgs): Promise<string> 
     metadata: {
       tenant_id: args.tenantId,
       tenant_slug: args.tenantSlug,
+      ...(args.trialEndsAt
+        ? {
+            signup_state: "trialing",
+            trial_ends_at: args.trialEndsAt.toISOString(),
+          }
+        : {}),
     },
   });
   return customer.id;
