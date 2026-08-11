@@ -25,8 +25,9 @@ vi.mock("wouter", () => ({
 }));
 
 // Submissions query returns a configurable payload so pagination can be tested.
-// Elections query always returns an empty list — not relevant to these tests.
+// Elections query is also configurable so tests can supply a real election to select.
 let _mockSubmissionsData: unknown = undefined;
+let _mockElectionsData: unknown = [];
 
 vi.mock("@tanstack/react-query", () => ({
   useQuery: ({ queryKey }: { queryKey: unknown[] }) => {
@@ -34,7 +35,7 @@ vi.mock("@tanstack/react-query", () => ({
       return { data: _mockSubmissionsData, isLoading: false };
     }
     // elections-list query
-    return { data: [], isLoading: false };
+    return { data: _mockElectionsData, isLoading: false };
   },
 }));
 
@@ -75,6 +76,7 @@ const PAGINATED_PAYLOAD = {
 
 beforeEach(() => {
   _mockSubmissionsData = undefined;
+  _mockElectionsData = [];
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -296,5 +298,151 @@ describe("ResultSubmissions — page resets to 1 when filter panel is hidden", (
 
     // Page should remain at 2
     expect(screen.getByText(/page 2 of 5/i)).toBeInTheDocument();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 4. statusFilter, search, and electionId are NOT reset on election level change
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe("ResultSubmissions — statusFilter, search, and electionId preserved on election level change", () => {
+  /**
+   * search is a plain <input>; it can be changed with fireEvent.change and read
+   * back via input.value — no Radix machinery involved.
+   */
+  it("preserves the search term when switching from Presidential to MCA", () => {
+    const { rerender } = render(
+      <BrandingContext.Provider value={makeCtx("Presidential")}>
+        <ResultSubmissions />
+      </BrandingContext.Provider>
+    );
+
+    const searchInput = screen.getByPlaceholderText(/search by station code/i) as HTMLInputElement;
+    fireEvent.change(searchInput, { target: { value: "STATION-001" } });
+    expect(searchInput.value).toBe("STATION-001");
+
+    rerender(
+      <BrandingContext.Provider value={makeCtx("MCA")}>
+        <ResultSubmissions />
+      </BrandingContext.Provider>
+    );
+
+    // The election-level change must NOT reset the search field.
+    expect(searchInput.value).toBe("STATION-001");
+  });
+
+  /**
+   * statusFilter is managed via a Radix Select.  We open the dropdown via a
+   * pointerDown on the trigger (the event Radix listens to), pick "submitted",
+   * then rerender with a different election level and assert the chosen value
+   * survives — confirming no reset effect is wired to this state field.
+   */
+  it("preserves statusFilter when switching from Presidential to MCA", () => {
+    const { rerender } = render(
+      <BrandingContext.Provider value={makeCtx("Presidential")}>
+        <ResultSubmissions />
+      </BrandingContext.Provider>
+    );
+
+    // Locate the status Select trigger by its visible text content.
+    // (Radix 2.x renders role="combobox" but accessible-name computation is env-dependent;
+    //  text-content lookup is reliable across test environments.)
+    const statusTrigger = screen.getByText(/all statuses/i).closest("button")!;
+
+    // Open the Radix Select dropdown.
+    // Radix 2.x checks: button === 0 && ctrlKey === false && pointerType === "mouse"
+    fireEvent.pointerDown(statusTrigger, { button: 0, ctrlKey: false, pointerType: "mouse" });
+
+    // The listbox content is portalled to document.body — find the option there.
+    const submittedOption = screen.getByText(/^submitted$/i);
+    fireEvent.click(submittedOption);
+
+    // Trigger must now show the selected value, not the placeholder.
+    expect(screen.getByText(/^submitted$/i)).toBeInTheDocument();
+    expect(screen.queryByText(/all statuses/i)).not.toBeInTheDocument();
+
+    // Change election level — no reset effect should touch statusFilter.
+    rerender(
+      <BrandingContext.Provider value={makeCtx("MCA")}>
+        <ResultSubmissions />
+      </BrandingContext.Provider>
+    );
+
+    // "submitted" must still be shown — not reverted to "all".
+    expect(screen.getByText(/^submitted$/i)).toBeInTheDocument();
+    expect(screen.queryByText(/all statuses/i)).not.toBeInTheDocument();
+  });
+
+  /**
+   * electionId has no reset logic tied to election level.  We supply a real
+   * election via the mock, select it, then change the election level and
+   * confirm the chosen election persists — proving no accidental reset runs.
+   */
+  it("preserves a selected electionId when switching from Presidential to MCA", () => {
+    // Provide one election so there is a non-default option available.
+    _mockElectionsData = [{ id: "election-abc", electionType: "Presidential", year: 2027 }];
+
+    const { rerender } = render(
+      <BrandingContext.Provider value={makeCtx("Presidential")}>
+        <ResultSubmissions />
+      </BrandingContext.Provider>
+    );
+
+    // Locate the election Select trigger by its visible placeholder text.
+    const electionTrigger = screen.getByText(/all elections/i).closest("button")!;
+
+    // Open the dropdown via pointerDown.
+    // Radix 2.x checks: button === 0 && ctrlKey === false && pointerType === "mouse"
+    fireEvent.pointerDown(electionTrigger, { button: 0, ctrlKey: false, pointerType: "mouse" });
+
+    // Select "Presidential 2027" from the portalled listbox.
+    const electionOption = screen.getByText(/presidential 2027/i);
+    fireEvent.click(electionOption);
+
+    // The trigger must now show the selected election, not the placeholder.
+    expect(screen.getByText(/presidential 2027/i)).toBeInTheDocument();
+    expect(screen.queryByText(/all elections/i)).not.toBeInTheDocument();
+
+    // Change election level — electionId has no reset effect wired.
+    rerender(
+      <BrandingContext.Provider value={makeCtx("MCA")}>
+        <ResultSubmissions />
+      </BrandingContext.Provider>
+    );
+
+    // The selected election must persist across the branding-context update.
+    expect(screen.getByText(/presidential 2027/i)).toBeInTheDocument();
+    expect(screen.queryByText(/all elections/i)).not.toBeInTheDocument();
+  });
+
+  /**
+   * Branding can update mid-session (e.g. campaign admin edits campaign name).
+   * A branding context update must not clear the search input even when the
+   * election level itself stays the same.
+   */
+  it("search input retains its value after a branding context update", () => {
+    const { rerender } = render(
+      <BrandingContext.Provider value={makeCtx("Presidential")}>
+        <ResultSubmissions />
+      </BrandingContext.Provider>
+    );
+
+    const searchInput = screen.getByPlaceholderText(/search by station code/i) as HTMLInputElement;
+    fireEvent.change(searchInput, { target: { value: "NAIROBI-001" } });
+    expect(searchInput.value).toBe("NAIROBI-001");
+
+    // Simulate a branding refresh — same election level, but campaign name changed.
+    const updatedBranding: BrandingData = {
+      ...makeBranding("Presidential"),
+      campaignName: "Updated Campaign Name",
+    };
+    rerender(
+      <BrandingContext.Provider value={{ branding: updatedBranding, isLoading: false, isSuspended: false, isTenant: true }}>
+        <ResultSubmissions />
+      </BrandingContext.Provider>
+    );
+
+    // The search value must survive the branding refresh.
+    expect(searchInput.value).toBe("NAIROBI-001");
   });
 });
