@@ -49,6 +49,7 @@ import platformLifecycleRouter from "./platformLifecycle";
 import platformBillingRouter from "./platformBilling";
 import maintenanceRouter from "./maintenance";
 import enquiriesRouter from "./enquiries";
+import enrollmentsRouter from "./enrollments";
 import adminCleanupRouter from "./adminCleanup";
 import registerRouter from "./register";
 import billingRouter from "./billing";
@@ -158,6 +159,9 @@ router.use("/platform/maintenance", maintenanceRouter);
 
 // Platform enquiry form — public, unauthenticated, no tenant context.
 router.use("/enquiries", enquiriesRouter);
+// Enrollment (onboarding) — applicants have no tenant context yet, so resolve
+// optionally and let coordinator endpoints assert their own tenant.
+router.use("/enrollments", resolveTenantOptional, enrollmentsRouter);
 
 // One-shot admin cleanup endpoint — no tenant middleware needed.
 // Guarded by ADMIN_CLEANUP_SECRET env var; disable by removing that var after use.

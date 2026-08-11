@@ -127,6 +127,8 @@ import PrivilegedAccessPage from "./pages/admin/PrivilegedAccess";
 import AgentResultFormPage from "./pages/agent/AgentResultForm";
 import AgentLogisticsPage from "./pages/agent/AgentLogistics";
 import LogisticsCommandCenter from "./pages/admin/LogisticsCommandCenter";
+import OnboardingPage from "./pages/Onboarding";
+import EnrollmentsPage from "./pages/admin/Enrollments";
 
 const clerkPubKey = publishableKeyFromHost(
   window.location.hostname,
@@ -202,13 +204,15 @@ function ClerkQueryClientCacheInvalidator() {
  * enter a campaign. Everyone else goes to their campaign dashboard.
  */
 function SignedInHome() {
-  const { isLoaded, isPlatformOperator, activeTenant } = useIdentity();
+  const { isLoaded, isPlatformOperator, activeTenant, campaigns } = useIdentity();
 
   // Wait for the answer rather than bouncing the operator through the campaign
   // dashboard first — a visible wrong redirect is worse than a brief blank.
   if (!isLoaded) return null;
 
   if (isPlatformOperator && !activeTenant) return <Redirect to="/platform-admin" />;
+  // No campaign membership → onboarding journey, never an empty dashboard.
+  if (campaigns.length === 0) return <Redirect to="/onboarding" />;
   return <Redirect to="/dashboard" />;
 }
 
@@ -516,6 +520,9 @@ function BrandingAwareClerkProvider() {
           <Route path="/command-center">
             <ProtectedRoute component={LogisticsCommandCenter} />
           </Route>
+          <Route path="/enrollments">
+            <ProtectedRoute component={EnrollmentsPage} />
+          </Route>
           <Route path="/pvt/report/:stationId">
             <ProtectedRoute component={PVTQuickReportForm} />
           </Route>
@@ -579,6 +586,11 @@ function BrandingAwareClerkProvider() {
           {/* ── Agent PWA — standalone, no AppLayout ── */}
           <Route path="/agent/results" component={AgentResultFormPage} />
           <Route path="/agent/field" component={AgentLogisticsPage} />
+          {/* New-user onboarding — standalone, no AppLayout (no campaign yet) */}
+          <Route path="/onboarding">
+            <Show when="signed-in"><OnboardingPage /></Show>
+            <Show when="signed-out"><Redirect to="/sign-in" /></Show>
+          </Route>
 
           <Route component={NotFound} />
         </Switch>

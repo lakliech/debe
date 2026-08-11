@@ -49,6 +49,7 @@ function RootLayoutNav() {
       <Stack.Screen name="index" />
       <Stack.Screen name="(auth)" />
       <Stack.Screen name="(home)" />
+      <Stack.Screen name="onboarding" />
       <Stack.Screen name="+not-found" />
     </Stack>
   );

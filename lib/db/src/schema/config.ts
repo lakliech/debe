@@ -7,9 +7,11 @@ import {
   uuid,
   doublePrecision,
   unique,
+  uniqueIndex,
   index,
   jsonb,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { tenantsTable } from "./core";
@@ -153,6 +155,34 @@ export const supportersTable = pgTable("supporters", {
 export type Supporter = typeof supportersTable.$inferSelect;
 
 // ── Polling Agents ────────────────────────────────────────────────────────────
+// ── Enrollment applications (new-user onboarding) ───────────────────────────
+// A signed-up user with no campaign membership applies to join a campaign as a
+// volunteer or polling agent. Stays pending until a coordinator approves; on
+// approval the API assigns the role and creates the linked person record.
+export const enrollmentsTable = pgTable("enrollments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenantsTable.id, { onDelete: "cascade" }),
+  clerkUserId: text("clerk_user_id").notNull(), // applicant's Clerk id (users row may not exist yet)
+  email: text("email").notNull(),
+  intendedRole: text("intended_role").notNull(), // volunteer | polling-agent
+  fullName: text("full_name").notNull(),
+  phoneNumber: text("phone_number").notNull(),
+  nationalId: text("national_id"), // required for polling-agent applications
+  countyId: uuid("county_id"),
+  constituencyId: uuid("constituency_id"),
+  wardId: uuid("ward_id"),
+  preferredStationId: uuid("preferred_station_id"),
+  status: text("status").notNull().default("pending"), // pending | approved | rejected
+  reviewReason: text("review_reason"),
+  reviewedBy: text("reviewed_by"),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("enrollments_tenant_status_idx").on(t.tenantId, t.status),
+  // One active application per user per campaign.
+  uniqueIndex("enrollments_pending_uniq").on(t.tenantId, t.clerkUserId).where(sql`status = 'pending'`),
+]);
+
 export const pollingAgentsTable = pgTable("polling_agents", {
   id: uuid("id").primaryKey().defaultRandom(),
   tenantId: uuid("tenant_id").references(() => tenantsTable.id, { onDelete: "cascade" }),

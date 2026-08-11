@@ -44,7 +44,7 @@ export default function SignUpScreen() {
     await signUp.verifications.verifyEmailCode({ code });
     if (signUp.status === 'complete') {
       await signUp.finalize({
-        navigate: () => { router.replace('/(home)'); },
+        navigate: () => { router.replace('/onboarding' as never); }, // new accounts enroll first
       });
     }
   };
