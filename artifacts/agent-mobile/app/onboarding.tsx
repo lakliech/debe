@@ -7,7 +7,7 @@
 import { useEffect, useState } from "react";
 import { View, Text, TextInput, Pressable, ScrollView, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
-import { useAuth, useUser } from "@clerk/clerk-expo";
+import { useAuth, useUser } from "@clerk/expo";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 const domain = process.env.EXPO_PUBLIC_DOMAIN;

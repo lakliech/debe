@@ -47,7 +47,6 @@ import contactMessagesRouter from "./contactMessages";
 import platformRouter from "./platform";
 import platformLifecycleRouter from "./platformLifecycle";
 import platformBillingRouter from "./platformBilling";
-import maintenanceRouter from "./maintenance";
 import enquiriesRouter from "./enquiries";
 import enrollmentsRouter from "./enrollments";
 import adminCleanupRouter from "./adminCleanup";
@@ -153,9 +152,6 @@ router.use("/register", registerRouter);
 router.use("/platform", platformRouter);
 router.use("/platform", platformLifecycleRouter);
 router.use("/platform", platformBillingRouter);
-// TEMPORARY: one-time geography repair — 404s unless GEO_REPAIR_TOKEN is set.
-// Remove this mount and routes/maintenance.ts after the production repair.
-router.use("/platform/maintenance", maintenanceRouter);
 
 // Platform enquiry form — public, unauthenticated, no tenant context.
 router.use("/enquiries", enquiriesRouter);
