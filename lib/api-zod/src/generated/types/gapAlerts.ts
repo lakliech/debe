@@ -6,8 +6,11 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { GapAlertsLowCoverageCountiesItem } from './gapAlertsLowCoverageCountiesItem';
+import type { GapAlertsLowCoverageConstituenciesItem } from './gapAlertsLowCoverageConstituenciesItem';
 
 export interface GapAlerts {
   lowCoverageCounties?: GapAlertsLowCoverageCountiesItem[];
   stalePendingCount?: number;
+  coverageThresholdPct?: number;
+  lowCoverageConstituencies?: GapAlertsLowCoverageConstituenciesItem[];
 }

@@ -176,6 +176,8 @@ import type {
   TrainingCourseInput,
   TrainingEnrollment,
   TrainingEnrollmentSummary,
+  UpdateSystemConfig200,
+  UpdateSystemConfigBody,
   User,
   UserInput,
   UserUpdate,
@@ -2150,6 +2152,77 @@ export function useGetSystemConfig<TData = Awaited<ReturnType<typeof getSystemCo
 
 
 
+
+export const getUpdateSystemConfigUrl = () => {
+
+
+
+
+  return `/api/config/system`
+}
+
+/**
+ * @summary Update system configuration
+ */
+export const updateSystemConfig = async (updateSystemConfigBody: UpdateSystemConfigBody, options?: RequestInit): Promise<UpdateSystemConfig200> => {
+
+  return customFetch<UpdateSystemConfig200>(getUpdateSystemConfigUrl(),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(updateSystemConfigBody)
+  }
+);}
+
+
+
+
+
+export const getUpdateSystemConfigMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateSystemConfig>>, TError,{data: BodyType<UpdateSystemConfigBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateSystemConfig>>, TError,{data: BodyType<UpdateSystemConfigBody>}, TContext> => {
+
+const mutationKey = ['updateSystemConfig'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateSystemConfig>>, {data: BodyType<UpdateSystemConfigBody>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateSystemConfig(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateSystemConfigMutationResult = NonNullable<Awaited<ReturnType<typeof updateSystemConfig>>>
+    export type UpdateSystemConfigMutationBody = BodyType<UpdateSystemConfigBody>
+    export type UpdateSystemConfigMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Update system configuration
+ */
+export const useUpdateSystemConfig = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateSystemConfig>>, TError,{data: BodyType<UpdateSystemConfigBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateSystemConfig>>,
+        TError,
+        {data: BodyType<UpdateSystemConfigBody>},
+        TContext
+      > => {
+      return useMutation(getUpdateSystemConfigMutationOptions(options));
+    }
 
 export const getListAuditLogsUrl = (params?: ListAuditLogsParams,) => {
   const normalizedParams = new URLSearchParams();

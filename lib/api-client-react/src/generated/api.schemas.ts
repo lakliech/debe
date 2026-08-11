@@ -316,6 +316,7 @@ export interface SystemConfig {
   maxLoginAttempts?: number;
   passwordMinLength?: number;
   auditRetentionDays?: number;
+  minCoverageThresholdPct?: number;
 }
 
 export interface AuditLog {
@@ -816,9 +817,21 @@ export interface CountyCoverage2 {
 
 export type GapAlertsLowCoverageCountiesItem = { [key: string]: unknown };
 
+export type GapAlertsLowCoverageConstituenciesItem = {
+  constituencyId?: string;
+  constituencyName?: string;
+  /** @nullable */
+  countyName?: string | null;
+  totalStations?: number;
+  assignedStations?: number;
+  coveragePct?: number;
+};
+
 export interface GapAlerts {
   lowCoverageCounties?: GapAlertsLowCoverageCountiesItem[];
   stalePendingCount?: number;
+  coverageThresholdPct?: number;
+  lowCoverageConstituencies?: GapAlertsLowCoverageConstituenciesItem[];
 }
 
 export interface DataRequest {
@@ -1507,6 +1520,18 @@ countyId?: string;
 
 export type GetRecentActivityParams = {
 limit?: number;
+};
+
+export type UpdateSystemConfigBody = {
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  minCoverageThresholdPct?: number;
+};
+
+export type UpdateSystemConfig200 = {
+  minCoverageThresholdPct?: number;
 };
 
 export type ListAuditLogsParams = {

@@ -179,6 +179,34 @@ export default function Coordinator() {
           </div>
         )}
 
+        {/* Station coverage below configured threshold */}
+        {gapData?.lowCoverageConstituencies?.length > 0 && (
+          <div className="border-l-4 border-amber-500 bg-amber-50 p-4 flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-black text-sm text-amber-800 uppercase tracking-wide">Agent Coverage Below Threshold</p>
+              <p className="text-sm text-amber-700 mt-1">
+                {gapData.lowCoverageConstituencies.length}{" "}
+                {gapData.lowCoverageConstituencies.length === 1 ? "constituency is" : "constituencies are"} below the{" "}
+                {gapData.coverageThresholdPct ?? 80}% minimum agent coverage threshold.
+              </p>
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {gapData.lowCoverageConstituencies.slice(0, 8).map((c: any) => (
+                  <span key={c.constituencyId} className="bg-amber-100 text-amber-800 text-xs font-bold px-2 py-0.5">
+                    {c.constituencyName} · {c.coveragePct}% ({c.assignedStations}/{c.totalStations})
+                  </span>
+                ))}
+                {gapData.lowCoverageConstituencies.length > 8 && (
+                  <span className="text-xs text-amber-700 font-bold">+{gapData.lowCoverageConstituencies.length - 8} more</span>
+                )}
+              </div>
+              <Link href="/coverage-gaps" className="inline-block mt-2 text-xs font-bold text-amber-800 underline hover:text-amber-900">
+                View full coverage gaps →
+              </Link>
+            </div>
+          </div>
+        )}
+
         {/* Dashboard stats */}
         {loadingDash ? (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

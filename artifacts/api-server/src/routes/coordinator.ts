@@ -13,11 +13,14 @@ import {
   constituenciesTable,
   wardsTable,
   eventsTable,
+  pollingStationsTable,
+  campaignStationProfilesTable,
+  systemConfigTable,
 } from "@workspace/db";
 import { eq, and, desc, count, sql } from "drizzle-orm";
 import { requireRoles } from "../middlewares/rbac";
 import { tenantFilter, assertTenant } from '../lib/withTenant';
-import { scopeGeoCondition, resolveScopeGeoFilter } from "../lib/campaignScope";
+import { scopeGeoCondition, resolveScopeGeoFilter, type ScopeGeoFilter } from "../lib/campaignScope";
 import { z } from "zod";
 import { validate } from "../lib/validate";
 
@@ -183,6 +186,17 @@ router.get("/coverage", requireAuth, canViewCoordinator, async (req: any, res: a
   }
 });
 
+/**
+ * Shared stations are filtered to the campaign's scope. resolveScopeGeoFilter
+ * returns null for presidential / legacy scope-less tenants (no filtering).
+ */
+function stationScopeCondition(filter: ScopeGeoFilter | null) {
+  if (!filter) return undefined;
+  if (filter.wardId) return eq(pollingStationsTable.wardId, filter.wardId);
+  if (filter.constituencyId) return eq(pollingStationsTable.constituencyId, filter.constituencyId);
+  return eq(pollingStationsTable.countyId, filter.countyId!);
+}
+
 // GET /api/coordinator/gap-alerts
 router.get("/gap-alerts", requireAuth, canViewCoordinator, async (req: any, res: any) => {
   try {
@@ -216,9 +230,68 @@ router.get("/gap-alerts", requireAuth, canViewCoordinator, async (req: any, res:
         )
       );
 
+    // Station-level gaps: constituencies whose polling-station agent coverage
+    // is below the tenant's configurable minimum threshold (default 80%).
+    const [thresholdRow] = await db
+      .select({ value: systemConfigTable.value })
+      .from(systemConfigTable)
+      .where(and(tenantFilter(systemConfigTable, t.id), eq(systemConfigTable.key, "min_coverage_threshold_pct")))
+      .limit(1);
+    const parsedThreshold = Number(thresholdRow?.value);
+    const coverageThresholdPct =
+      Number.isFinite(parsedThreshold) && parsedThreshold >= 0 && parsedThreshold <= 100
+        ? parsedThreshold
+        : 80;
+
+    const geoFilter = await resolveScopeGeoFilter(t);
+    const stationCoverage = await db
+      .select({
+        constituencyId: constituenciesTable.id,
+        constituencyName: constituenciesTable.name,
+        countyName: countiesTable.name,
+        totalStations: count(pollingStationsTable.id),
+        // count() ignores NULLs — stations with no profile row for this tenant
+        // return NULL from the left-join and are not counted as assigned.
+        assignedStations: sql<number>`count(${campaignStationProfilesTable.primaryAgentId})::int`,
+      })
+      .from(pollingStationsTable)
+      .innerJoin(constituenciesTable, eq(pollingStationsTable.constituencyId, constituenciesTable.id))
+      .innerJoin(countiesTable, eq(pollingStationsTable.countyId, countiesTable.id))
+      .leftJoin(
+        campaignStationProfilesTable,
+        and(
+          eq(campaignStationProfilesTable.stationId, pollingStationsTable.id),
+          eq(campaignStationProfilesTable.tenantId, t.id),
+        ),
+      )
+      .where(stationScopeCondition(geoFilter))
+      .groupBy(constituenciesTable.id, constituenciesTable.name, countiesTable.name)
+      .having(
+        sql`count(${campaignStationProfilesTable.primaryAgentId})::numeric * 100 < ${coverageThresholdPct} * count(${pollingStationsTable.id})::numeric`,
+      )
+      .orderBy(
+        sql`count(${campaignStationProfilesTable.primaryAgentId})::numeric / NULLIF(count(${pollingStationsTable.id}), 0) ASC`,
+      )
+      .limit(50);
+
+    const lowCoverageConstituencies = stationCoverage.map((r) => {
+      const total = Number(r.totalStations);
+      const assigned = Number(r.assignedStations);
+      return {
+        constituencyId: r.constituencyId,
+        constituencyName: r.constituencyName,
+        countyName: r.countyName,
+        totalStations: total,
+        assignedStations: assigned,
+        coveragePct: total > 0 ? Math.round((assigned / total) * 100) : 0,
+      };
+    });
+
     res.json({
       lowCoverageCounties,
       stalePendingCount: Number(stalePending[0]?.total ?? 0),
+      coverageThresholdPct,
+      lowCoverageConstituencies,
     });
   } catch (err: any) {
     logger.error({ err }, "request failed");

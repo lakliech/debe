@@ -620,7 +620,25 @@ export const GetSystemConfigResponse = zod.object({
   "sessionTimeoutMinutes": zod.number(),
   "maxLoginAttempts": zod.number().optional(),
   "passwordMinLength": zod.number().optional(),
-  "auditRetentionDays": zod.number().optional()
+  "auditRetentionDays": zod.number().optional(),
+  "minCoverageThresholdPct": zod.number().optional()
+})
+
+
+/**
+ * @summary Update system configuration
+ */
+export const updateSystemConfigBodyMinCoverageThresholdPctMin = 0;
+
+export const updateSystemConfigBodyMinCoverageThresholdPctMax = 100;
+
+
+export const UpdateSystemConfigBody = zod.object({
+  "minCoverageThresholdPct": zod.number().min(updateSystemConfigBodyMinCoverageThresholdPctMin).max(updateSystemConfigBodyMinCoverageThresholdPctMax).optional()
+})
+
+export const UpdateSystemConfigResponse = zod.object({
+  "minCoverageThresholdPct": zod.number().optional()
 })
 
 
@@ -1720,7 +1738,16 @@ export const GetCoverageGapAlertsResponse = zod.object({
   "lowCoverageCounties": zod.array(zod.object({
 
 })).optional(),
-  "stalePendingCount": zod.number().optional()
+  "stalePendingCount": zod.number().optional(),
+  "coverageThresholdPct": zod.number().optional(),
+  "lowCoverageConstituencies": zod.array(zod.object({
+  "constituencyId": zod.string().optional(),
+  "constituencyName": zod.string().optional(),
+  "countyName": zod.string().nullish(),
+  "totalStations": zod.number().optional(),
+  "assignedStations": zod.number().optional(),
+  "coveragePct": zod.number().optional()
+})).optional()
 })
 
 

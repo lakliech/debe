@@ -523,6 +523,31 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SystemConfig"
+    patch:
+      operationId: updateSystemConfig
+      tags: [config]
+      summary: Update system configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                minCoverageThresholdPct:
+                  type: integer
+                  minimum: 0
+                  maximum: 100
+      responses:
+        "200":
+          description: Updated system config values
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  minCoverageThresholdPct:
+                    type: integer
 
   /audit/logs:
     get:
@@ -3557,6 +3582,8 @@ components:
           type: integer
         auditRetentionDays:
           type: integer
+        minCoverageThresholdPct:
+          type: integer
 
     AuditLog:
       type: object
@@ -4321,6 +4348,25 @@ components:
             type: object
         stalePendingCount:
           type: integer
+        coverageThresholdPct:
+          type: integer
+        lowCoverageConstituencies:
+          type: array
+          items:
+            type: object
+            properties:
+              constituencyId:
+                type: string
+              constituencyName:
+                type: string
+              countyName:
+                type: ["string", "null"]
+              totalStations:
+                type: integer
+              assignedStations:
+                type: integer
+              coveragePct:
+                type: integer
 
     DataRequest:
       type: object

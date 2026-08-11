@@ -88,6 +88,7 @@ export * from './faqItem';
 export * from './financeDashboard';
 export * from './financeDashboardByChannelItem';
 export * from './gapAlerts';
+export * from './gapAlertsLowCoverageConstituenciesItem';
 export * from './gapAlertsLowCoverageCountiesItem';
 export * from './geographyStats';
 export * from './getCommunicationsMessagesParams';

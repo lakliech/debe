@@ -14,4 +14,5 @@ export interface SystemConfig {
   maxLoginAttempts?: number;
   passwordMinLength?: number;
   auditRetentionDays?: number;
+  minCoverageThresholdPct?: number;
 }

@@ -10,6 +10,8 @@ import { tenantFilter, assertTenant, requireTenantContext } from "../lib/withTen
 import { sendRouteError } from "../lib/routeError";
 import { triggerTlsProvisioning } from "../lib/tlsCert";
 import { PLANS, getEffectivePlan, minimumTierFor } from "../lib/plans";
+import { z } from "zod";
+import { validate } from "../lib/validate";
 
 // ── DNS CNAME verification ────────────────────────────────────────────────────
 // The expected CNAME target is the platform's public hostname (PORTAL_DOMAIN).
@@ -383,7 +385,51 @@ router.get("/system", requireAuth, resolveTenant, async (req: any, res: any) => 
       maxLoginAttempts: Number(map["max_login_attempts"] || "5"),
       passwordMinLength: Number(map["password_min_length"] || "8"),
       auditRetentionDays: Number(map["audit_retention_days"] || "365"),
+      minCoverageThresholdPct: Number(map["min_coverage_threshold_pct"] || "80"),
     });
+  } catch (err: any) {
+    sendRouteError(res, err);
+  }
+});
+
+// ── PATCH /api/config/system ───────────────────────────────────────────────
+// Updates per-tenant system configuration. Currently only the minimum agent
+// coverage threshold (percentage of polling stations that must have an
+// assigned agent per constituency before gap alerts fire).
+const systemConfigPatchSchema = z.object({
+  minCoverageThresholdPct: z.number().int().min(0).max(100).optional(),
+});
+
+const canUpdateSystemConfig = requireRoles([
+  "campaign-exec-director",
+  "national-campaign-manager",
+  "security-admin",
+]);
+
+router.patch("/system", requireAuth, resolveTenant, requireTenantContext, canUpdateSystemConfig, async (req: any, res: any) => {
+  try {
+    const t = assertTenant(req);
+    const body = validate(systemConfigPatchSchema, req.body, res);
+    if (!body) return;
+    if (body.minCoverageThresholdPct === undefined) {
+      return res.status(400).json({ error: "No supported settings provided." });
+    }
+    const pct = body.minCoverageThresholdPct;
+
+    await db
+      .insert(systemConfigTable)
+      .values({
+        tenantId: t.id,
+        key: "min_coverage_threshold_pct",
+        value: String(pct),
+        description: "Minimum % of polling stations per constituency that must have an assigned agent",
+      })
+      .onConflictDoUpdate({
+        target: [systemConfigTable.key, systemConfigTable.tenantId],
+        set: { value: String(pct) },
+      });
+
+    res.json({ minCoverageThresholdPct: pct });
   } catch (err: any) {
     sendRouteError(res, err);
   }
