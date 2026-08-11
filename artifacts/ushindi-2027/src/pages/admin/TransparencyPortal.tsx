@@ -141,8 +141,8 @@ export default function TransparencyPortal() {
         </Button>
       </div>
 
-      {/* Portal Toggle */}
-      <Card>
+      {/* Portal Toggle — data-tour: step 5 of the guided demo tour */}
+      <Card data-tour="transparency-portal">
         <CardContent className="p-5">
           <div className="flex items-center justify-between">
             <div>

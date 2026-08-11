@@ -15,4 +15,8 @@
 - [api-zod codegen broken](api-zod-codegen-broken.md) — spec codegen emits zod-v4 syntax the workspace can't compile; revert lib/api-zod and hand-patch it to match the spec.
 - [API campaign neutrality](api-campaign-neutrality.md) — server text must come from tenant branding or stay generic; a hardcoded campaign name leaks into other tenants' portals and messages.
 - [Geography seed joins](seed-positional-joins.md) — match constituencies by name, never position; upserts must update FK links on conflict or stale links survive reseeds.
+- [Clerk signals vs legacy hooks](clerk-react-signals-vs-legacy.md) — the root `useSignIn` is the signals API; custom create+setActive flows must import from `@clerk/react/legacy`.
+- [Drizzle upsert NOT NULL pitfall](drizzle-upsert-not-null.md) — the INSERT payload must satisfy NOT NULL even when the conflict routes to UPDATE; fall back to the stored value for keep-on-update columns.
+- [Provider-owned persisted state](provider-owned-persistence.md) — a child that seeds a provider by writing its storage key loses the race; call a context method instead.
+- [Demo tenant auto-login](demo-tenant-auto-login.md) — a Clerk sign-in ticket for one shared account; safety comes from the read-only tenant, not a reduced role.
 - [Transactional email](transactional-email.md) — send after commit and never throw; `skipped` ≠ failed, and the log doubles as the cron's idempotency ledger.

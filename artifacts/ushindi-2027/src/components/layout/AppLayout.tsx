@@ -9,10 +9,10 @@ import { cn } from "@/lib/utils";
 import { useBranding, useBrandingSuspended } from "@/contexts/BrandingContext";
 import { SECTION_RULES } from "@/lib/access";
 import { useIdentity, type ActiveTenant } from "@/hooks/useIdentity";
-import DemoTour from "@/components/DemoTour";
 import TrialBanner from "@/components/TrialBanner";
 import UpgradeBanner from "@/components/UpgradeBanner";
 import { MultiOrgGate } from "@/components/NoActiveOrgPrompt";
+import DemoBanner from "@/components/demo/DemoBanner";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -484,8 +484,6 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
   return (
     <div className="flex h-[100dvh] overflow-hidden bg-background">
-      <DemoTour />
-      
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
         <div 
@@ -527,16 +525,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
               <nav className="space-y-0.5">
                 {section.items.map((item) => {
                   const isActive = location === item.href || (item.href !== "/finance" && item.href !== "/communications" && item.href !== "/content-library" && location.startsWith(`${item.href}/`));
-                  
-                  // Add data-tour attributes for tour targets
-                  const tourAttr: Record<string, string> = {};
-                  if (item.href === "/dashboard") tourAttr["data-tour"] = "dashboard";
-                  if (item.href === "/polling-stations") tourAttr["data-tour"] = "polling-stations";
-                  if (item.href === "/polling-agents") tourAttr["data-tour"] = "polling-agents";
-                  if (item.href === "/election-results") tourAttr["data-tour"] = "results";
-                  if (item.href === "/tally") tourAttr["data-tour"] = "tally";
-                  if (item.href === "/transparency-portal") tourAttr["data-tour"] = "transparency";
-                  
+
                   return (
                     <Link
                       key={item.name}
@@ -548,7 +537,6 @@ export default function AppLayout({ children }: AppLayoutProps) {
                           : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
                       )}
                       onClick={() => setSidebarOpen(false)}
-                      {...tourAttr}
                     >
                       <item.icon className={cn("h-4 w-4 shrink-0", isActive ? "text-sidebar-accent-foreground" : "text-sidebar-foreground/50")} />
                       <span className="truncate flex-1">{item.name}</span>
@@ -596,6 +584,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
         {isPlatformOperator && activeTenant && (
           <PlatformOverrideBanner activeTenant={activeTenant} />
         )}
+        {/* Read-only demo notice + the guided tour and registration entry points. */}
+        <DemoBanner />
         {/* Topbar for mobile & subtle breadcrumb for desktop */}
         <header className="h-16 shrink-0 flex items-center justify-between px-4 sm:px-6 lg:px-8 border-b border-border bg-card">
           <div className="flex items-center">

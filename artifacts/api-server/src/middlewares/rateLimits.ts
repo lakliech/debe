@@ -29,6 +29,26 @@ export const statusCheckLimiter = rateLimit({
   skipSuccessfulRequests: false,
 });
 
+/**
+ * demoSessionLimiter — applied to the public demo auto-login endpoint.
+ *
+ * Each call mints a Clerk sign-in token for the shared read-only demo account,
+ * so it is cheap but not free. 10 per IP per 15 minutes lets a curious visitor
+ * restart the demo a few times without letting anyone farm tickets.
+ */
+export const demoSessionLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  // No custom keyGenerator: the default keys on IP and handles IPv6 prefixes
+  // correctly, which a naive req.ip key does not.
+  message: {
+    error:
+      "Too many demo sessions from this device — please wait a few minutes before trying again.",
+  },
+});
+
 export const publicSubmitLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 5,

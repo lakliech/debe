@@ -54,6 +54,7 @@ import adminCleanupRouter from "./adminCleanup";
 import registerRouter from "./register";
 import billingRouter from "./billing";
 import settingsRouter from "./settings";
+import demoRouter from "./demo";
 import { demoGuard } from "../middlewares/demoGuard";
 
 const router: IRouter = Router();
@@ -153,6 +154,11 @@ router.use("/register", registerRouter);
 router.use("/platform", platformRouter);
 router.use("/platform", platformLifecycleRouter);
 router.use("/platform", platformBillingRouter);
+
+// Guided-demo auto-login — public and unauthenticated by definition: the
+// visitor has no account yet. It only ever issues a session for the shared
+// read-only demo campaign, so it needs no tenant middleware.
+router.use("/demo", demoRouter);
 
 // Platform enquiry form — public, unauthenticated, no tenant context.
 router.use("/enquiries", enquiriesRouter);

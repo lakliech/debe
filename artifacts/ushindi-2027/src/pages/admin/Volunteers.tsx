@@ -125,8 +125,8 @@ export default function Volunteers() {
           </select>
         </div>
 
-        {/* Table */}
-        <div className="border border-border shadow-sm overflow-hidden">
+        {/* Table — data-tour: step 2 of the guided demo tour */}
+        <div data-tour="volunteer-roster" className="border border-border shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-muted/50 border-b border-border">

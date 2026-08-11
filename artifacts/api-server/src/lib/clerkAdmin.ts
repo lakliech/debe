@@ -38,6 +38,18 @@ export function clerkGet(path: string) {
   return clerkRequest("GET", path);
 }
 
+/**
+ * POST to the Clerk Backend API.
+ *
+ * Unlike clerkGet, failures are NOT swallowed by the helpers built on this —
+ * the callers create identities and sign-in tokens, where a silent null would
+ * be indistinguishable from success and leave the caller unauthenticated with
+ * no explanation.
+ */
+export function clerkPost(path: string, body?: Record<string, unknown>) {
+  return clerkRequest("POST", path, body);
+}
+
 /** Primary email address for a Clerk user, or null. */
 export async function clerkUserEmail(clerkUserId: string): Promise<string | null> {
   try {

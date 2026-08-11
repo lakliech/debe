@@ -2,7 +2,6 @@ import { useEffect, useRef } from "react";
 import { ClerkProvider, SignIn, SignUp, Show, useClerk } from "@clerk/react";
 import { publishableKeyFromHost } from "@clerk/react/internal";
 import { shadcn } from "@clerk/themes";
-import { Switch, Route, useLocation, Router as WouterRouter, Redirect } from "wouter";
 import { QueryClientProvider, useQueryClient, QueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -127,6 +126,9 @@ import AgentLogisticsPage from "./pages/agent/AgentLogistics";
 import LogisticsCommandCenter from "./pages/admin/LogisticsCommandCenter";
 import OnboardingPage from "./pages/Onboarding";
 import EnrollmentsPage from "./pages/admin/Enrollments";
+import { Switch, Route, useLocation, useSearch, Router as WouterRouter, Redirect } from "wouter";
+import DemoLaunch from "@/components/demo/DemoLaunch";
+import { DemoTourProvider } from "@/components/demo/DemoTourProvider";
 
 const clerkPubKey = publishableKeyFromHost(
   window.location.hostname,
@@ -215,6 +217,13 @@ function SignedInHome() {
 }
 
 function HomeRedirect() {
+  // "Try a live demo" links here with ?demo=1 — sign the visitor into the
+  // read-only demo campaign instead of showing the marketing page.
+  const search = useSearch();
+  if (new URLSearchParams(search).get("demo") === "1") {
+    return <DemoLaunch />;
+  }
+
   return (
     <>
       <Show when="signed-in">
@@ -329,6 +338,8 @@ function BrandingAwareClerkProvider() {
     >
       <ClerkQueryClientCacheInvalidator />
       <TooltipProvider>
+        {/* Outside the Switch so the guided demo tour survives navigation. */}
+        <DemoTourProvider>
         <Switch>
           {/* Root — redirect to dashboard if signed in, show landing if not */}
           <Route path="/" component={HomeRedirect} />
@@ -595,6 +606,7 @@ function BrandingAwareClerkProvider() {
 
           <Route component={NotFound} />
         </Switch>
+        </DemoTourProvider>
         <Toaster />
       </TooltipProvider>
     </ClerkProvider>

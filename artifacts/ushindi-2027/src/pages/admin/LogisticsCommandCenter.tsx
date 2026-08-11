@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearch } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, MapPin, Truck, ShieldAlert, Users, Radio, Siren } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -23,7 +24,10 @@ function useElectionId() {
     queryKey: ["elections-logistics"],
     queryFn: () => fetch(`${BASE}/api/election-admin/elections/active`, { credentials: "include" }).then((r) => r.json()),
   });
-  return (data as any[] | undefined)?.find((e: any) => e.isActive)?.id ?? (data as any[])?.[0]?.id ?? "";
+  // The endpoint answers with an error object rather than a list when it is
+  // rate-limited or unhappy; treating that as an array crashed the whole page.
+  const elections = Array.isArray(data) ? (data as any[]) : [];
+  return elections.find((e: any) => e.isActive)?.id ?? elections[0]?.id ?? "";
 }
 
 // ─── Kenya scatter map (dependency-free) ────────────────────────────────────
@@ -107,10 +111,34 @@ function alertText(e: AlertEvent): string {
 
 const TABS = ["Operations", "Agents", "Transport", "Security"] as const;
 
+/**
+ * Read ?tab= so a tab can be linked to directly (the guided demo tour does).
+ *
+ * Returns null when the query asks for nothing recognisable, so a plain visit
+ * to /command-center keeps whichever tab the user is already on.
+ */
+function tabFromSearch(search: string): (typeof TABS)[number] | null {
+  const requested = new URLSearchParams(search).get("tab")?.toLowerCase();
+  if (!requested) return null;
+  return TABS.find((t) => t.toLowerCase() === requested) ?? null;
+}
+
 export default function LogisticsCommandCenter() {
   const electionId = useElectionId();
-  const [tab, setTab] = useState<(typeof TABS)[number]>("Operations");
+  const search = useSearch();
+  const [tab, setTab] = useState<(typeof TABS)[number]>(() => tabFromSearch(search) ?? "Operations");
   const [selectedDot, setSelectedDot] = useState<MapDot | null>(null);
+
+  // Follow ?tab= whenever it changes, not just on mount. Wouter matches routes
+  // on the pathname alone, so /command-center?tab=agents renders this page
+  // either way — but arriving here from another route without a remount (the
+  // guided demo tour does exactly that) would otherwise leave the wrong tab
+  // showing.
+  useEffect(() => {
+    const requested = tabFromSearch(search);
+    if (requested) setTab(requested);
+  }, [search]);
+
   const [alerts, setAlerts] = useState<AlertEvent[]>([]);
   const feedRef = useRef<HTMLDivElement>(null);
 
@@ -231,7 +259,8 @@ export default function LogisticsCommandCenter() {
 
       {tab === "Operations" && <OpsOverview />}
       {tab === "Agents" && (
-        <div className="space-y-4">
+        // data-tour: step 3 of the guided demo tour
+        <div className="space-y-4" data-tour="agent-deployment-map">
           {/* Geofence tracking map belongs with the agent detail */}
           <LiveAgentMap />
           <AgentsTab checkIns={(checkIns.data as any[]) ?? []} missing={(missing.data as any[]) ?? []} loading={checkIns.isLoading} />

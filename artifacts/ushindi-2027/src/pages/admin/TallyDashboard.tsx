@@ -197,6 +197,9 @@ export default function TallyDashboard() {
         )}
       </div>
 
+      {/* data-tour: step 4 of the guided demo tour. The wrapper is always
+          present so the tour can find it whatever state the tally is in. */}
+      <div data-tour="tally-results" className="space-y-6">
       {tally?.outOfScope ? (
         <Card>
           <CardContent className="p-6">
@@ -338,6 +341,7 @@ export default function TallyDashboard() {
           )}
         </>
       )}
+      </div>
     </div>
   );
 }

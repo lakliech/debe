@@ -78,7 +78,8 @@ export default function Dashboard() {
       {/* First-run setup checklist. Hides itself once complete or dismissed. */}
       <OnboardingChecklist />
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      {/* data-tour: step 1 of the guided demo tour (see components/demo/tour.ts) */}
+      <div data-tour="dashboard-overview" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard 
           title="Total Personnel" 
           value={s.totalUsers} 

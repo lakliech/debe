@@ -571,18 +571,19 @@ function printClerkChecklist(tenantId: string): void {
 ║                                                                              ║
 ║  Demo tenant ID  : ${tenantId.padEnd(56)}║
 ║                                                                              ║
-║  The tenantsTable row uses clerk_org_id = '${DEMO_CLERK_ORG_ID.padEnd(33)}' ║
-║  This is a placeholder. Follow these steps before users can log in:         ║
+║  NOTHING BELOW IS REQUIRED for the public guided demo. Visiting /?demo=1     ║
+║  signs a prospect in automatically: the API mints a short-lived Clerk        ║
+║  sign-in ticket and provisions the shared demo account on first use.         ║
+║  This seed is the only setup that flow needs.                                ║
 ║                                                                              ║
-║  1. In the Clerk dashboard, create an Organisation named "Debe Demo".       ║
-║     Copy the generated org ID (starts with "org_…").                        ║
+║  The row carries clerk_org_id = '${DEMO_CLERK_ORG_ID.padEnd(33)}'          ║
+║  purely as a legacy marker. Campaign membership lives in user_roles, not     ║
+║  in Clerk Organisations, so it does not need a real org ID.                  ║
 ║                                                                              ║
-║  2. Update the tenant row:                                                   ║
-║       UPDATE tenants                                                         ║
-║         SET clerk_org_id = '<real-org-id>'                                   ║
-║         WHERE slug = 'demo';                                                 ║
+║  The steps below are ONLY for hands-on demos where a person needs to sign    ║
+║  in as a specific role:                                                      ║
 ║                                                                              ║
-║  3. Create three Clerk user accounts and invite them to the Demo org:        ║
+║  1. Create three Clerk user accounts:                                        ║
 ║                                                                              ║
 ║     ┌─────────────────────────────────────────────────────────────┐         ║
 ║     │  Role             │ Email                    │ Password     │         ║
@@ -592,12 +593,12 @@ function printClerkChecklist(tenantId: string): void {
 ║     │  Field Agent      │ agent@demo.debe.ke    │ Demo@2027!   │         ║
 ║     └─────────────────────────────────────────────────────────────┘         ║
 ║                                                                              ║
-║  4. In the Debe admin UI (/roles), assign:                                   ║
+║  2. In the Debe admin UI (/roles), assign:                                   ║
 ║       admin@demo.debe.ke  → role: campaign_admin                         ║
 ║       coord@demo.debe.ke  → role: county_coordinator                     ║
 ║       agent@demo.debe.ke  → role: polling_agent                          ║
 ║                                                                              ║
-║  5. (Optional) Set custom_domain DNS:                                        ║
+║  3. (Optional) Set custom_domain DNS:                                        ║
 ║       demo.debe.ke → CNAME or A record pointing at the platform.         ║
 ║                                                                              ║
 ║  ⚠️  Nightly reset is handled by a separate cron job (Task #101).            ║

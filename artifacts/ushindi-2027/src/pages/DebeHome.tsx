@@ -193,19 +193,31 @@ function DemoCredentialsCard({ onClose }: { onClose: () => void }) {
         </div>
 
         {/* Open demo button */}
-        <div className="px-6 py-5 border-t border-gray-100 bg-slate-50">
+        <div className="px-6 py-5 border-t border-gray-100 bg-slate-50 space-y-3">
+          {/*
+            The guided tour is the fastest route into the product — no account,
+            no credentials to copy — so it leads. The logins below stay for
+            anyone who wants to see a specific role's view.
+          */}
+          <Link
+            href="/?demo=1"
+            className="flex items-center justify-center gap-2 bg-primary text-white font-black text-sm tracking-widest uppercase px-6 py-3.5 hover:bg-primary/90 transition-colors w-full"
+          >
+            Try a live demo
+            <ChevronRight className="w-4 h-4" />
+          </Link>
+          <p className="text-center text-[11px] text-slate-500">
+            Signs you straight in, read-only, with a 6-step guided tour.
+          </p>
           <a
             href={DEMO_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center justify-center gap-2 bg-primary text-white font-black text-sm tracking-widest uppercase px-6 py-3.5 hover:bg-primary/90 transition-colors w-full"
+            className="flex items-center justify-center gap-2 border border-slate-300 text-slate-700 font-bold text-xs tracking-widest uppercase px-6 py-3 hover:bg-white transition-colors w-full"
           >
-            Open Demo
-            <ExternalLink className="w-4 h-4" />
+            Sign in with a demo login
+            <ExternalLink className="w-3.5 h-3.5" />
           </a>
-          <p className="text-center text-[10px] text-slate-400 mt-3">
-            {DEMO_URL}
-          </p>
         </div>
       </div>
     </div>
