@@ -2,11 +2,10 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import {
-  AlertCircle, RefreshCw, Clock, Users, ClipboardList,
+  AlertCircle, RefreshCw, Clock, ClipboardList,
   CheckCircle2, AlertOctagon, Scale, Wifi, WifiOff, BarChart3
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import LiveAgentMap from "@/components/LiveAgentMap";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -124,7 +123,6 @@ export function OpsOverview() {
     stationsOpened: dashboard?.stationsSummary?.verified ?? 0,
     stationsReporting: dashboard?.stationsSummary?.submitted ?? 0,
     stationsPending: dashboard?.stationsSummary?.draft ?? 0,
-    agentsPresent: dashboard?.agentSyncSummary?.synced ?? 0,
     resultsReceived: dashboard?.stationsSummary?.submitted ?? 0,
     resultsVerified: dashboard?.stationsSummary?.verified ?? 0,
     criticalIncidents: dashboard?.incidentSummary?.critical ?? 0,
@@ -192,24 +190,17 @@ export function OpsOverview() {
 
       {/* KPI Grid */}
       {kpisLoading ? (
-        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-          {[...Array(6)].map((_, i) => <div key={i} className="h-24 bg-muted animate-pulse rounded" />)}
+        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+          {[...Array(5)].map((_, i) => <div key={i} className="h-24 bg-muted animate-pulse rounded" />)}
         </div>
       ) : (
-        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
           <KPICard
             label="Stations Opened"
             value={kpis?.stationsOpened ?? 0}
             icon={CheckCircle2}
             color="text-green-600"
             onClick={() => navigate("/polling-stations")}
-          />
-          <KPICard
-            label="Agents Present"
-            value={kpis?.agentsPresent ?? 0}
-            icon={Users}
-            color="text-[#1D9BF0]"
-            onClick={() => navigate("/polling-agents")}
           />
           <KPICard
             label="Results Received"
@@ -241,9 +232,6 @@ export function OpsOverview() {
           />
         </div>
       )}
-
-      {/* Live Agent Tracking — geofence map, refreshes every 30s */}
-      <LiveAgentMap />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Tally Summary */}

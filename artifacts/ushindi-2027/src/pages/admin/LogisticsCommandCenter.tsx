@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, MapPin, Truck, ShieldAlert, Users, Radio, Siren } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { OpsOverview } from "@/components/command/OpsOverview";
+import LiveAgentMap from "@/components/LiveAgentMap";
 import { cn } from "@/lib/utils";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -230,7 +231,11 @@ export default function LogisticsCommandCenter() {
 
       {tab === "Operations" && <OpsOverview />}
       {tab === "Agents" && (
-        <AgentsTab checkIns={(checkIns.data as any[]) ?? []} missing={(missing.data as any[]) ?? []} loading={checkIns.isLoading} />
+        <div className="space-y-4">
+          {/* Geofence tracking map belongs with the agent detail */}
+          <LiveAgentMap />
+          <AgentsTab checkIns={(checkIns.data as any[]) ?? []} missing={(missing.data as any[]) ?? []} loading={checkIns.isLoading} />
+        </div>
       )}
       {tab === "Transport" && (
         <TransportTab
