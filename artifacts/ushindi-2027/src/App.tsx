@@ -110,6 +110,7 @@ import PlatformActivityPage from "./pages/admin/PlatformActivity";
 import PlatformUsersPage from "./pages/admin/PlatformUsers";
 import PlatformBillingPage from "./pages/admin/PlatformBilling";
 import PlatformLifecyclePage from "./pages/admin/PlatformLifecycle";
+import PlatformEnquiriesPage from "./pages/admin/PlatformEnquiries";
 
 // SaaS platform surfaces — marketing, self-serve signup, settings hub
 import PlatformHome from "./pages/PlatformHome";
@@ -559,6 +560,9 @@ function BrandingAwareClerkProvider() {
           </Route>
           <Route path="/platform/lifecycle">
             <ProtectedRoute component={PlatformLifecyclePage} />
+          </Route>
+          <Route path="/platform/enquiries">
+            <ProtectedRoute component={PlatformEnquiriesPage} />
           </Route>
 
           {/* ── Admin (protected) — Task 5: Compliance, Reporting ── */}
