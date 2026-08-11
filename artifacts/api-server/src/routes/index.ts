@@ -49,6 +49,7 @@ import platformLifecycleRouter from "./platformLifecycle";
 import platformBillingRouter from "./platformBilling";
 import enquiriesRouter from "./enquiries";
 import enrollmentsRouter from "./enrollments";
+import integrationsRouter from "./integrations";
 import adminCleanupRouter from "./adminCleanup";
 import registerRouter from "./register";
 import billingRouter from "./billing";
@@ -158,6 +159,8 @@ router.use("/enquiries", enquiriesRouter);
 // Enrollment (onboarding) — applicants have no tenant context yet, so resolve
 // optionally and let coordinator endpoints assert their own tenant.
 router.use("/enrollments", resolveTenantOptional, enrollmentsRouter);
+// Campaign-admin provisioning of external integrations (M-PESA, WhatsApp).
+router.use("/integrations", withTenant(integrationsRouter));
 
 // One-shot admin cleanup endpoint — no tenant middleware needed.
 // Guarded by ADMIN_CLEANUP_SECRET env var; disable by removing that var after use.

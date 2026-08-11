@@ -32,12 +32,13 @@ export function toWaAddress(phone: string): string {
  * Send a text message. `phoneNumberId` overrides the platform default sender
  * with the campaign's own connected number (tenants.whatsapp_phone_number_id).
  */
-export async function sendWhatsAppText(to: string, body: string, phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID): Promise<{
+export async function sendWhatsAppText(to: string, body: string, phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID, accessToken?: string): Promise<{
   ok: boolean;
   providerMessageId?: string;
   error?: string;
 }> {
-  const token = process.env.WHATSAPP_ACCESS_TOKEN;
+  // Tenant-provisioned token takes precedence over the platform env token.
+  const token = accessToken ?? process.env.WHATSAPP_ACCESS_TOKEN;
   if (!token || !phoneNumberId) return { ok: false, error: "WhatsApp Cloud API not configured" };
 
   try {

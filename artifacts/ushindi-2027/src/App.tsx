@@ -24,6 +24,7 @@ import Roles from "./pages/Roles";
 import AuditLog from "./pages/AuditLog";
 import Branding from "./pages/Branding";
 import SystemConfig from "./pages/SystemConfig";
+import IntegrationsPage from "./pages/Integrations";
 import NotFound from "./pages/NotFound";
 
 // Public portal pages
@@ -398,6 +399,9 @@ function BrandingAwareClerkProvider() {
           </Route>
           <Route path="/settings/system">
             <ProtectedRoute component={SystemConfig} />
+          </Route>
+          <Route path="/settings/integrations">
+            <ProtectedRoute component={IntegrationsPage} />
           </Route>
 
           {/* ── Admin (protected) — Task 2 new ── */}

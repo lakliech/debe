@@ -32,7 +32,7 @@ import { requireRoles, requireCountyOrAbove } from "../middlewares/rbac";
 import { tenantFilter, assertTenant } from "../lib/withTenant";
 import { sendRouteError } from "../lib/routeError";
 import { validate } from "../lib/validate";
-import { sendWhatsAppText } from "../lib/whatsapp";
+import { sendWhatsappChannel } from "../lib/commsDispatcher";
 import { logger } from "../lib/logger";
 import { z } from "zod";
 
@@ -561,9 +561,10 @@ async function notifyEscalation(tenantId: string, level: number, incident: { id:
       .innerJoin(rolesTable, eq(userRolesTable.roleId, rolesTable.id))
       .innerJoin(usersTable, eq(userRolesTable.userId, usersTable.id))
       .where(and(eq(userRolesTable.tenantId, tenantId), inArray(rolesTable.slug, slugs), isNotNull(usersTable.phoneNumber)));
-    const [tenant] = await db.select({ waPhoneId: tenantsTable.whatsappPhoneNumberId }).from(tenantsTable).where(eq(tenantsTable.id, tenantId));
     const body = `🚨 Security incident escalated to level ${level}: "${incident.title}" (${incident.severity}). Open the Command Center to respond.`;
-    await Promise.allSettled(recipients.map((r) => sendWhatsAppText(r.phoneNumber!, body, tenant?.waPhoneId ?? undefined)));
+    // Resolves the campaign's own WhatsApp credentials (tenant token + sender),
+    // so alerts work even for numbers the platform token isn't authorized on.
+    await Promise.allSettled(recipients.map((r) => sendWhatsappChannel(tenantId, r.phoneNumber!, body)));
   } catch (err) {
     logger.warn({ err, tenantId, level }, "escalation notification failed (non-fatal)");
   }

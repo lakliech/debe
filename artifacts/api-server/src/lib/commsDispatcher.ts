@@ -15,6 +15,8 @@
 import { logger } from "./logger";
 import { logActivity } from "./activityFeed";
 import { sendWhatsAppText, whatsappCloudConfigured } from "./whatsapp";
+import { decryptSecret } from "./mpesa";
+import { tenantWhatsappConfigsTable } from "@workspace/db";
 import { db } from "@workspace/db";
 import {
   scheduledMessagesTable,
@@ -61,11 +63,27 @@ async function sendViaWebhook(
 
 type ChannelProvider = { kind: "wa-cloud" } | { kind: "webhook"; url: string };
 
-/** A campaign's own WhatsApp sender number, if it has connected one. */
-async function tenantWhatsappPhoneId(tenantId: string): Promise<string | undefined> {
+type TenantWaCreds = { phoneId?: string; token?: string };
+
+/**
+ * A campaign's own WhatsApp credentials, provisioned via Settings →
+ * Integrations (tenant_whatsapp_configs, token encrypted at rest). Falls
+ * back to the legacy sender-identity column, which rides on the platform
+ * access token.
+ */
+async function tenantWhatsappCreds(tenantId: string): Promise<TenantWaCreds> {
+  const [cfg] = await db.select().from(tenantWhatsappConfigsTable)
+    .where(eq(tenantWhatsappConfigsTable.tenantId, tenantId)).limit(1);
+  if (cfg?.enabled) return { phoneId: cfg.phoneNumberId, token: decryptSecret(cfg.accessToken) };
   const [t] = await db.select({ pnid: tenantsTable.whatsappPhoneNumberId })
     .from(tenantsTable).where(eq(tenantsTable.id, tenantId)).limit(1);
-  return t?.pnid ?? undefined;
+  return { phoneId: t?.pnid ?? undefined };
+}
+
+/** Cloud API usable when we have a sender number plus either token source. */
+function waCloudReady(creds: TenantWaCreds | undefined): boolean {
+  if (creds?.phoneId) return Boolean(creds.token) || whatsappCloudConfigured(creds.phoneId);
+  return whatsappCloudConfigured();
 }
 
 /**
@@ -73,8 +91,8 @@ async function tenantWhatsappPhoneId(tenantId: string): Promise<string | undefin
  * configured (campaign's own number if connected, else the platform number);
  * every channel falls back to its generic webhook env.
  */
-function providerFor(channel: string, tenantWaPhoneId?: string): ChannelProvider | null {
-  if (channel === "whatsapp" && whatsappCloudConfigured(tenantWaPhoneId)) return { kind: "wa-cloud" };
+function providerFor(channel: string, waCreds?: TenantWaCreds): ChannelProvider | null {
+  if (channel === "whatsapp" && waCloudReady(waCreds)) return { kind: "wa-cloud" };
   const url = webhookFor(channel);
   return url ? { kind: "webhook", url } : null;
 }
@@ -85,8 +103,8 @@ function providerFor(channel: string, tenantWaPhoneId?: string): ChannelProvider
  * mandatory so the send originates from that campaign's WhatsApp identity.
  */
 export async function sendWhatsappChannel(tenantId: string, to: string, body: string): Promise<{ ok: boolean; error?: string }> {
-  const tenantPhoneId = await tenantWhatsappPhoneId(tenantId);
-  if (whatsappCloudConfigured(tenantPhoneId)) return sendWhatsAppText(to, body, tenantPhoneId);
+  const creds = await tenantWhatsappCreds(tenantId);
+  if (waCloudReady(creds)) return sendWhatsAppText(to, body, creds.phoneId, creds.token);
   const url = webhookFor("whatsapp");
   if (!url) return { ok: false, error: "no whatsapp provider configured" };
   return sendViaWebhook(url, { to, channel: "whatsapp", body, deliveryId: "direct" });
@@ -149,8 +167,8 @@ async function dispatchOne(msg: any, batchSize: number): Promise<boolean> {
   const channel: string = tmpl.channel;
   // Per-tenant sender identity: a campaign with its own WhatsApp number
   // connected sends from it; everyone else uses the platform number.
-  const tenantWaPhoneId = channel === "whatsapp" ? await tenantWhatsappPhoneId(msg.tenantId) : undefined;
-  const provider = providerFor(channel, tenantWaPhoneId);
+  const tenantWa = channel === "whatsapp" ? await tenantWhatsappCreds(msg.tenantId) : undefined;
+  const provider = providerFor(channel, tenantWa);
   if (!provider) {
     // Not an error state — leave the message 'approved' so it goes out as
     // soon as a provider is configured.
@@ -212,7 +230,7 @@ async function dispatchOne(msg: any, batchSize: number): Promise<boolean> {
           const r = recipients[i + j];
           const personalised = String(body).replaceAll("{{name}}", r.fullName ?? "");
           const res = provider.kind === "wa-cloud"
-            ? await sendWhatsAppText(r.to!, personalised, tenantWaPhoneId)
+            ? await sendWhatsAppText(r.to!, personalised, tenantWa?.phoneId, tenantWa?.token)
             : await sendViaWebhook(provider.url, {
                 to: r.to!, channel, subject, body: personalised, deliveryId: d.id,
               });
