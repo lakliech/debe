@@ -119,7 +119,7 @@ async function buildOnboarding(tenantId: string) {
       key: "profile",
       label: "Complete your campaign profile",
       description: "Candidate name, position and tagline.",
-      href: "/settings?tab=profile",
+      href: "/settings?tab=branding",
       done:
         !!branding &&
         branding.campaignName !== DEFAULT_CAMPAIGN_NAME &&

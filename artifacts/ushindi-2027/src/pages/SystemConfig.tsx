@@ -13,7 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { AlertCircle, Save, MapPin } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
-export default function SystemConfig() {
+export default function SystemConfig({ embedded = false }: { embedded?: boolean }) {
   const { data: config, isLoading } = useGetSystemConfig();
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -58,10 +58,12 @@ export default function SystemConfig() {
 
   return (
     <div className="space-y-6 max-w-4xl">
-      <div>
-        <h1 className="text-3xl font-extrabold tracking-tight text-foreground">System Configuration</h1>
-        <p className="text-muted-foreground mt-1">Global settings affecting all users.</p>
-      </div>
+      {!embedded && (
+        <div>
+          <h1 className="text-3xl font-extrabold tracking-tight text-foreground">System Configuration</h1>
+          <p className="text-muted-foreground mt-1">Global settings affecting all users.</p>
+        </div>
+      )}
 
       <div className="grid gap-6">
         <Card className="border-accent border-2">

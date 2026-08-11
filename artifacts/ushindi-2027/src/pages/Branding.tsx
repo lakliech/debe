@@ -82,7 +82,7 @@ function deriveSlug(): string | null {
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-export default function Branding() {
+export default function Branding({ embedded = false }: { embedded?: boolean }) {
   const { data: branding, isLoading } = useGetBranding();
   const updateBranding = useUpdateBranding();
   const qc = useQueryClient();
@@ -271,12 +271,14 @@ export default function Branding() {
 
   return (
     <div className="space-y-6 max-w-5xl">
-      <div>
-        <h1 className="text-3xl font-extrabold tracking-tight text-foreground">Branding &amp; Identity</h1>
-        <p className="text-muted-foreground mt-1">
-          Configure every public-facing name, colour, and contact detail. Changes take effect immediately — no code deployment needed.
-        </p>
-      </div>
+      {!embedded && (
+        <div>
+          <h1 className="text-3xl font-extrabold tracking-tight text-foreground">Branding &amp; Identity</h1>
+          <p className="text-muted-foreground mt-1">
+            Configure every public-facing name, colour, and contact detail. Changes take effect immediately — no code deployment needed.
+          </p>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* ── Left column: all form controls ── */}

@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSearch } from "wouter";
 import {
-  Settings as SettingsIcon, CreditCard, Palette, Globe, AlertTriangle,
+  Settings as SettingsIcon, CreditCard, Palette, Globe, AlertTriangle, Settings2, Plug,
   CheckCircle2, Clock, ArrowRight, ExternalLink, Loader2, AlertCircle,
   Trash2, ChevronRight, Users, Database, TrendingUp, Zap, Shield,
 } from "lucide-react";
@@ -28,6 +28,9 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import BrandingPage from "./Branding";
+import SystemConfigPage from "./SystemConfig";
+import IntegrationsPage from "./Integrations";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -119,6 +122,8 @@ const TABS = [
   { key: "plan", label: "Plan & Billing", icon: CreditCard },
   { key: "branding", label: "Branding", icon: Palette },
   { key: "domain", label: "Web Address", icon: Globe },
+  { key: "system", label: "System Config", icon: Settings2 },
+  { key: "integrations", label: "Integrations", icon: Plug },
   { key: "danger", label: "Danger Zone", icon: AlertTriangle },
 ] as const;
 
@@ -384,72 +389,6 @@ function PlanTab({ overview }: { overview: OverviewData }) {
           </AlertDescription>
         </Alert>
       )}
-    </div>
-  );
-}
-
-function BrandingTab({ overview }: { overview: OverviewData }) {
-  const { branding } = overview;
-  return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Campaign Branding</CardTitle>
-          <CardDescription>
-            A dedicated branding editor is available at{" "}
-            <a href={`${BASE}/settings/branding`} className="text-primary underline underline-offset-2 font-semibold">
-              /settings/branding
-            </a>
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {branding ? (
-            <div className="grid gap-3 md:grid-cols-2">
-              <div>
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Campaign Name</p>
-                <p className="font-semibold mt-1">{branding.campaignName}</p>
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Candidate</p>
-                <p className="font-semibold mt-1">{branding.candidateName}</p>
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Position</p>
-                <p className="font-semibold mt-1">{branding.positionTitle}</p>
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Party</p>
-                <p className="font-semibold mt-1">{branding.partyName}</p>
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Primary Color</p>
-                <div className="flex items-center gap-2 mt-1">
-                  <div
-                    className="w-6 h-6 rounded border border-border"
-                    style={{ backgroundColor: `hsl(${branding.primaryColor})` }}
-                  />
-                  <span className="font-mono text-xs">{branding.primaryColor}</span>
-                </div>
-              </div>
-              {branding.logoUrl && (
-                <div>
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Logo</p>
-                  <img src={branding.logoUrl} alt="Logo" className="h-8 mt-1" />
-                </div>
-              )}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground italic">No branding configured yet.</p>
-          )}
-          <Separator />
-          <Button asChild>
-            <a href={`${BASE}/settings/branding`}>
-              <Palette className="h-4 w-4 mr-2" />
-              Edit Branding
-            </a>
-          </Button>
-        </CardContent>
-      </Card>
     </div>
   );
 }
@@ -969,8 +908,10 @@ export default function Settings() {
 
           {activeTab === "plan" && <PlanTab overview={overview} />}
           {activeTab === "branding" && <ScopeCard overview={overview} />}
-          {activeTab === "branding" && <BrandingTab overview={overview} />}
+          {activeTab === "branding" && <BrandingPage embedded />}
           {activeTab === "domain" && <DomainTab overview={overview} />}
+          {activeTab === "system" && <SystemConfigPage embedded />}
+          {activeTab === "integrations" && <IntegrationsPage embedded />}
           {activeTab === "danger" && <DangerTab overview={overview} />}
         </div>
       </div>

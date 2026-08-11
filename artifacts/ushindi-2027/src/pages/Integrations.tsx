@@ -16,20 +16,22 @@ async function api<T = any>(path: string, init?: RequestInit): Promise<T> {
   return r.json();
 }
 
-export default function Integrations() {
+export default function Integrations({ embedded = false }: { embedded?: boolean }) {
   const status = useQuery({ queryKey: ["integrations"], queryFn: () => api("/") });
 
   return (
     <div className="space-y-6 pb-8 max-w-3xl">
-      <div>
-        <h1 className="text-2xl font-extrabold tracking-tight uppercase flex items-center gap-2">
-          <Plug className="h-6 w-6 text-primary" />Integrations
-        </h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          Connect your campaign's own M-PESA and WhatsApp Business accounts. Secrets are encrypted at rest
-          and never displayed again after saving — re-enter them to rotate.
-        </p>
-      </div>
+      {!embedded && (
+        <div>
+          <h1 className="text-2xl font-extrabold tracking-tight uppercase flex items-center gap-2">
+            <Plug className="h-6 w-6 text-primary" />Integrations
+          </h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            Connect your campaign's own M-PESA and WhatsApp Business accounts. Secrets are encrypted at rest
+            and never displayed again after saving — re-enter them to rotate.
+          </p>
+        </div>
+      )}
       {status.isLoading ? (
         <><Skeleton className="h-56 w-full" /><Skeleton className="h-56 w-full" /></>
       ) : (

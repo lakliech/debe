@@ -1,4 +1,4 @@
-import { Shield, Flag, Users, UserPlus, Activity, Settings, MapPin, Search, Menu, LogOut, ChevronRight, DollarSign, Megaphone, Library, Calendar, AlertTriangle, Settings2, ClipboardList, BarChart3, AlertOctagon, Scale, Globe, Download, Lock, Vote, Mail, Building2, ChevronsUpDown, Check, Radio, Plug, CreditCard, LifeBuoy, Ban, Inbox } from "lucide-react";
+import { Shield, Flag, Users, UserPlus, Activity, Settings, MapPin, Search, Menu, LogOut, ChevronRight, DollarSign, Megaphone, Library, Calendar, AlertTriangle, Settings2, ClipboardList, BarChart3, AlertOctagon, Scale, Globe, Download, Lock, Vote, Mail, Building2, ChevronsUpDown, Check, Radio, CreditCard, LifeBuoy, Ban, Inbox } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useClerk, useUser } from "@clerk/react";
 import { useQuery } from "@tanstack/react-query";
@@ -71,9 +71,6 @@ const electionNav = [
 // are easy to find. Geography moves to Platform (it is shared reference data).
 const campaignAdminNav = [
   { name: "Settings", href: "/settings", icon: Settings },
-  { name: "Branding", href: "/settings/branding", icon: Flag },
-  { name: "System Config", href: "/settings/system", icon: Settings },
-  { name: "Integrations", href: "/settings/integrations", icon: Plug },
   { name: "User Management", href: "/users", icon: Users },
   { name: "Audit Log", href: "/audit", icon: Search },
   { name: "Data Requests", href: "/data-requests", icon: Activity },

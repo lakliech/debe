@@ -22,9 +22,6 @@ import Users from "./pages/Users";
 import UserDetail from "./pages/UserDetail";
 import Roles from "./pages/Roles";
 import AuditLog from "./pages/AuditLog";
-import Branding from "./pages/Branding";
-import SystemConfig from "./pages/SystemConfig";
-import IntegrationsPage from "./pages/Integrations";
 import NotFound from "./pages/NotFound";
 
 // Public portal pages
@@ -394,15 +391,10 @@ function BrandingAwareClerkProvider() {
           <Route path="/settings">
             <ProtectedRoute component={SettingsPage} />
           </Route>
-          <Route path="/settings/branding">
-            <ProtectedRoute component={Branding} />
-          </Route>
-          <Route path="/settings/system">
-            <ProtectedRoute component={SystemConfig} />
-          </Route>
-          <Route path="/settings/integrations">
-            <ProtectedRoute component={IntegrationsPage} />
-          </Route>
+          {/* Legacy standalone routes → Settings tabs */}
+          <Route path="/settings/branding"><Redirect to="/settings?tab=branding" /></Route>
+          <Route path="/settings/system"><Redirect to="/settings?tab=system" /></Route>
+          <Route path="/settings/integrations"><Redirect to="/settings?tab=integrations" /></Route>
 
           {/* ── Admin (protected) — Task 2 new ── */}
           <Route path="/volunteers">
