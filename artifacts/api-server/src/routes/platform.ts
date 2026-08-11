@@ -39,6 +39,7 @@ import {
   auditLogsTable,
   emailLogsTable,
   platformEnquiriesTable,
+  platformMessagingConfigsTable,
 } from "@workspace/db";
 import { eq, sql, and, or, isNull, isNotNull, notExists, lt, gt, ne, ilike, desc, inArray } from "drizzle-orm";
 import { bustActorCache } from "../middlewares/rbac";
@@ -46,6 +47,8 @@ import { requireLevel } from "../middlewares/rbac";
 import { grantCampaignAdminByEmail } from "../lib/grantCampaignAdmin";
 import { recordPlatformAction } from "../lib/platformAudit";
 import { sendEmailAsync } from "../lib/email";
+import { encryptSecret } from "../lib/mpesa";
+import { dispatchPlatformMessage } from "../lib/commsDispatcher";
 import { platformUrl } from "../lib/stripe";
 import { z } from "zod";
 import { validate } from "../lib/validate";
@@ -1274,6 +1277,234 @@ router.get("/roles", requireAuth, requireLevel(0), async (_req: any, res: any) =
   try {
     const roles = await db.select().from(rolesTable).orderBy(rolesTable.level, rolesTable.name);
     res.json(roles);
+  } catch (err: any) {
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// ── Platform messaging channels (WhatsApp / SMS) ─────────────────────────────
+// The platform's OWN outbound channels, used for Debe → campaign-owner
+// messages — independent of any tenant's connected sender. Secrets are
+// write-only: the API returns `has*` flags, never token material.
+
+const MESSAGING_CHANNELS = ["whatsapp", "sms"] as const;
+
+type MessagingRow = typeof platformMessagingConfigsTable.$inferSelect;
+
+/** Secret-free view of a channel row. */
+function messagingView(row: MessagingRow | undefined) {
+  if (!row) return { configured: false, enabled: false };
+  return {
+    configured: true,
+    enabled: row.enabled,
+    phoneNumberId: row.phoneNumberId,
+    businessAccountId: row.businessAccountId,
+    hasAccessToken: !!row.accessToken,
+    senderId: row.senderId,
+    webhookUrl: row.webhookUrl,
+    hasWebhookToken: !!row.webhookToken,
+    updatedAt: row.updatedAt,
+  };
+}
+
+async function getMessagingRow(channel: string): Promise<MessagingRow | undefined> {
+  const [row] = await db
+    .select()
+    .from(platformMessagingConfigsTable)
+    .where(eq(platformMessagingConfigsTable.channel, channel))
+    .limit(1);
+  return row;
+}
+
+router.get("/messaging-integrations", requireAuth, requireLevel(0), async (_req: any, res: any) => {
+  try {
+    const rows = await db.select().from(platformMessagingConfigsTable);
+    const byChannel = new Map(rows.map((r) => [r.channel, r]));
+    res.json({ whatsapp: messagingView(byChannel.get("whatsapp")), sms: messagingView(byChannel.get("sms")) });
+  } catch (err: any) {
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+const platformWhatsappSchema = z.object({
+  phoneNumberId: z.string().trim().regex(/^\d{5,25}$/, "Phone number ID is numeric"),
+  businessAccountId: z.string().trim().max(50).optional(),
+  /** Required when first connecting; omit afterwards to keep the stored token. */
+  accessToken: z.string().trim().min(20).max(600).optional(),
+  enabled: z.boolean().default(true),
+});
+
+router.put("/messaging-integrations/whatsapp", requireAuth, requireLevel(0), async (req: any, res: any) => {
+  try {
+    const parsed = validate(platformWhatsappSchema, req.body, res);
+    if (!parsed) return;
+    const existing = await getMessagingRow("whatsapp");
+    if (!existing?.accessToken && !parsed.accessToken) {
+      return res.status(400).json({ error: "An access token is required to connect WhatsApp." });
+    }
+    const [row] = await db
+      .insert(platformMessagingConfigsTable)
+      .values({
+        channel: "whatsapp",
+        enabled: parsed.enabled,
+        phoneNumberId: parsed.phoneNumberId,
+        businessAccountId: parsed.businessAccountId ?? null,
+        accessToken: parsed.accessToken ? encryptSecret(parsed.accessToken) : null,
+      })
+      .onConflictDoUpdate({
+        target: platformMessagingConfigsTable.channel,
+        set: {
+          enabled: parsed.enabled,
+          phoneNumberId: parsed.phoneNumberId,
+          businessAccountId: parsed.businessAccountId ?? null,
+          // Token is write-only: only replaced when a new one is supplied.
+          ...(parsed.accessToken ? { accessToken: encryptSecret(parsed.accessToken) } : {}),
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    await recordPlatformAction(req, {
+      action: "platform.messaging.configure",
+      resource: "messaging_channel",
+      resourceId: "whatsapp",
+      details: { enabled: row.enabled, phoneNumberId: row.phoneNumberId },
+    });
+    res.json(messagingView(row));
+  } catch (err: any) {
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+/**
+ * SSRF guard for the SMS relay URL: the server POSTs to this with a bearer
+ * token, so it must be a public HTTPS endpoint — no embedded credentials
+ * (they would leak via GET/audit), no loopback/private/link-local hosts.
+ */
+function isSafeRelayUrl(u: string): boolean {
+  try {
+    const parsed = new URL(u);
+    if (parsed.protocol !== "https:") return false;
+    if (parsed.username || parsed.password) return false;
+    const host = parsed.hostname.toLowerCase();
+    if (
+      /^(localhost|0\.0\.0\.0|127\.|10\.|192\.168\.|169\.254\.|::1|\[::1\])/.test(host) ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+      host.endsWith(".local") ||
+      host.endsWith(".internal")
+    ) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const platformSmsSchema = z.object({
+  senderId: z.string().trim().max(32).optional(),
+  /** Required when first connecting; omit afterwards to keep the stored relay URL. */
+  webhookUrl: z
+    .string()
+    .trim()
+    .url()
+    .max(500)
+    .refine(isSafeRelayUrl, "Webhook URL must be a public HTTPS address without embedded credentials.")
+    .optional(),
+  /** Required when first connecting; omit afterwards to keep the stored token. */
+  webhookToken: z.string().trim().min(8).max(300).optional(),
+  enabled: z.boolean().default(true),
+});
+
+router.put("/messaging-integrations/sms", requireAuth, requireLevel(0), async (req: any, res: any) => {
+  try {
+    const parsed = validate(platformSmsSchema, req.body, res);
+    if (!parsed) return;
+    const existing = await getMessagingRow("sms");
+    if (!existing?.webhookUrl && !parsed.webhookUrl) {
+      return res.status(400).json({ error: "A webhook URL is required to connect SMS." });
+    }
+    if (!existing?.webhookToken && !parsed.webhookToken) {
+      return res.status(400).json({ error: "A webhook bearer token is required to connect SMS." });
+    }
+    const [row] = await db
+      .insert(platformMessagingConfigsTable)
+      .values({
+        channel: "sms",
+        enabled: parsed.enabled,
+        senderId: parsed.senderId ?? null,
+        webhookUrl: parsed.webhookUrl ?? null,
+        webhookToken: parsed.webhookToken ? encryptSecret(parsed.webhookToken) : null,
+      })
+      .onConflictDoUpdate({
+        target: platformMessagingConfigsTable.channel,
+        set: {
+          enabled: parsed.enabled,
+          ...(parsed.senderId !== undefined ? { senderId: parsed.senderId } : {}),
+          ...(parsed.webhookUrl ? { webhookUrl: parsed.webhookUrl } : {}),
+          ...(parsed.webhookToken ? { webhookToken: encryptSecret(parsed.webhookToken) } : {}),
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    await recordPlatformAction(req, {
+      action: "platform.messaging.configure",
+      resource: "messaging_channel",
+      resourceId: "sms",
+      details: { enabled: row.enabled, senderId: row.senderId, webhookUrl: row.webhookUrl },
+    });
+    res.json(messagingView(row));
+  } catch (err: any) {
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+router.delete("/messaging-integrations/:channel", requireAuth, requireLevel(0), async (req: any, res: any) => {
+  try {
+    const channel = req.params.channel as string;
+    if (!(MESSAGING_CHANNELS as readonly string[]).includes(channel)) {
+      return res.status(400).json({ error: "Unknown channel" });
+    }
+    const existing = await getMessagingRow(channel);
+    if (existing) {
+      await db.delete(platformMessagingConfigsTable).where(eq(platformMessagingConfigsTable.channel, channel));
+      await recordPlatformAction(req, {
+        action: "platform.messaging.disconnect",
+        resource: "messaging_channel",
+        resourceId: channel,
+        prior: messagingView(existing) as Record<string, unknown>,
+      });
+    }
+    res.json({ configured: false, enabled: false });
+  } catch (err: any) {
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+const messagingTestSchema = z.object({
+  to: z.string().trim().min(8).max(32),
+  body: z.string().trim().min(1).max(500).optional(),
+});
+
+router.post("/messaging-integrations/:channel/test", requireAuth, requireLevel(0), async (req: any, res: any) => {
+  try {
+    const channel = req.params.channel as string;
+    if (!(MESSAGING_CHANNELS as readonly string[]).includes(channel)) {
+      return res.status(400).json({ error: "Unknown channel" });
+    }
+    const parsed = validate(messagingTestSchema, req.body, res);
+    if (!parsed) return;
+    const result = await dispatchPlatformMessage({
+      channel: channel as "whatsapp" | "sms",
+      to: parsed.to,
+      body: parsed.body ?? "Test message from the Debe platform.",
+    });
+    if (!result.ok) return res.status(502).json({ ok: false, error: result.error ?? "Send failed" });
+    res.json({ ok: true, providerMessageId: result.providerMessageId });
   } catch (err: any) {
     logger.error({ err }, "request failed");
     res.status(500).json({ error: "Something went wrong. Please try again." });

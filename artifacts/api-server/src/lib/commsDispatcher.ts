@@ -16,7 +16,7 @@ import { logger } from "./logger";
 import { logActivity } from "./activityFeed";
 import { sendWhatsAppText, whatsappCloudConfigured } from "./whatsapp";
 import { decryptSecret } from "./mpesa";
-import { tenantWhatsappConfigsTable } from "@workspace/db";
+import { tenantWhatsappConfigsTable, platformMessagingConfigsTable } from "@workspace/db";
 import { db } from "@workspace/db";
 import {
   scheduledMessagesTable,
@@ -39,16 +39,15 @@ function webhookFor(channel: string): string | null {
 
 async function sendViaWebhook(
   url: string,
-  payload: { to: string; channel: string; subject?: string | null; body: string; deliveryId: string },
+  payload: { to: string; channel: string; subject?: string | null; body: string; senderId?: string; deliveryId: string },
+  token: string | undefined = process.env.COMMS_WEBHOOK_TOKEN,
 ): Promise<{ ok: boolean; providerMessageId?: string; error?: string }> {
   try {
     const res = await fetch(url, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        ...(process.env.COMMS_WEBHOOK_TOKEN
-          ? { authorization: `Bearer ${process.env.COMMS_WEBHOOK_TOKEN}` }
-          : {}),
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(10_000),
@@ -59,6 +58,51 @@ async function sendViaWebhook(
   } catch (err: any) {
     return { ok: false, error: err?.message ?? "provider unreachable" };
   }
+}
+
+/**
+ * Send a platform-originated message (Debe → campaign owners) over the
+ * platform's OWN channel, configured at /platform/integrations and stored in
+ * platform_messaging_configs. Each field falls back to the platform env
+ * config (WHATSAPP_* / COMMS_SMS_WEBHOOK_URL) so env-only deployments keep
+ * working; a row explicitly set to disabled refuses the send.
+ */
+export async function dispatchPlatformMessage(args: {
+  channel: "whatsapp" | "sms";
+  to: string;
+  body: string;
+  subject?: string;
+}): Promise<{ ok: boolean; providerMessageId?: string; error?: string }> {
+  const [cfg] = await db
+    .select()
+    .from(platformMessagingConfigsTable)
+    .where(eq(platformMessagingConfigsTable.channel, args.channel))
+    .limit(1);
+  if (cfg && !cfg.enabled) {
+    return { ok: false, error: `Platform ${args.channel} channel is disabled` };
+  }
+
+  if (args.channel === "whatsapp") {
+    // sendWhatsAppText falls back to the WHATSAPP_* env config per argument.
+    const token = cfg?.accessToken ? decryptSecret(cfg.accessToken) : undefined;
+    return sendWhatsAppText(args.to, args.body, cfg?.phoneNumberId ?? undefined, token);
+  }
+
+  const url = cfg?.webhookUrl?.trim() || webhookFor("sms");
+  if (!url) return { ok: false, error: "Platform SMS channel is not configured" };
+  const token = cfg?.webhookToken ? decryptSecret(cfg.webhookToken) : undefined;
+  return sendViaWebhook(
+    url,
+    {
+      to: args.to,
+      channel: "sms",
+      subject: args.subject ?? null,
+      body: args.body,
+      senderId: cfg?.senderId ?? undefined,
+      deliveryId: "platform-message",
+    },
+    token,
+  );
 }
 
 type ChannelProvider = { kind: "wa-cloud" } | { kind: "webhook"; url: string };

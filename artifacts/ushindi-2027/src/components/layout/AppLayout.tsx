@@ -1,4 +1,4 @@
-import { Shield, Flag, Users, UserPlus, Activity, Settings, MapPin, Search, Menu, LogOut, ChevronRight, DollarSign, Megaphone, Library, Calendar, AlertTriangle, Settings2, ClipboardList, BarChart3, AlertOctagon, Scale, Globe, Download, Lock, Vote, Mail, Building2, ChevronsUpDown, Check, Radio, CreditCard, LifeBuoy, Ban, Inbox } from "lucide-react";
+import { Shield, Flag, Users, UserPlus, Activity, Settings, MapPin, Search, Menu, LogOut, ChevronRight, DollarSign, Megaphone, Library, Calendar, AlertTriangle, Settings2, ClipboardList, BarChart3, AlertOctagon, Scale, Globe, Download, Lock, Vote, Mail, Building2, ChevronsUpDown, Check, Radio, CreditCard, LifeBuoy, Ban, Inbox, MessageSquare } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useClerk, useUser } from "@clerk/react";
 import { useQuery } from "@tanstack/react-query";
@@ -86,6 +86,7 @@ const campaignAdminNav = [
 const platformNav = [
   { name: "Platform Admin", href: "/platform-admin", icon: Building2 },
   { name: "Enquiries Inbox", href: "/platform/enquiries", icon: Inbox },
+  { name: "Messaging Channels", href: "/platform/integrations", icon: MessageSquare },
   { name: "Billing & Revenue", href: "/platform/billing", icon: CreditCard },
   { name: "Tenant Lifecycle", href: "/platform/lifecycle", icon: LifeBuoy },
   { name: "User Search", href: "/platform/users", icon: Search },
