@@ -11,4 +11,5 @@
 - [Drizzle schema sync](drizzle-schema-sync.md) — push from schema files is the path (journal drift makes migrate/generate unsafe); non-TTY push prompts fail, so apply narrow ALTERs via SQL directly.
 - [Drizzle error wrapping](drizzle-error-cause.md) — constraint details (duplicate key etc.) live on `err.cause`, never `err.message`; classifying on the wrapper message silently never matches.
 - [api-zod codegen broken](api-zod-codegen-broken.md) — spec codegen emits zod-v4 syntax the workspace can't compile; revert lib/api-zod and hand-patch it to match the spec.
+- [API campaign neutrality](api-campaign-neutrality.md) — server text must come from tenant branding or stay generic; a hardcoded campaign name leaks into other tenants' portals and messages.
 - [Geography seed joins](seed-positional-joins.md) — match constituencies by name, never position; upserts must update FK links on conflict or stale links survive reseeds.

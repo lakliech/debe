@@ -21,6 +21,7 @@ import {
   agentCheckInsTable,
   transportAssignmentsTable,
   agentTrackingAlertsTable,
+  tenantsTable,
 } from "@workspace/db";
 import { eq, and, sql, isNotNull, isNull, lt, inArray } from "drizzle-orm";
 import { sendWhatsappChannel } from "./commsDispatcher";
@@ -108,6 +109,12 @@ async function nudgeMissingAgents(tenantId: string, electionId: string, nairobiD
 
   let nudged = 0;
   const kind = `checkin_nudge:${checkInType}:${nairobiDate}`;
+  // Nudges are tenant-scoped, so the sender label comes from the tenant's own
+  // name — never a hardcoded campaign identity.
+  const [tenant] = missing.length
+    ? await db.select({ name: tenantsTable.name }).from(tenantsTable).where(eq(tenantsTable.id, tenantId)).limit(1)
+    : [];
+  const senderLabel = tenant?.name?.trim() ? `${tenant.name.trim()} Command Center` : "Command Center";
   for (const agent of missing) {
     if (!agent.phoneNumber) continue;
     const claimId = await db.transaction(async (tx) => {
@@ -130,7 +137,7 @@ async function nudgeMissingAgents(tenantId: string, electionId: string, nairobiD
     });
     if (!claimId) continue;
 
-    const message = `Ushindi Command Center: you have not checked in ("${checkInType}") at your polling station. Please confirm your status by checking in, or reply if you need help.`;
+    const message = `${senderLabel}: you have not checked in ("${checkInType}") at your polling station. Please confirm your status by checking in, or reply if you need help.`;
     const res = await sendWhatsappChannel(tenantId, agent.phoneNumber, message).catch((err) => ({ ok: false, error: String(err) }));
     if (res.ok) {
       nudged += 1;

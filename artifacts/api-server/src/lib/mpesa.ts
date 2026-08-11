@@ -8,7 +8,8 @@
  * Required environment variables for live mode:
  *   MPESA_CONSUMER_KEY        — Daraja API consumer key
  *   MPESA_CONSUMER_SECRET     — Daraja API consumer secret
- *   MPESA_SHORTCODE           — Business shortcode (campaign's own Paybill)
+ *   MPESA_SHORTCODE           — Business shortcode (Paybill/Till), configured per
+ *                               deployment via environment variables
  *   MPESA_PASSKEY             — Lipa Na M-Pesa passkey from Daraja portal
  *   MPESA_CALLBACK_URL        — Public HTTPS URL for STK callbacks
  *   MPESA_ENV                 — "sandbox" | "production" (default: "sandbox")
@@ -66,7 +67,7 @@ export function decryptSecret(stored: string): string {
 export interface StkPushRequest {
   phoneNumber: string;        // Format: 254XXXXXXXXX
   amount: number;             // KES amount (min 1)
-  accountReference: string;   // e.g. "LIND-20271025-0001"
+  accountReference: string;   // e.g. "CAMPAIGN-20271025-0001"
   transactionDesc: string;    // Short description shown to user
 }
 

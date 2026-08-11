@@ -682,12 +682,24 @@ router.get("/aspirants/:id/page", async (req: any, res: any) => {
 
     if (!aspirant) return res.status(404).send("Aspirant not found");
 
+    // Crawlers do not run JS, so the campaign name must come from this tenant's
+    // stored branding — never from a hardcoded campaign identity.
+    const [pageBranding] = await db
+      .select({ campaignName: brandingTable.campaignName })
+      .from(brandingTable)
+      .where(tenantFilter(brandingTable, tenantId))
+      .limit(1);
+    const campaignName = pageBranding?.campaignName?.trim() || null;
+
     const posLabel   = POSITION_LABELS[aspirant.position] ?? aspirant.position;
     const location   = [aspirant.constituency, aspirant.countyName].filter(Boolean).join(", ");
     const titleText  = `${aspirant.fullName} — ${posLabel}${location ? ` · ${location}` : ""}`;
+    const fallbackDesc = campaignName
+      ? `Approved aspirant for ${posLabel} under ${campaignName}.`
+      : `Approved aspirant for ${posLabel}.`;
     const descText   = aspirant.statementOfIntent
       ? aspirant.statementOfIntent.slice(0, 200)
-      : `Approved aspirant for ${posLabel} under the Linda Mwananchi movement.`;
+      : fallbackDesc;
 
     // Canonical URL (this page itself) — what crawlers see.
     const origin     = `${req.protocol}://${req.get("host")}`;

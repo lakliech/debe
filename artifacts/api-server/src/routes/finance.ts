@@ -81,6 +81,13 @@ const canManageFinance = requireRoles(["campaign-exec-director","finance-manager
 const canApproveExpenditure = requireRoles(["campaign-exec-director","national-campaign-manager","finance-manager"]);
 const canExportFinance = requireRoles(["campaign-exec-director","finance-manager","campaign-treasurer","data-protection-officer"]);
 
+/**
+ * Neutral M-Pesa account reference used when the caller does not supply one.
+ * Must stay campaign-agnostic — the platform is multi-tenant, so no single
+ * campaign's name may leak into another tenant's payment records.
+ */
+const DEFAULT_ACCOUNT_REFERENCE = "CAMPAIGN";
+
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
 /** Drizzle `numeric` columns accept only string values, not numbers. */
@@ -180,7 +187,7 @@ router.post("/mpesa/stk-push", async (req: any, res: any) => {
 
     const stkRes = await mpesa.initiateStkPush({
       phoneNumber, amount: Number(amount),
-      accountReference: accountReference ?? "LINDA-MWANANCHI",
+      accountReference: accountReference ?? DEFAULT_ACCOUNT_REFERENCE,
       transactionDesc: transactionDesc ?? "Campaign Contribution",
     });
 
@@ -193,7 +200,7 @@ router.post("/mpesa/stk-push", async (req: any, res: any) => {
       merchantRequestId: stkRes.merchantRequestId,
       checkoutRequestId: stkRes.checkoutRequestId,
       phoneNumber, amount: String(amount),
-      accountReference: accountReference ?? "LINDA-MWANANCHI",
+      accountReference: accountReference ?? DEFAULT_ACCOUNT_REFERENCE,
       transactionDesc: transactionDesc ?? "Campaign Contribution",
       status: "pending",
     }).returning();
