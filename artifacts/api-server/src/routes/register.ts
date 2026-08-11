@@ -15,6 +15,7 @@
  */
 
 import { Router } from "express";
+import rateLimit from "express-rate-limit";
 import { getAuth } from "@clerk/express";
 import {
   db,
@@ -61,6 +62,36 @@ function requireAuth(req: any, res: any, next: any) {
   next();
 }
 
+/**
+ * Registration creates a tenant, a trial and an email — expensive, and abusable
+ * for slug-squatting. Cap it hard per IP; a genuine founder registers once.
+ * req.ip is the proxy-validated client address (app.ts sets trust proxy).
+ */
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.ip ?? "unknown",
+  message: {
+    error: "Too many registration attempts from this device — please wait an hour and try again.",
+  },
+});
+
+/**
+ * The form checks availability on every debounced keystroke, so this needs a
+ * far higher ceiling than a submission — high enough for genuine typing, low
+ * enough that nobody enumerates the full tenant list from it.
+ */
+const slugCheckLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.ip ?? "unknown",
+  message: { error: "Too many availability checks — please wait a few minutes and try again." },
+});
+
 function slugify(input: string): string {
   return input
     .toLowerCase()
@@ -92,9 +123,11 @@ async function slugTaken(slug: string): Promise<boolean> {
   return !!row;
 }
 
-// ── GET /api/register/check-slug?slug=my-campaign ────────────────────────────
+// ── GET /api/register/campaign/check-slug?slug=my-campaign ───────────────────
 // Live availability check for the registration form.
-router.get("/check-slug", requireAuth, async (req: any, res: any) => {
+// Also served at /api/register/check-slug — the original path, kept so any
+// client built against it keeps working.
+const checkSlugHandler = async (req: any, res: any) => {
   try {
     const raw = String(req.query.slug ?? "");
     const slug = slugify(raw);
@@ -110,7 +143,10 @@ router.get("/check-slug", requireAuth, async (req: any, res: any) => {
     logger.error({ err }, "request failed");
     res.status(500).json({ error: "Something went wrong. Please try again." });
   }
-});
+};
+
+router.get("/campaign/check-slug", slugCheckLimiter, requireAuth, checkSlugHandler);
+router.get("/check-slug", slugCheckLimiter, requireAuth, checkSlugHandler);
 
 // ── GET /api/register/status ─────────────────────────────────────────────────
 // Does the signed-in user already belong to a campaign? Drives the post-signup
@@ -148,8 +184,10 @@ router.get("/status", requireAuth, async (req: any, res: any) => {
   }
 });
 
-// ── POST /api/register ───────────────────────────────────────────────────────
-router.post("/", requireAuth, async (req: any, res: any) => {
+// ── POST /api/register/campaign ──────────────────────────────────────────────
+// Also served at POST /api/register — the original path, kept so any client
+// built against it keeps working.
+const registerCampaignHandler = async (req: any, res: any) => {
   const {
     campaignName,
     slug: rawSlug,
@@ -347,6 +385,9 @@ router.post("/", requireAuth, async (req: any, res: any) => {
 
     res.status(500).json({ error: "We couldn't create your campaign. Please try again." });
   }
-});
+};
+
+router.post("/campaign", registerLimiter, requireAuth, registerCampaignHandler);
+router.post("/", registerLimiter, requireAuth, registerCampaignHandler);
 
 export default router;

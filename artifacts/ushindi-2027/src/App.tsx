@@ -341,6 +341,8 @@ function BrandingAwareClerkProvider() {
           <Route path="/pricing" component={PricingPage} />
           {/* Self-serve signup renders its own shell — the founder has no campaign yet,
               so it must not be wrapped in AppLayout. */}
+          <Route path="/register/campaign" component={RegisterCampaignPage} />
+          {/* /register is the older short link — kept so existing CTAs work. */}
           <Route path="/register" component={RegisterCampaignPage} />
 
           {/* ── Public portal (no auth required) ── */}

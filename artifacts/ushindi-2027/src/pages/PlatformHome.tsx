@@ -208,6 +208,18 @@ export default function PlatformHome() {
             <p className="text-sm text-white/60 mt-6">
               Free trial • No credit card required • Live in 15 minutes
             </p>
+            {/* Self-serve entry point: sign-up creates the account, this creates
+                the campaign. Returning founders skip straight here. */}
+            <p className="text-sm text-white/70 mt-3">
+              Already have an account?{" "}
+              <Link
+                href="/register/campaign"
+                className="font-bold text-[hsl(25,95%,60%)] underline underline-offset-4 hover:text-white transition-colors"
+                data-testid="link-register-campaign"
+              >
+                Register your campaign
+              </Link>
+            </p>
           </div>
           <div className="relative">
             <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-lg p-8 space-y-6">
@@ -550,7 +562,7 @@ export default function PlatformHome() {
               <div className="font-bold text-sm uppercase tracking-wider mb-4">Platform</div>
               <div className="space-y-2 text-sm">
                 <Link href="/sign-in" className="block text-white/70 hover:text-white transition-colors">Sign In</Link>
-                <Link href="/register" className="block text-white/70 hover:text-white transition-colors">Start Free Trial</Link>
+                <Link href="/register/campaign" className="block text-white/70 hover:text-white transition-colors">Register your campaign</Link>
               </div>
             </div>
             <div>

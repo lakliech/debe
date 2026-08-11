@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useUser, Show } from "@clerk/react";
+import { Link } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Loader2, Check, ChevronRight, AlertCircle, Sparkles, Flag, User, Calendar, Palette, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -94,8 +95,9 @@ export default function RegisterCampaign() {
   // Slug availability check (debounced)
   const [slugToCheck, setSlugToCheck] = useState("");
   const { data: slugCheck } = useQuery<SlugCheck>({
-    queryKey: ["/api/register/check-slug", slugToCheck],
-    queryFn: () => apiFetch(`/api/register/check-slug?slug=${encodeURIComponent(slugToCheck)}`),
+    queryKey: ["/api/register/campaign/check-slug", slugToCheck],
+    queryFn: () =>
+      apiFetch(`/api/register/campaign/check-slug?slug=${encodeURIComponent(slugToCheck)}`),
     enabled: slugToCheck.length > 0,
   });
 
@@ -129,7 +131,7 @@ export default function RegisterCampaign() {
   // Submit mutation
   const register = useMutation({
     mutationFn: () =>
-      apiFetch("/api/register", {
+      apiFetch("/api/register/campaign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -237,6 +239,17 @@ export default function RegisterCampaign() {
             <Button asChild>
               <a href={`${BASE}/sign-up`}>Sign Up</a>
             </Button>
+            {/* Evaluating rather than committing — the demo path stays open. */}
+            <p className="text-xs text-muted-foreground">
+              Want to look around first?{" "}
+              <Link
+                href="/request-access"
+                className="font-semibold text-primary underline underline-offset-2"
+                data-testid="link-request-demo-signedout"
+              >
+                Request access to a demo
+              </Link>
+            </p>
           </div>
         </div>
       </Show>
@@ -607,6 +620,18 @@ export default function RegisterCampaign() {
                   )}
                 </div>
               </div>
+
+                <p className="mt-4 text-center text-xs text-muted-foreground">
+                  Not ready to register?{" "}
+                  <Link
+                    href="/request-access"
+                    className="font-semibold text-primary underline underline-offset-2"
+                    data-testid="link-request-demo"
+                  >
+                    Request access to a demo
+                  </Link>{" "}
+                  and evaluate the platform first.
+                </p>
             </div>
           </div>
         )}

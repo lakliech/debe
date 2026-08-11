@@ -497,7 +497,7 @@ export default function Pricing() {
               <div className="font-bold text-sm uppercase tracking-wider mb-4">Platform</div>
               <div className="space-y-2 text-sm">
                 <Link href="/sign-in" className="block text-white/70 hover:text-white transition-colors">Sign In</Link>
-                <Link href="/register" className="block text-white/70 hover:text-white transition-colors">Start Free Trial</Link>
+                <Link href="/register/campaign" className="block text-white/70 hover:text-white transition-colors">Register your campaign</Link>
               </div>
             </div>
             <div>
