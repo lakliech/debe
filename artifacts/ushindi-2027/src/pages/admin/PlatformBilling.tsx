@@ -1,11 +1,16 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import {
   DollarSign, TrendingUp, Users, AlertTriangle, Calendar, Mail,
   CheckCircle2, XCircle, Clock, ChevronDown, ChevronUp, Loader2,
-  Search, Filter, Crown, Zap,
+  Search, Filter, Crown, Zap, Download, ArrowUp, ArrowDown, ArrowUpDown,
   Link2, Copy,
 } from "lucide-react";
+import {
+  Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer,
+  Tooltip, XAxis, YAxis,
+} from "recharts";
 import { format, formatDistanceToNow } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,13 +58,15 @@ interface BillingSummary {
   atRiskCampaigns: number;
   atRiskMrrKes: number;
   newCampaignsLast30Days: number;
+  growthPct: number;
   averageRevenuePerPayingKes: number;
   byPlan: { free: number; pro: number; enterprise: number };
-  atRisk: Array<{ id: number; name: string; slug: string; reason: string; trialEndsAt: string | null }>;
+  planDistribution: Array<{ tier: string; label: string; count: number; mrrKes: number }>;
+  atRisk: Array<{ id: string; name: string; slug: string; riskReason: string | null; trialEndsAt: string | null }>;
 }
 
 interface Tenant {
-  id: number;
+  id: string;
   name: string;
   slug: string;
   campaignName: string | null;
@@ -75,14 +82,16 @@ interface Tenant {
   lifecycleState: string;
   isSuspended: boolean;
   userCount: number;
+  agentCount: number;
+  lastActivityAt: string | null;
   createdAt: string;
   atRisk: boolean;
   riskReason: string | null;
 }
 
 interface EmailLog {
-  id: number;
-  tenantId: number;
+  id: string;
+  tenantId: string;
   tenantName: string;
   recipient: string;
   template: string;
@@ -124,12 +133,17 @@ function MetricCard({ title, value, subtitle, icon: Icon, trend }: {
   );
 }
 
+/** Business numbers go stale quietly — poll so an open tab stays truthful. */
+const REFRESH_MS = 5 * 60_000;
 export default function PlatformBilling() {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const [, navigate] = useLocation();
 
   const [filter, setFilter] = useState<"all" | "paying" | "trial" | "at-risk" | "free">("all");
   const [searchTerm, setSearchTerm] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("created");
+  const [sortDesc, setSortDesc] = useState(true);
   const [grantDialogOpen, setGrantDialogOpen] = useState(false);
   const [selectedTenant, setSelectedTenant] = useState<Tenant | null>(null);
   const [grantPlan, setGrantPlan] = useState<"free" | "pro" | "enterprise">("pro");
@@ -143,11 +157,14 @@ export default function PlatformBilling() {
   const { data: summary, isLoading: summaryLoading } = useQuery<BillingSummary>({
     queryKey: ["/api/platform/billing/summary"],
     queryFn: () => apiFetch("/api/platform/billing/summary"),
+    refetchInterval: REFRESH_MS,
   });
 
   const { data: tenants, isLoading: tenantsLoading } = useQuery<{ tenants: Tenant[]; total: number }>({
-    queryKey: ["/api/platform/billing/tenants", filter],
-    queryFn: () => apiFetch(`/api/platform/billing/tenants?filter=${filter}`),
+    queryKey: ["/api/platform/billing/tenants", filter, sortKey, sortDesc],
+    queryFn: () =>
+      apiFetch(`/api/platform/billing/tenants?filter=${filter}&sort=${sortDesc ? "-" : ""}${sortKey}`),
+    refetchInterval: REFRESH_MS,
   });
 
   const { data: emails, isLoading: emailsLoading } = useQuery<{
@@ -159,7 +176,7 @@ export default function PlatformBilling() {
   });
 
   const grantPlanMutation = useMutation({
-    mutationFn: ({ id, plan, months }: { id: number; plan: string; months?: number }) =>
+    mutationFn: ({ id, plan, months }: { id: string; plan: string; months?: number }) =>
       apiFetch(`/api/platform/tenants/${id}/plan`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -176,7 +193,7 @@ export default function PlatformBilling() {
   });
 
   const checkoutLinkMutation = useMutation({
-    mutationFn: ({ id, tier }: { id: number; tier: string }) =>
+    mutationFn: ({ id, tier }: { id: string; tier: string }) =>
       apiFetch(`/api/platform/tenants/${id}/checkout-link`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -204,6 +221,61 @@ export default function PlatformBilling() {
     t.slug.toLowerCase().includes(searchTerm.toLowerCase()) ||
     t.campaignName?.toLowerCase().includes(searchTerm.toLowerCase())
   ) ?? [];
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDesc((d) => !d);
+    } else {
+      setSortKey(key);
+      setSortDesc(key !== "name"); // names read A→Z; numbers read high→low
+    }
+  };
+
+  // Exports the table exactly as the operator sees it (filter + search applied).
+  const exportCsv = () => {
+    const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const header = [
+      "Campaign", "Slug", "Plan", "Trial days left", "Stripe status",
+      "Lifecycle", "Agents", "Users", "Last activity", "MRR (KES)",
+      "At risk", "Risk reason", "Created",
+    ];
+    const lines = filteredTenants.map((t) =>
+      [
+        t.name, t.slug, t.planLabel,
+        t.isTrial && t.trialDaysLeft !== null ? t.trialDaysLeft : "",
+        t.subscriptionStatus ?? "", t.lifecycleState,
+        t.agentCount, t.userCount,
+        t.lastActivityAt ? new Date(t.lastActivityAt).toISOString() : "never",
+        t.mrrKes, t.atRisk ? "yes" : "no", t.riskReason ?? "",
+        new Date(t.createdAt).toISOString().slice(0, 10),
+      ].map(esc).join(","),
+    );
+    const blob = new Blob([[header.map(esc).join(","), ...lines].join("\n")], {
+      type: "text/csv;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `platform-billing-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const SortHeader = ({ label, k, className }: { label: string; k: SortKey; className?: string }) => (
+    <th
+      className={cn("px-4 py-3 cursor-pointer select-none hover:text-foreground", className)}
+      onClick={() => toggleSort(k)}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {sortKey === k ? (
+          sortDesc ? <ArrowDown className="h-3 w-3" /> : <ArrowUp className="h-3 w-3" />
+        ) : (
+          <ArrowUpDown className="h-3 w-3 opacity-40" />
+        )}
+      </span>
+    </th>
+  );
 
   return (
     <div className="flex flex-col h-full">
@@ -245,8 +317,9 @@ export default function PlatformBilling() {
               <MetricCard
                 title="Total Campaigns"
                 value={summary.totalCampaigns}
-                subtitle={`${summary.payingCampaigns} paying · ${summary.trialCampaigns} trial · ${summary.byPlan.free} free`}
+                subtitle={`${summary.payingCampaigns} paying · ${summary.trialCampaigns} trial · ${summary.byPlan.free} free — ${summary.newCampaignsLast30Days} new this month (${summary.growthPct >= 0 ? "+" : ""}${summary.growthPct}%)`}
                 icon={Users}
+                trend={summary.growthPct > 0 ? "up" : summary.growthPct < 0 ? "down" : "neutral"}
               />
               <MetricCard
                 title="Trial Pipeline"
@@ -276,7 +349,7 @@ export default function PlatformBilling() {
                       <div key={tenant.id} className="flex items-center justify-between text-sm border border-amber-200 bg-white rounded p-2">
                         <div>
                           <p className="font-semibold">{tenant.name}</p>
-                          <p className="text-xs text-muted-foreground">{tenant.reason}</p>
+                          <p className="text-xs text-muted-foreground">{tenant.riskReason}</p>
                         </div>
                         {tenant.trialEndsAt && (
                           <Badge variant="outline" className="bg-amber-100 text-amber-700 border-amber-200">
@@ -296,25 +369,44 @@ export default function PlatformBilling() {
               </Card>
             )}
 
-            {/* Plan breakdown */}
+            {/* Plan distribution — count and MRR by tier */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Campaigns by Plan</CardTitle>
+                <CardTitle className="text-base">Plan Distribution</CardTitle>
+                <CardDescription>
+                  Campaigns per tier vs the MRR each tier contributes
+                </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="text-center">
-                    <p className="text-2xl font-black">{summary.byPlan.free}</p>
-                    <p className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Free</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-2xl font-black">{summary.byPlan.pro}</p>
-                    <p className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Pro</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-2xl font-black">{summary.byPlan.enterprise}</p>
-                    <p className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Enterprise</p>
-                  </div>
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={summary.planDistribution} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" vertical={false} />
+                      <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+                      <YAxis
+                        yAxisId="count"
+                        orientation="left"
+                        allowDecimals={false}
+                        tick={{ fontSize: 12 }}
+                        width={32}
+                      />
+                      <YAxis
+                        yAxisId="mrr"
+                        orientation="right"
+                        tick={{ fontSize: 12 }}
+                        width={72}
+                        tickFormatter={(v: number) => `${Math.round(v / 1000)}k`}
+                      />
+                      <Tooltip
+                        formatter={(value: number, name: string) =>
+                          name === "MRR (KES)" ? [`KES ${value.toLocaleString()}`, name] : [value, name]
+                        }
+                      />
+                      <Legend />
+                      <Bar yAxisId="count" dataKey="count" name="Campaigns" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                      <Bar yAxisId="mrr" dataKey="mrrKes" name="MRR (KES)" fill="hsl(var(--primary) / 0.35)" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
                 </div>
               </CardContent>
             </Card>
@@ -430,6 +522,15 @@ export default function PlatformBilling() {
                     <SelectItem value="free">Free</SelectItem>
                   </SelectContent>
                 </Select>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={exportCsv}
+                  disabled={filteredTenants.length === 0}
+                >
+                  <Download className="h-3.5 w-3.5 mr-1.5" />
+                  Export CSV
+                </Button>
               </div>
             </div>
           </CardHeader>
@@ -447,18 +548,25 @@ export default function PlatformBilling() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/20 text-xs font-black uppercase tracking-wider text-muted-foreground">
-                      <th className="px-4 py-3 text-left">Campaign</th>
+                      <SortHeader label="Campaign" k="name" className="text-left" />
                       <th className="px-4 py-3 text-left">Plan</th>
-                      <th className="px-4 py-3 text-right">MRR</th>
+                      <SortHeader label="MRR" k="mrr" className="text-right" />
+                      <th className="px-4 py-3 text-left">Stripe</th>
                       <th className="px-4 py-3 text-left">Status</th>
-                      <th className="px-4 py-3 text-left">Trial</th>
-                      <th className="px-4 py-3 text-right">Users</th>
+                      <SortHeader label="Trial" k="trial" className="text-left" />
+                      <SortHeader label="Agents" k="agents" className="text-right" />
+                      <SortHeader label="Last active" k="activity" className="text-left" />
                       <th className="px-4 py-3 text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
                     {filteredTenants.map((tenant) => (
-                      <tr key={tenant.id} className="hover:bg-muted/30 transition-colors">
+                      <tr
+                        key={tenant.id}
+                        className="hover:bg-muted/30 transition-colors cursor-pointer"
+                        onClick={() => navigate(`/platform-admin?tenant=${tenant.id}`)}
+                        title="Open campaign detail"
+                      >
                         <td className="px-4 py-3">
                           <div className="font-semibold">{tenant.name}</div>
                           <div className="text-xs text-muted-foreground font-mono">{tenant.slug}</div>
@@ -476,6 +584,24 @@ export default function PlatformBilling() {
                           KES {tenant.mrrKes.toLocaleString()}
                         </td>
                         <td className="px-4 py-3">
+                          {tenant.subscriptionStatus ? (
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                "font-mono text-[10px] capitalize",
+                                tenant.subscriptionStatus === "active" && "bg-green-50 text-green-700 border-green-200",
+                                tenant.subscriptionStatus === "trialing" && "bg-blue-50 text-blue-700 border-blue-200",
+                                (tenant.subscriptionStatus === "past_due" || tenant.subscriptionStatus === "unpaid") && "bg-amber-50 text-amber-700 border-amber-200",
+                                (tenant.subscriptionStatus === "canceled" || tenant.subscriptionStatus.startsWith("incomplete")) && "bg-gray-50 text-gray-600 border-gray-200",
+                              )}
+                            >
+                              {tenant.subscriptionStatus.replace(/_/g, " ")}
+                            </Badge>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
                           {tenant.isSuspended && (
                             <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 text-xs">
                               Suspended
@@ -487,7 +613,11 @@ export default function PlatformBilling() {
                             </Badge>
                           )}
                           {tenant.atRisk && !tenant.isSuspended && tenant.lifecycleState !== "deletion_scheduled" && (
-                            <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-xs">
+                            <Badge
+                              variant="outline"
+                              className="bg-amber-50 text-amber-700 border-amber-200 text-xs"
+                              title={tenant.riskReason ?? undefined}
+                            >
                               At Risk
                             </Badge>
                           )}
@@ -499,12 +629,20 @@ export default function PlatformBilling() {
                             <span className="text-muted-foreground">—</span>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-right">{tenant.userCount}</td>
+                        <td className="px-4 py-3 text-right">{tenant.agentCount}</td>
+                        <td className="px-4 py-3 text-xs">
+                          {tenant.lastActivityAt ? (
+                            formatDistanceToNow(new Date(tenant.lastActivityAt), { addSuffix: true })
+                          ) : (
+                            <span className="text-muted-foreground italic">never</span>
+                          )}
+                        </td>
                         <td className="px-4 py-3 text-right whitespace-nowrap">
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
                               setSelectedTenant(tenant);
                               setGeneratedLink(null);
                               setLinkCopied(false);
@@ -517,7 +655,8 @@ export default function PlatformBilling() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
                               setSelectedTenant(tenant);
                               setGrantDialogOpen(true);
                             }}
@@ -647,3 +786,5 @@ export default function PlatformBilling() {
     </div>
   );
 }
+
+type SortKey = "name" | "mrr" | "agents" | "activity" | "trial" | "created";

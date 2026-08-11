@@ -15,7 +15,7 @@ import { getAuth } from "@clerk/express";
 import { db, pool, tenantsTable, brandingTable, userRolesTable, emailLogsTable } from "@workspace/db";
 import { eq, sql, desc, and, gte } from "drizzle-orm";
 import { requireLevel } from "../middlewares/rbac";
-import { PLANS, getEffectivePlan, isPlanTier, type PlanTier } from "../lib/plans";
+import { PLANS, PLAN_ORDER, getEffectivePlan, isPlanTier, type PlanTier } from "../lib/plans";
 import { stripeConfigured, ensureCustomer, createCheckoutSession, expireOpenCheckoutSessions, priceIdFor, platformUrl } from "../lib/stripe";
 import { recordPlatformAction } from "../lib/platformAudit";
 import { z } from "zod";
@@ -25,6 +25,18 @@ const router = Router();
 
 const billingTenantsQuerySchema = z.object({
   filter: z.enum(["all", "paying", "trial", "at-risk", "free"]).default("all"),
+  // Leading "-" = descending. Sorted in memory — the list is every tenant on
+  // the platform, so the set is small by definition.
+  sort: z
+    .enum([
+      "name", "-name",
+      "mrr", "-mrr",
+      "agents", "-agents",
+      "activity", "-activity",
+      "trial", "-trial",
+      "created", "-created",
+    ])
+    .optional(),
 });
 const billingEmailsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
@@ -45,6 +57,21 @@ function requireAuth(req: any, res: any, next: any) {
 /** Statuses that mean revenue is at risk of churning. */
 const AT_RISK_STATUSES = new Set(["past_due", "unpaid", "incomplete", "incomplete_expired"]);
 
+/**
+ * Nonterminal Stripe subscription states. A subscription in any of these is
+ * still owned by Stripe: past_due/unpaid recover through Stripe's retry
+ * schedule, incomplete completes when the customer pays. A manual plan grant
+ * or a second Checkout session against one of these would be silently
+ * overwritten by the next webhook — or double-bill the campaign. Only
+ * terminal states (canceled, incomplete_expired, or no subscription at all)
+ * are safe to override from the platform side.
+ */
+const STRIPE_OWNED_STATUSES = new Set(["active", "trialing", "past_due", "unpaid", "incomplete"]);
+
+function isStripeOwned(status: string | null | undefined): boolean {
+  return !!status && STRIPE_OWNED_STATUSES.has(status);
+}
+
 interface TenantBillingRow {
   id: string;
   name: string;
@@ -62,10 +89,18 @@ interface TenantBillingRow {
   lifecycleState: string;
   isSuspended: boolean;
   userCount: number;
+  agentCount: number;
+  /** Most recent login by any user with a role in this campaign. */
+  lastActivityAt: Date | null;
   createdAt: Date;
   atRisk: boolean;
   riskReason: string | null;
 }
+
+/** "Near the Free-tier agent limit" trips at 80% of the cap. */
+const FREE_LIMIT_WARNING_RATIO = 0.8;
+/** A campaign with no login this long is drifting toward churn. */
+const INACTIVE_DAYS = 30;
 
 async function buildRows(): Promise<TenantBillingRow[]> {
   const rows = await db
@@ -82,6 +117,10 @@ async function buildRows(): Promise<TenantBillingRow[]> {
       createdAt: tenantsTable.createdAt,
       campaignName: brandingTable.campaignName,
       userCount: sql<number>`CAST(COUNT(DISTINCT ${userRolesTable.userId}) AS INTEGER)`,
+      // Correlated subqueries rather than more joins: joining polling_agents
+      // or users here would multiply rows and corrupt the userCount aggregate.
+      agentCount: sql<number>`(SELECT CAST(COUNT(*) AS INTEGER) FROM polling_agents pa WHERE pa.tenant_id = ${tenantsTable.id})`,
+      lastActivityAt: sql<Date | null>`(SELECT MAX(u.last_login_at) FROM users u JOIN user_roles ur ON ur.user_id = u.id WHERE ur.tenant_id = ${tenantsTable.id})`,
     })
     .from(tenantsTable)
     .leftJoin(brandingTable, eq(brandingTable.tenantId, tenantsTable.id))
@@ -111,6 +150,9 @@ async function buildRows(): Promise<TenantBillingRow[]> {
         ? (PLANS[effective.plan].priceMonthlyKes ?? 0)
         : 0;
 
+    const agentCount = Number(r.agentCount ?? 0);
+    const lastActivityAt = r.lastActivityAt ? new Date(r.lastActivityAt) : null;
+
     let riskReason: string | null = null;
     if (status && AT_RISK_STATUSES.has(status)) {
       riskReason = `Payment ${status.replace(/_/g, " ")}`;
@@ -120,6 +162,21 @@ async function buildRows(): Promise<TenantBillingRow[]> {
       riskReason = "Deletion scheduled";
     } else if (r.isSuspended) {
       riskReason = "Suspended";
+    } else if (
+      // Silent campaigns churn. Only flag tenants old enough to have had a
+      // fair chance — a campaign created yesterday hasn't had 30 days to log in.
+      new Date(r.createdAt).getTime() < Date.now() - INACTIVE_DAYS * 86_400_000 &&
+      (!lastActivityAt || lastActivityAt.getTime() < Date.now() - INACTIVE_DAYS * 86_400_000)
+    ) {
+      riskReason = `No user logins in ${INACTIVE_DAYS} days`;
+    } else if (
+      // A Free campaign pressing against its agent cap is the warmest upsell
+      // lead the platform has — surface it before the limit blocks them.
+      effective.plan === "free" &&
+      PLANS.free.maxAgents != null &&
+      agentCount >= PLANS.free.maxAgents * FREE_LIMIT_WARNING_RATIO
+    ) {
+      riskReason = `Near Free agent limit (${agentCount}/${PLANS.free.maxAgents})`;
     }
 
     return {
@@ -139,11 +196,32 @@ async function buildRows(): Promise<TenantBillingRow[]> {
       lifecycleState: r.lifecycleState,
       isSuspended: r.isSuspended,
       userCount: Number(r.userCount ?? 0),
+      agentCount,
+      lastActivityAt,
       createdAt: r.createdAt,
       atRisk: riskReason !== null,
       riskReason,
     };
   });
+}
+
+const SORT_COMPARATORS: Record<string, (a: TenantBillingRow, b: TenantBillingRow) => number> = {
+  name: (a, b) => a.name.localeCompare(b.name),
+  mrr: (a, b) => a.mrrKes - b.mrrKes,
+  agents: (a, b) => a.agentCount - b.agentCount,
+  // Never-active campaigns sort oldest-first so they surface at the top.
+  activity: (a, b) =>
+    (a.lastActivityAt?.getTime() ?? 0) - (b.lastActivityAt?.getTime() ?? 0),
+  trial: (a, b) => (a.trialDaysLeft ?? 9999) - (b.trialDaysLeft ?? 9999),
+  created: (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+};
+
+function sortRows(rows: TenantBillingRow[], sort: string | undefined): TenantBillingRow[] {
+  if (!sort) return rows;
+  const descending = sort.startsWith("-");
+  const cmp = SORT_COMPARATORS[descending ? sort.slice(1) : sort];
+  if (!cmp) return rows;
+  return [...rows].sort((a, b) => (descending ? cmp(b, a) : cmp(a, b)));
 }
 
 // ── GET /api/platform/billing/summary ────────────────────────────────────────
@@ -156,9 +234,19 @@ router.get("/billing/summary", requireAuth, requireLevel(0), async (_req: any, r
     const trials = rows.filter((r) => r.isTrial);
     const atRisk = rows.filter((r) => r.atRisk);
 
-    // Plan mix by effective tier.
+    // Plan mix by effective tier, with the MRR each tier contributes — the
+    // chart needs both, because "most campaigns" and "most revenue" are
+    // usually different tiers.
     const byPlan: Record<string, number> = { free: 0, pro: 0, enterprise: 0 };
     for (const r of rows) byPlan[r.effectivePlan] = (byPlan[r.effectivePlan] ?? 0) + 1;
+    const planDistribution = PLAN_ORDER.map((tier) => ({
+      tier,
+      label: PLANS[tier].label,
+      count: byPlan[tier] ?? 0,
+      mrrKes: rows
+        .filter((r) => r.effectivePlan === tier)
+        .reduce((sum, r) => sum + r.mrrKes, 0),
+    }));
 
     // Pipeline: what trials would be worth if they all converted at their tier.
     const trialPipelineKes = trials.reduce((sum, r) => {
@@ -166,8 +254,20 @@ router.get("/billing/summary", requireAuth, requireLevel(0), async (_req: any, r
       return sum + (PLANS[tier].priceMonthlyKes ?? 0);
     }, 0);
 
+    // Monthly growth: signups in the last 30 days against the 30 before that.
+    // Creation date is the only acquisition timestamp we store, so this is a
+    // campaigns-growth signal, not a revenue-recognition one.
     const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000);
+    const sixtyDaysAgo = new Date(Date.now() - 60 * 86_400_000);
     const newThisMonth = rows.filter((r) => new Date(r.createdAt) >= thirtyDaysAgo).length;
+    const newPriorMonth = rows.filter((r) => {
+      const t = new Date(r.createdAt).getTime();
+      return t >= sixtyDaysAgo.getTime() && t < thirtyDaysAgo.getTime();
+    }).length;
+    const growthPct =
+      newPriorMonth === 0
+        ? (newThisMonth > 0 ? 100 : 0)
+        : Math.round(((newThisMonth - newPriorMonth) / newPriorMonth) * 100);
 
     res.json({
       billingEnabled: stripeConfigured(),
@@ -180,9 +280,11 @@ router.get("/billing/summary", requireAuth, requireLevel(0), async (_req: any, r
       atRiskCampaigns: atRisk.length,
       atRiskMrrKes: atRisk.reduce((sum, r) => sum + r.mrrKes, 0),
       newCampaignsLast30Days: newThisMonth,
+      growthPct,
       averageRevenuePerPayingKes: paying.length ? Math.round(mrrKes / paying.length) : 0,
       // Conversion of ended trials → paying, as a rough funnel signal.
       byPlan,
+      planDistribution,
       atRisk: atRisk.slice(0, 20),
     });
   } catch (err: any) {
@@ -211,7 +313,8 @@ router.get("/billing/tenants", requireAuth, requireLevel(0), async (req: any, re
               ? rows.filter((r) => r.effectivePlan === "free")
               : rows;
 
-    res.json({ tenants: filtered, total: filtered.length });
+    const sorted = sortRows(filtered, q.sort);
+    res.json({ tenants: sorted, total: sorted.length });
   } catch (err: any) {
     logger.error({ err }, "request failed");
     res.status(500).json({ error: "Something went wrong. Please try again." });
@@ -283,9 +386,12 @@ router.patch("/tenants/:id/plan", requireAuth, requireLevel(0), async (req: any,
       .where(eq(tenantsTable.id, id))
       .limit(1);
     if (!existing) return res.status(404).json({ error: "Campaign not found" });
-    if (existing.stripeSubscriptionStatus === "active" || existing.stripeSubscriptionStatus === "trialing") {
+    if (isStripeOwned(existing.stripeSubscriptionStatus)) {
       return res.status(409).json({
-        error: "This campaign has an active Stripe subscription. Cancel it via the Stripe customer portal before granting a plan manually.",
+        error:
+          `This campaign has a live Stripe subscription (${existing.stripeSubscriptionStatus}). ` +
+          `Resolve or cancel it via the Stripe customer portal before granting a plan manually — ` +
+          `a grant underneath it would be overwritten by the next webhook.`,
       });
     }
 
@@ -368,8 +474,12 @@ router.post("/tenants/:id/checkout-link", requireAuth, requireLevel(0), async (r
     const [tenant] = await db.select().from(tenantsTable).where(eq(tenantsTable.id, req.params.id)).limit(1);
     if (!tenant) return res.status(404).json({ error: "Campaign not found" });
 
-    if (tenant.stripeSubscriptionStatus === "active" || tenant.stripeSubscriptionStatus === "trialing") {
-      return res.status(409).json({ error: "This campaign already has an active Stripe subscription." });
+    if (isStripeOwned(tenant.stripeSubscriptionStatus)) {
+      return res.status(409).json({
+        error:
+          `This campaign already has a live Stripe subscription (${tenant.stripeSubscriptionStatus}). ` +
+          `Past-due and incomplete subscriptions can still recover — resolve them in Stripe instead of opening a second checkout.`,
+      });
     }
     // Stripe requires a customer email for the receipt; we can't guess it
     // platform-side the way self-serve checkout falls back to the signed-in
@@ -378,24 +488,12 @@ router.post("/tenants/:id/checkout-link", requireAuth, requireLevel(0), async (r
       return res.status(400).json({ error: "This campaign has no billing email on file. Ask them to set one under Settings → Plan & Billing, then retry." });
     }
 
-    // Preserve remaining trial days in the checkout window — same courtesy as
-    // self-serve upgrades, so an early payer isn't penalised.
-    const effective = getEffectivePlan(tenant);
-    const customerId = await ensureCustomer({
-      tenantId: tenant.id,
-      tenantName: tenant.name,
-      tenantSlug: tenant.slug,
-      email: tenant.billingEmail,
-      existingCustomerId: tenant.stripeCustomerId,
-      trialEndsAt: effective.isTrial ? effective.trialEndsAt : null,
-    });
-    if (customerId !== tenant.stripeCustomerId) {
-      await db.update(tenantsTable).set({ stripeCustomerId: customerId }).where(eq(tenantsTable.id, tenant.id));
-    }
-
-    // Serialize expire+create per campaign: without the advisory lock, two
-    // concurrent clicks could both see zero open sessions and each issue a
-    // payable link — the double-subscription bug this section exists to kill.
+    // Serialize the WHOLE customer+session sequence per campaign, not just
+    // expire+create. Two concurrent first-time requests (no stripeCustomerId
+    // yet) would otherwise each create a DIFFERENT Stripe customer and
+    // overwrite each other's id; the loser can then neither see nor expire
+    // the winner's still-open session — both links stay payable and the
+    // campaign double-subscribes. The lock must come before ensureCustomer.
     const lockKey = tenant.id;
     const lockClient = await pool.connect();
     try {
@@ -405,6 +503,38 @@ router.post("/tenants/:id/checkout-link", requireAuth, requireLevel(0), async (r
       );
       if (!lockRows[0]?.got) {
         return res.status(409).json({ error: "A payment link is already being generated for this campaign. Try again in a moment." });
+      }
+
+      // Reload under the lock: the request that held it just before us may
+      // have written stripeCustomerId, and a webhook may have flipped the
+      // subscription status while we waited — decide on the fresh row, never
+      // the pre-lock snapshot.
+      const [locked] = await db.select().from(tenantsTable).where(eq(tenantsTable.id, tenant.id)).limit(1);
+      if (!locked) return res.status(404).json({ error: "Campaign not found" });
+      if (isStripeOwned(locked.stripeSubscriptionStatus)) {
+        return res.status(409).json({
+          error:
+            `This campaign already has a live Stripe subscription (${locked.stripeSubscriptionStatus}). ` +
+            `Past-due and incomplete subscriptions can still recover — resolve them in Stripe instead of opening a second checkout.`,
+        });
+      }
+      if (!locked.billingEmail) {
+        return res.status(400).json({ error: "This campaign has no billing email on file. Ask them to set one under Settings → Plan & Billing, then retry." });
+      }
+
+      // Preserve remaining trial days in the checkout window — same courtesy as
+      // self-serve upgrades, so an early payer isn't penalised.
+      const effective = getEffectivePlan(locked);
+      const customerId = await ensureCustomer({
+        tenantId: locked.id,
+        tenantName: locked.name,
+        tenantSlug: locked.slug,
+        email: locked.billingEmail,
+        existingCustomerId: locked.stripeCustomerId,
+        trialEndsAt: effective.isTrial ? effective.trialEndsAt : null,
+      });
+      if (customerId !== locked.stripeCustomerId) {
+        await db.update(tenantsTable).set({ stripeCustomerId: customerId }).where(eq(tenantsTable.id, locked.id));
       }
 
       // One payable link at a time: an earlier link stays open until Stripe
@@ -417,7 +547,7 @@ router.post("/tenants/:id/checkout-link", requireAuth, requireLevel(0), async (r
       const session = await createCheckoutSession({
         customerId,
         priceId,
-        tenantId: tenant.id,
+        tenantId: locked.id,
         trialDaysRemaining: effective.isTrial ? effective.trialDaysLeft : null,
         // The payer is the campaign, not a signed-in operator. Tenant portals
         // are domain-based (no /:slug path route), so land on the public app
@@ -433,11 +563,11 @@ router.post("/tenants/:id/checkout-link", requireAuth, requireLevel(0), async (r
       await recordPlatformAction(req, {
         action: "platform.tenant.checkout-link",
         resource: "tenant",
-        tenantId: tenant.id,
-        resourceId: tenant.id,
+        tenantId: locked.id,
+        resourceId: locked.id,
         details: {
-          slug: tenant.slug,
-          name: tenant.name,
+          slug: locked.slug,
+          name: locked.name,
           tier: parsed.tier,
           sessionId: session.id,
           expiredPrevious: expiredCount,

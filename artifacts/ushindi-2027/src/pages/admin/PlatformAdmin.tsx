@@ -9,7 +9,8 @@
  *  - New Campaign form: name, slug, admin email → POST /api/platform/tenants
  *  - Tenant detail sheet: branding snapshot, user count, election level, suspend toggle, resend invite
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useLocation, useSearch } from "wouter";
 import { CampaignScopeFields, scopeComplete, type ScopeSelection } from "@/components/CampaignScopeFields";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Building2, Plus, Shield, Users, Calendar, ChevronRight, AlertCircle, CheckCircle2, XCircle, RefreshCw, Mail, Loader2, Globe, Copy, Check, LockKeyhole, Clock as ClockIcon, Lock } from "lucide-react";
@@ -730,12 +731,30 @@ export default function PlatformAdmin() {
   const { toast } = useToast();
   const [showNewForm, setShowNewForm] = useState(false);
   const [selectedTenant, setSelectedTenant] = useState<TenantRow | null>(null);
+  const search = useSearch();
+  const [, navigate] = useLocation();
 
   const { data: tenants, isLoading, isError, error, refetch } = useQuery<TenantRow[]>({
     queryKey: ["platform-tenants"],
     queryFn: () => apiFetch("/tenants"),
     retry: false,
   });
+
+  // Deep link — /platform-admin?tenant=<id|slug> opens the detail sheet
+  // directly. The billing dashboard's rows link here so "open this campaign"
+  // is one click from the revenue table.
+  useEffect(() => {
+    if (!tenants) return;
+    const target = new URLSearchParams(search).get("tenant");
+    if (!target || selectedTenant?.id === target || selectedTenant?.slug === target) return;
+    const match = tenants.find((t) => t.id === target || t.slug === target);
+    if (match) setSelectedTenant(match);
+  }, [tenants, search, selectedTenant]);
+
+  const closeDetail = () => {
+    setSelectedTenant(null);
+    if (new URLSearchParams(search).get("tenant")) navigate("/platform-admin");
+  };
 
   // 403 = not a platform admin
   if (isError) {
@@ -876,7 +895,7 @@ export default function PlatformAdmin() {
 
       {/* Tenant detail sheet */}
       {selectedTenant && (
-        <TenantDetail tenant={selectedTenant} onClose={() => setSelectedTenant(null)} />
+        <TenantDetail tenant={selectedTenant} onClose={closeDetail} />
       )}
     </div>
   );
