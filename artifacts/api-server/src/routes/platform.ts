@@ -38,6 +38,7 @@ import {
   wardsTable,
   auditLogsTable,
   emailLogsTable,
+  platformEnquiriesTable,
 } from "@workspace/db";
 import { eq, sql, and, or, isNull, isNotNull, notExists, lt, gt, ne, ilike, desc, inArray } from "drizzle-orm";
 import { bustActorCache } from "../middlewares/rbac";
@@ -334,9 +335,12 @@ router.put("/active-campaign", requireAuth, requireLevel(0), async (req: any, re
 });
 
 // ── POST /api/platform/tenants ────────────────────────────────────────────────
+/** Thrown inside the create-transaction when a second request tries to convert an enquiry that is already claimed. */
+class EnquiryAlreadyConvertedError extends Error {}
+
 router.post("/tenants", requireAuth, requireLevel(0), async (req: any, res: any) => {
   try {
-    const { name, slug, adminEmail, plan = "free", seatType, scopeCountyId, scopeConstituencyId, scopeWardId } = req.body as {
+    const { name, slug, adminEmail, plan = "free", seatType, scopeCountyId, scopeConstituencyId, scopeWardId, enquiryId } = req.body as {
       name?: string;
       slug?: string;
       adminEmail?: string;
@@ -345,6 +349,8 @@ router.post("/tenants", requireAuth, requireLevel(0), async (req: any, res: any)
       scopeCountyId?: string;
       scopeConstituencyId?: string;
       scopeWardId?: string;
+      /** Set when the campaign is created from a Request Access enquiry — the enquiry flips to converted in the same transaction. */
+      enquiryId?: string;
     };
 
     if (!name || !slug) {
@@ -383,6 +389,25 @@ router.post("/tenants", requireAuth, requireLevel(0), async (req: any, res: any)
       return res.status(409).json({ error: `Tenant slug '${slug}' is already taken` });
     }
 
+    // Conversion source: when the campaign is created from a Request Access
+    // enquiry, the enquiry flips to converted inside the same transaction —
+    // the two can never disagree. A closed enquiry is a dead lead and cannot
+    // be converted; an already-converted one is rejected by the atomic claim
+    // below (and by the converted_tenant_id unique index as backstop).
+    let enquiry: { id: string } | undefined;
+    if (enquiryId) {
+      const [row] = await db
+        .select({ id: platformEnquiriesTable.id, status: platformEnquiriesTable.status })
+        .from(platformEnquiriesTable)
+        .where(eq(platformEnquiriesTable.id, enquiryId))
+        .limit(1);
+      if (!row) return res.status(404).json({ error: "Enquiry not found" });
+      if (row.status === "closed") {
+        return res.status(409).json({ error: "A closed enquiry cannot be converted to a campaign." });
+      }
+      enquiry = row;
+    }
+
     // The tenant row and its audit record commit in one transaction — the
     // campaign never exists without the record of who created it.
     const [tenant] = await db.transaction(async (tx) => {
@@ -398,10 +423,22 @@ router.post("/tenants", requireAuth, requireLevel(0), async (req: any, res: any)
           resource: "tenant",
           tenantId: t.id,
           resourceId: t.id,
-          details: { name, slug, plan },
+          details: { name, slug, plan, ...(enquiry ? { enquiryId: enquiry.id } : {}) },
         },
         tx,
       );
+
+      if (enquiry) {
+        // Atomic claim: only the first conversion of this enquiry matches.
+        // A concurrent or repeated request updates 0 rows here, throwing to
+        // roll back the tenant insert — one enquiry yields one campaign.
+        const claimed = await tx
+          .update(platformEnquiriesTable)
+          .set({ status: "converted", convertedTenantId: t.id, updatedAt: new Date() })
+          .where(and(eq(platformEnquiriesTable.id, enquiry.id), isNull(platformEnquiriesTable.convertedTenantId)))
+          .returning({ id: platformEnquiriesTable.id });
+        if (claimed.length === 0) throw new EnquiryAlreadyConvertedError();
+      }
       return [t];
     });
 
@@ -433,6 +470,7 @@ router.post("/tenants", requireAuth, requireLevel(0), async (req: any, res: any)
     res.status(201).json({
       tenant,
       invitationWarning,
+      enquiryConverted: !!enquiry,
       message: invitationWarning
         ? invitationWarning
         : adminEmail
@@ -440,6 +478,9 @@ router.post("/tenants", requireAuth, requireLevel(0), async (req: any, res: any)
           : "Tenant created. No admin email provided — invite from the tenant detail page.",
     });
   } catch (err: any) {
+    if (err instanceof EnquiryAlreadyConvertedError) {
+      return res.status(409).json({ error: "This enquiry has already been converted to a campaign." });
+    }
     logger.error({ err }, "request failed");
     res.status(500).json({ error: "Something went wrong. Please try again." });
   }

@@ -84,6 +84,7 @@ import {
   usersTable,
   userRolesTable,
   rolesTable,
+  countiesTable,
 } from "@workspace/db";
 import { eq, and, isNotNull } from "drizzle-orm";
 
@@ -91,6 +92,7 @@ const { default: app } = await import("../src/app");
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 let registeredTenantId: string;
+let countyId: string;
 let otherTenantId: string;
 let founderUserId: string;
 let operatorUserId: string;
@@ -108,10 +110,14 @@ async function membershipCount(userId: string): Promise<number> {
 }
 
 beforeAll(async () => {
+  // Scope is mandatory on every campaign — a real county row satisfies it.
+  const [county] = await db.select({ id: countiesTable.id }).from(countiesTable).limit(1);
+  countyId = county.id;
+
   // A campaign the founder does NOT belong to (for the refusal test).
   const [other] = await db
     .insert(tenantsTable)
-    .values({ name: "Other Lifecycle Tenant", slug: `lifecycle-other-${ts}`, plan: "free" })
+    .values({ name: "Other Lifecycle Tenant", slug: `lifecycle-other-${ts}`, plan: "free", seatType: "gubernatorial", scopeCountyId: countyId })
     .returning();
   otherTenantId = other.id;
 
@@ -168,6 +174,8 @@ describe("Self-serve registration owns membership in the app", () => {
         slug: CAMPAIGN_SLUG,
         candidateName: CANDIDATE_NAME,
         electionYear: 2027,
+        seatType: "gubernatorial",
+        scopeCountyId: countyId,
       });
 
     expect(res.status).toBe(201);
@@ -205,7 +213,7 @@ describe("Self-serve registration owns membership in the app", () => {
     const res = await request(app)
       .post("/api/register")
       .set("Content-Type", "application/json")
-      .send({ campaignName: "Second Campaign", slug: `lifecycle-second-${ts}` });
+      .send({ campaignName: "Second Campaign", slug: `lifecycle-second-${ts}`, seatType: "gubernatorial", scopeCountyId: countyId });
 
     expect(res.status).toBe(409);
     expect(res.body.error).toMatch(/already belong to a campaign/i);

@@ -11,6 +11,7 @@
  *   PATCH /api/enquiries/:id      — update status / notes
  */
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Inbox,
@@ -22,6 +23,7 @@ import {
   PhoneCall,
   Ban,
   ChevronRight,
+  Building2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -129,6 +131,7 @@ function EnquiryDetail({
 }) {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const [, navigate] = useLocation();
   const [status, setStatus] = useState<EnquiryStatus>(enquiry.status);
   const [notes, setNotes] = useState(enquiry.notes ?? "");
   const [dirty, setDirty] = useState(false);
@@ -212,6 +215,29 @@ function EnquiryDetail({
             <p className="text-sm text-muted-foreground italic">No message provided.</p>
           )}
         </div>
+
+        {/* Convert to campaign — one click from a qualified enquiry. The New
+            Campaign form opens pre-filled; the server flips this enquiry to
+            converted in the same transaction as the campaign insert. */}
+        {(enquiry.status === "contacted" || enquiry.status === "converted") && (
+          <div className="rounded-sm border border-primary/30 bg-primary/5 p-4 flex items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">
+              Ready to onboard <span className="font-semibold text-foreground">{enquiry.organisation}</span>?
+            </p>
+            <Button
+              variant="outline"
+              className="gap-2 shrink-0"
+              onClick={() =>
+                navigate(
+                  `/platform-admin?convert=${enquiry.id}&name=${encodeURIComponent(enquiry.organisation)}&email=${encodeURIComponent(enquiry.email)}`,
+                )
+              }
+            >
+              <Building2 className="h-4 w-4" />
+              Create campaign from this enquiry
+            </Button>
+          </div>
+        )}
 
         {/* Status update */}
         <div className="rounded-sm border border-border p-4 space-y-3">

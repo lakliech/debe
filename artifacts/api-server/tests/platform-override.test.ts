@@ -87,6 +87,7 @@ import {
   rolesTable,
   auditLogsTable,
   domainChangeRequestsTable,
+  countiesTable,
 } from "@workspace/db";
 import { eq, and, inArray } from "drizzle-orm";
 import { requirePlanFeature, requirePlanTier, requireCapacity } from "../src/middlewares/requirePlan";
@@ -97,6 +98,7 @@ const { default: app } = await import("../src/app");
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 let tenantAId: string;
+let countyId: string;
 let tenantBId: string;
 let operatorUserId: string;
 let adminUserId: string;
@@ -148,14 +150,17 @@ function gatedApp(tenant: any) {
 }
 
 beforeAll(async () => {
+  const [county] = await db.select({ id: countiesTable.id }).from(countiesTable).limit(1);
+  countyId = county.id;
+
   const [a] = await db
     .insert(tenantsTable)
-    .values({ name: "Override Tenant A", slug: `override-a-${ts}`, plan: "free" })
+    .values({ name: "Override Tenant A", slug: `override-a-${ts}`, plan: "free", seatType: "gubernatorial", scopeCountyId: countyId })
     .returning();
   tenantAId = a.id;
   const [b] = await db
     .insert(tenantsTable)
-    .values({ name: "Override Tenant B", slug: `override-b-${ts}`, plan: "free" })
+    .values({ name: "Override Tenant B", slug: `override-b-${ts}`, plan: "free", seatType: "gubernatorial", scopeCountyId: countyId })
     .returning();
   tenantBId = b.id;
 
@@ -292,7 +297,7 @@ describe("Platform actions each produce exactly one audit record", () => {
     const res = await request(app)
       .post("/api/platform/tenants")
       .set("Content-Type", "application/json")
-      .send({ name: "Audited Tenant", slug: `override-c-${ts}`, plan: "free", adminEmail: ADMIN_EMAIL });
+      .send({ name: "Audited Tenant", slug: `override-c-${ts}`, plan: "free", adminEmail: ADMIN_EMAIL, seatType: "gubernatorial", scopeCountyId: countyId });
     expect(res.status).toBe(201);
     const createdId = res.body.tenant.id;
 

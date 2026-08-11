@@ -118,10 +118,27 @@ async function apiFetch(path: string, options?: RequestInit) {
 }
 
 // ── New Campaign form ─────────────────────────────────────────────────────────
-function NewCampaignForm({ onSuccess }: { onSuccess: () => void }) {
+const slugify = (val: string) =>
+  val.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+
+function NewCampaignForm({
+  onSuccess,
+  initial,
+  enquiryId,
+}: {
+  onSuccess: () => void;
+  /** Pre-filled fields when creating from a Request Access enquiry. */
+  initial?: { name: string; adminEmail: string };
+  /** Links the new campaign to its enquiry; the server marks it converted. */
+  enquiryId?: string;
+}) {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const [form, setForm] = useState({ name: "", slug: "", adminEmail: "" });
+  const [form, setForm] = useState(() => ({
+    name: initial?.name ?? "",
+    slug: slugify(initial?.name ?? ""),
+    adminEmail: initial?.adminEmail ?? "",
+  }));
   const [scope, setScope] = useState<ScopeSelection>({ seatType: "", countyId: "", constituencyId: "", wardId: "" });
 
   const mutation = useMutation({
@@ -134,13 +151,17 @@ function NewCampaignForm({ onSuccess }: { onSuccess: () => void }) {
           scopeCountyId: scope.countyId || undefined,
           scopeConstituencyId: scope.constituencyId || undefined,
           scopeWardId: scope.wardId || undefined,
+          ...(enquiryId ? { enquiryId } : {}),
         }),
       }),
     onSuccess: (data: any) => {
       qc.invalidateQueries({ queryKey: ["platform-tenants"] });
+      if (data.enquiryConverted) qc.invalidateQueries({ queryKey: ["platform-enquiries"] });
       toast({
         title: "Campaign created",
-        description: data.message ?? "New campaign is ready.",
+        description:
+          (data.message ?? "New campaign is ready.") +
+          (data.enquiryConverted ? " The enquiry has been marked converted." : ""),
       });
       setForm({ name: "", slug: "", adminEmail: "" });
       setScope({ seatType: "", countyId: "", constituencyId: "", wardId: "" });
@@ -151,15 +172,18 @@ function NewCampaignForm({ onSuccess }: { onSuccess: () => void }) {
     },
   });
 
-  const slugify = (val: string) =>
-    val.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
-
   return (
     <div className="space-y-4 p-6 border border-border rounded-sm bg-card">
       <div className="flex items-center gap-2 mb-2">
         <Building2 className="h-5 w-5 text-primary" />
         <h3 className="font-bold text-lg">New Campaign</h3>
       </div>
+
+      {enquiryId && (
+        <p className="text-xs text-muted-foreground bg-muted/40 border border-border rounded-sm px-3 py-2">
+          Creating from an enquiry — it will be marked <span className="font-semibold">converted</span> automatically when the campaign is created.
+        </p>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-1.5">
@@ -731,8 +755,31 @@ export default function PlatformAdmin() {
   const { toast } = useToast();
   const [showNewForm, setShowNewForm] = useState(false);
   const [selectedTenant, setSelectedTenant] = useState<TenantRow | null>(null);
+  const [enquiryPrefill, setEnquiryPrefill] = useState<{ enquiryId: string; name: string; adminEmail: string } | null>(null);
   const search = useSearch();
   const [, navigate] = useLocation();
+
+  // Deep link — /platform-admin?convert=<enquiryId>&name=…&email=… opens the
+  // New Campaign form pre-filled from an enquiry (linked from the Enquiries
+  // inbox). Params are consumed once so a refresh doesn't trap the operator.
+  useEffect(() => {
+    const params = new URLSearchParams(search);
+    const convertId = params.get("convert");
+    if (!convertId) return;
+    setEnquiryPrefill({
+      enquiryId: convertId,
+      name: params.get("name") ?? "",
+      adminEmail: params.get("email") ?? "",
+    });
+    setShowNewForm(true);
+    navigate("/platform-admin", { replace: true });
+  }, [search, navigate]);
+
+  const toggleNewForm = () =>
+    setShowNewForm((v) => {
+      if (v) setEnquiryPrefill(null); // closing the form drops any prefill
+      return !v;
+    });
 
   const { data: tenants, isLoading, isError, error, refetch } = useQuery<TenantRow[]>({
     queryKey: ["platform-tenants"],
@@ -790,7 +837,7 @@ export default function PlatformAdmin() {
             Manage campaign tenants — create new campaigns, view tenant details, and suspend access.
           </p>
         </div>
-        <Button onClick={() => setShowNewForm((v) => !v)} className="gap-2 shrink-0">
+        <Button onClick={toggleNewForm} className="gap-2 shrink-0">
           <Plus className="h-4 w-4" />
           {showNewForm ? "Cancel" : "New Campaign"}
         </Button>
@@ -798,7 +845,11 @@ export default function PlatformAdmin() {
 
       {/* New campaign form */}
       {showNewForm && (
-        <NewCampaignForm onSuccess={() => setShowNewForm(false)} />
+        <NewCampaignForm
+          initial={enquiryPrefill ? { name: enquiryPrefill.name, adminEmail: enquiryPrefill.adminEmail } : undefined}
+          enquiryId={enquiryPrefill?.enquiryId}
+          onSuccess={() => { setShowNewForm(false); setEnquiryPrefill(null); }}
+        />
       )}
 
       {/* Tenant table */}

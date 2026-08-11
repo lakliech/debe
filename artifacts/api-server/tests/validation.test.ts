@@ -55,6 +55,30 @@ vi.mock("@workspace/db", () => {
   const makeTable = (name: string) => ({ __tableName: name });
 
   function makeQueryBuilder() {
+    // The tenant every mocked membership points at. resolveTenant now requires
+    // a real membership row AND a resolvable tenant before a request may reach
+    // any route — the mock must satisfy both or every call 403s upstream of
+    // the validation under test.
+    const MOCK_TENANT = {
+      id: "tenant-validation-mock",
+      slug: "validation-mock",
+      name: "Validation Mock Campaign",
+      plan: "pro",
+      planOverrideUntil: null,
+      stripeSubscriptionStatus: null,
+      isSuspended: false,
+    };
+    // Entity tables the routes existence-check before/around body validation.
+    // With no row the request dies at 404 (or a 400 guard) before the Zod
+    // schema under test ever runs — so these resolve to a stub row.
+    const STUB_TABLES = new Set([
+      "polling_agents",
+      "polling_stations",
+      "agent_allowances",
+      "result_submissions",
+      "elections",
+    ]);
+    const stubRow = () => [{ id: "00000000-0000-0000-0000-00000000000f", tenantId: MOCK_TENANT.id }];
     let _table: string | null = null;
     const qb: any = {
       from(table: any) { _table = table?.__tableName ?? null; return qb; },
@@ -65,10 +89,14 @@ vi.mock("@workspace/db", () => {
       groupBy() { return qb; },
       limit(n: number) {
         if (_table === "users") return Promise.resolve(_mockUserRow ? [_mockUserRow] : []);
+        if (_table === "tenants") return Promise.resolve([MOCK_TENANT]);
+        if (_table && STUB_TABLES.has(_table)) return Promise.resolve(stubRow());
         return Promise.resolve([]);
       },
       then(resolve: any, reject: any) {
-        if (_table === "user_roles") return Promise.resolve([..._mockRoles]).then(resolve, reject);
+        if (_table === "user_roles")
+          return Promise.resolve(_mockRoles.map((r) => ({ ...r, tenantId: MOCK_TENANT.id }))).then(resolve, reject);
+        if (_table && STUB_TABLES.has(_table)) return Promise.resolve(stubRow()).then(resolve, reject);
         return Promise.resolve([]).then(resolve, reject);
       },
     };
@@ -133,6 +161,8 @@ vi.mock("@workspace/db", () => {
     // misc
     tallySnapshotsTable: makeTable("tally_snapshots"),
     electionsTable: makeTable("elections"),
+    // resolveTenant
+    tenantsTable: makeTable("tenants"),
     // drizzle helpers
     eq: (..._args: any[]) => ({}),
     and: (..._args: any[]) => ({}),
@@ -157,7 +187,8 @@ const { default: app } = await import("../src/app");
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function asUser(clerkId: string, roles: Array<{ slug: string; level: number }>) {
   _mockAuthUserId = clerkId;
-  _mockUserRow = { id: "user-uuid-" + clerkId };
+  // isGlobalAdmin/activeTenantId are read by resolveTenant's loadCallerContext.
+  _mockUserRow = { id: "user-uuid-" + clerkId, isGlobalAdmin: false, activeTenantId: null } as any;
   _mockRoles = roles;
 }
 
