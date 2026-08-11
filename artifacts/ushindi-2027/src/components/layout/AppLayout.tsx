@@ -1,4 +1,4 @@
-import { Shield, Flag, Users, UserPlus, Activity, Settings, MapPin, Search, Menu, LogOut, ChevronRight, DollarSign, Megaphone, Library, Calendar, AlertTriangle, Settings2, ClipboardList, BarChart3, AlertOctagon, Scale, Monitor, Globe, Download, Lock, Vote, Mail, Building2, ChevronsUpDown, Check, Radio, CreditCard, LifeBuoy, Ban, Inbox } from "lucide-react";
+import { Shield, Flag, Users, UserPlus, Activity, Settings, MapPin, Search, Menu, LogOut, ChevronRight, DollarSign, Megaphone, Library, Calendar, AlertTriangle, Settings2, ClipboardList, BarChart3, AlertOctagon, Scale, Globe, Download, Lock, Vote, Mail, Building2, ChevronsUpDown, Check, Radio, CreditCard, LifeBuoy, Ban, Inbox } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useClerk, useUser } from "@clerk/react";
 import { useQuery } from "@tanstack/react-query";
@@ -63,7 +63,6 @@ const electionNav = [
   { name: "PVT Setup", href: "/pvt/setup", icon: Settings2 },
   { name: "Incidents", href: "/election-incidents", icon: AlertOctagon },
   { name: "Disputes", href: "/election-disputes", icon: Scale },
-  { name: "Command Centre", href: "/command-centre", icon: Monitor },
   { name: "Transparency", href: "/transparency-portal", icon: Globe },
 ];
 

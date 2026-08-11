@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, MapPin, Truck, ShieldAlert, Users, Radio, Siren } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { OpsOverview } from "@/components/command/OpsOverview";
 import { cn } from "@/lib/utils";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -103,11 +104,11 @@ function alertText(e: AlertEvent): string {
 
 // ─── Page ───────────────────────────────────────────────────────────────────
 
-const TABS = ["Agents", "Transport", "Security", "Panic Log"] as const;
+const TABS = ["Overview", "Agents", "Transport", "Security", "Panic Log"] as const;
 
 export default function LogisticsCommandCenter() {
   const electionId = useElectionId();
-  const [tab, setTab] = useState<(typeof TABS)[number]>("Agents");
+  const [tab, setTab] = useState<(typeof TABS)[number]>("Overview");
   const [selectedDot, setSelectedDot] = useState<MapDot | null>(null);
   const [alerts, setAlerts] = useState<AlertEvent[]>([]);
   const feedRef = useRef<HTMLDivElement>(null);
@@ -227,6 +228,7 @@ export default function LogisticsCommandCenter() {
         ))}
       </div>
 
+      {tab === "Overview" && <OpsOverview />}
       {tab === "Agents" && (
         <AgentsTab checkIns={(checkIns.data as any[]) ?? []} missing={(missing.data as any[]) ?? []} loading={checkIns.isLoading} />
       )}

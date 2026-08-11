@@ -75,7 +75,6 @@ import PVTStationsList from "./components/pvt/PVTStationsList";
 import PVTQuickReportForm from "./components/pvt/PVTQuickReportForm";
 import ElectionIncidentsPage from "./pages/admin/ElectionIncidents";
 import ElectionDisputesPage from "./pages/admin/ElectionDisputes";
-import CommandCentrePage from "./pages/admin/CommandCentre";
 import TransparencyPortalPage from "./pages/admin/TransparencyPortal";
 import ElectionAdminPage from "./pages/admin/ElectionAdmin";
 
@@ -533,7 +532,7 @@ function BrandingAwareClerkProvider() {
             <ProtectedRoute component={ElectionDisputesPage} />
           </Route>
           <Route path="/command-centre">
-            <ProtectedRoute component={CommandCentrePage} />
+            <Redirect to="/command-center" />
           </Route>
           <Route path="/transparency-portal">
             <ProtectedRoute component={TransparencyPortalPage} />

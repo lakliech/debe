@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import {
-  Monitor, AlertCircle, RefreshCw, Clock, Users, ClipboardList,
+  AlertCircle, RefreshCw, Clock, Users, ClipboardList,
   CheckCircle2, AlertOctagon, Scale, Wifi, WifiOff, BarChart3
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,7 +48,7 @@ function KPICard({ label, value, icon: Icon, color, onClick }: {
   );
 }
 
-export default function CommandCentre() {
+export function OpsOverview() {
   const [, navigate] = useLocation();
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -160,18 +160,13 @@ export default function CommandCentre() {
         </div>
       </div>
 
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-black tracking-tight uppercase flex items-center gap-2">
-            <Monitor className="h-6 w-6 text-[#1D9BF0]" /> ELECTION COMMAND CENTRE
-          </h1>
-          {lastUpdated && (
-            <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-              <Clock className="h-3 w-3" /> Last updated: {lastUpdated.toLocaleTimeString("en-KE")}
-            </p>
-          )}
-        </div>
+      {/* Controls (the page header lives in the parent Command Center) */}
+      <div className="flex items-center justify-end flex-wrap gap-3">
+        {lastUpdated && (
+          <p className="text-xs text-muted-foreground flex items-center gap-1 mr-auto">
+            <Clock className="h-3 w-3" /> Last updated: {lastUpdated.toLocaleTimeString("en-KE")}
+          </p>
+        )}
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5 text-xs">
             {autoRefresh ? (
