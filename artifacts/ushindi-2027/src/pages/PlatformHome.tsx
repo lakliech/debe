@@ -568,7 +568,7 @@ export default function PlatformHome() {
             <div>
               <div className="font-bold text-sm uppercase tracking-wider mb-4">Legal</div>
               <div className="space-y-2 text-sm">
-                <span className="block text-white/40">Privacy Policy</span>
+                <Link href="/privacy" className="block text-white/70 hover:text-white transition-colors">Privacy Policy</Link>
                 <span className="block text-white/40">Terms of Service</span>
                 <span className="block text-white/40">Data Protection</span>
               </div>

@@ -507,6 +507,12 @@ export default function DebeHome() {
                   {l.label}
                 </a>
               ))}
+              <Link
+                href="/privacy"
+                className="text-slate-500 text-xs hover:text-white transition-colors"
+              >
+                Privacy Policy
+              </Link>
             </div>
             <p className="text-slate-600 text-xs text-center">
               © {new Date().getFullYear()} Debe Platform · Built for Kenya

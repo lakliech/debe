@@ -111,6 +111,7 @@ import PlatformIntegrationsPage from "./pages/admin/PlatformIntegrations";
 
 // SaaS platform surfaces — marketing, self-serve signup, settings hub
 import PlatformHome from "./pages/PlatformHome";
+import PrivacyPage from "./pages/Privacy";
 import PricingPage from "./pages/Pricing";
 import RegisterCampaignPage from "./pages/RegisterCampaign";
 import SettingsPage from "./pages/Settings";
@@ -351,6 +352,7 @@ function BrandingAwareClerkProvider() {
           {/* ── SaaS platform (no auth required) ── */}
           <Route path="/platform-home" component={PlatformHome} />
           <Route path="/pricing" component={PricingPage} />
+          <Route path="/privacy" component={PrivacyPage} />
           {/* Self-serve signup renders its own shell — the founder has no campaign yet,
               so it must not be wrapped in AppLayout. */}
           <Route path="/register/campaign" component={RegisterCampaignPage} />
