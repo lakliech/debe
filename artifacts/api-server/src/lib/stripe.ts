@@ -204,10 +204,20 @@ export interface CheckoutArgs {
   tenantId: string;
   /** Remaining trial days to honour, so upgrading mid-trial isn't charged early. */
   trialDaysRemaining?: number | null;
+  /**
+   * Override the post-checkout destinations. Self-serve defaults land the
+   * signed-in admin back on Settings → Plan & Billing; platform-issued links
+   * are paid by someone who may not be signed in, so they get the campaign's
+   * public portal instead.
+   */
+  successUrl?: string;
+  cancelUrl?: string;
+  /** Epoch seconds. Stripe requires 30 min–24 h out for Checkout sessions. */
+  expiresAt?: number;
 }
 
-/** Create a Checkout session and return its hosted URL. */
-export async function createCheckoutSession(args: CheckoutArgs): Promise<string> {
+/** Create a Checkout session and return its id + hosted URL. */
+export async function createCheckoutSession(args: CheckoutArgs): Promise<{ id: string; url: string }> {
   const stripe = await getStripe();
   const base = platformUrl();
 
@@ -215,8 +225,8 @@ export async function createCheckoutSession(args: CheckoutArgs): Promise<string>
     mode: "subscription",
     customer: args.customerId,
     line_items: [{ price: args.priceId, quantity: 1 }],
-    success_url: `${base}/settings?tab=plan&checkout=success`,
-    cancel_url: `${base}/settings?tab=plan&checkout=cancelled`,
+    success_url: args.successUrl ?? `${base}/settings?tab=plan&checkout=success`,
+    cancel_url: args.cancelUrl ?? `${base}/settings?tab=plan&checkout=cancelled`,
     client_reference_id: args.tenantId,
     metadata: { tenant_id: args.tenantId },
     subscription_data: {
@@ -226,10 +236,43 @@ export async function createCheckoutSession(args: CheckoutArgs): Promise<string>
         : {}),
     },
     allow_promotion_codes: true,
+    ...(args.expiresAt ? { expires_at: args.expiresAt } : {}),
   });
 
   if (!session.url) throw new Error("Stripe did not return a Checkout URL");
-  return session.url;
+  return { id: session.id, url: session.url };
+}
+
+/**
+ * Expire every open Checkout session for a customer. A checkout link stays
+ * payable until it expires; without this, "regenerate the link" leaves two
+ * live URLs and the campaign can be double-subscribed.
+ */
+export async function expireOpenCheckoutSessions(customerId: string): Promise<number> {
+  const stripe = await getStripe();
+  let expired = 0;
+  let startingAfter: string | undefined;
+  // Paginate — a customer can accumulate more than one page of sessions.
+  for (;;) {
+    const open = await stripe.checkout.sessions.list({
+      customer: customerId,
+      status: "open",
+      limit: 100,
+      ...(startingAfter ? { starting_after: startingAfter } : {}),
+    });
+    for (const s of open.data) {
+      try {
+        await stripe.checkout.sessions.expire(s.id);
+        expired++;
+      } catch (err: any) {
+        // Already completed/expired between list and expire — fine.
+        if (err?.code !== "resource_missing") throw err;
+      }
+    }
+    if (!open.has_more || open.data.length === 0) break;
+    startingAfter = open.data[open.data.length - 1].id;
+  }
+  return expired;
 }
 
 /** Create a Billing Portal session and return its hosted URL. */

@@ -220,7 +220,7 @@ router.post("/checkout", requireAuth, requireLevel(1), async (req: any, res: any
     // Honour any trial time still remaining so upgrading early isn't penalised.
     const trialDaysRemaining = effective.isTrial ? effective.trialDaysLeft : null;
 
-    const url = await createCheckoutSession({
+    const { url } = await createCheckoutSession({
       customerId,
       priceId,
       tenantId: tenant.id,

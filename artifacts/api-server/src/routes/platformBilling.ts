@@ -12,11 +12,11 @@
 import { logger } from "../lib/logger";
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
-import { db, tenantsTable, brandingTable, userRolesTable, emailLogsTable } from "@workspace/db";
+import { db, pool, tenantsTable, brandingTable, userRolesTable, emailLogsTable } from "@workspace/db";
 import { eq, sql, desc, and, gte } from "drizzle-orm";
 import { requireLevel } from "../middlewares/rbac";
 import { PLANS, getEffectivePlan, isPlanTier, type PlanTier } from "../lib/plans";
-import { stripeConfigured } from "../lib/stripe";
+import { stripeConfigured, ensureCustomer, createCheckoutSession, expireOpenCheckoutSessions, priceIdFor, platformUrl } from "../lib/stripe";
 import { recordPlatformAction } from "../lib/platformAudit";
 import { z } from "zod";
 import { validate } from "../lib/validate";
@@ -275,6 +275,20 @@ router.patch("/tenants/:id/plan", requireAuth, requireLevel(0), async (req: any,
       return res.status(400).json({ error: "plan must be 'free', 'pro' or 'enterprise'" });
     }
 
+    // A live Stripe subscription owns the plan state via webhooks — a manual
+    // grant underneath it would drift (webhook events would silently undo it).
+    const [existing] = await db
+      .select({ stripeSubscriptionStatus: tenantsTable.stripeSubscriptionStatus })
+      .from(tenantsTable)
+      .where(eq(tenantsTable.id, id))
+      .limit(1);
+    if (!existing) return res.status(404).json({ error: "Campaign not found" });
+    if (existing.stripeSubscriptionStatus === "active" || existing.stripeSubscriptionStatus === "trialing") {
+      return res.status(409).json({
+        error: "This campaign has an active Stripe subscription. Cancel it via the Stripe customer portal before granting a plan manually.",
+      });
+    }
+
     const patch: Record<string, unknown> = { plan };
 
     if (plan === "free") {
@@ -326,6 +340,115 @@ router.patch("/tenants/:id/plan", requireAuth, requireLevel(0), async (req: any,
           ? "Campaign moved to the Free plan."
           : `Granted ${PLANS[plan].label} until ${new Date(patch.planOverrideUntil as Date).toLocaleDateString("en-KE")}.`,
     });
+  } catch (err: any) {
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// ── POST /api/platform/tenants/:id/checkout-link ─────────────────────────────
+// Generate a Stripe Checkout link on a campaign's behalf: sales confirms the
+// billing email, sends the link, and the campaign completes payment itself.
+// The webhook activates the subscription exactly like self-serve checkout.
+const checkoutLinkSchema = z.object({ tier: z.enum(["pro", "enterprise"]) });
+
+router.post("/tenants/:id/checkout-link", requireAuth, requireLevel(0), async (req: any, res: any) => {
+  try {
+    if (!stripeConfigured()) {
+      return res.status(503).json({ error: "Online payments are not configured on this platform." });
+    }
+    const parsed = validate(checkoutLinkSchema, req.body, res);
+    if (!parsed) return;
+
+    const priceId = priceIdFor(parsed.tier);
+    if (!priceId) {
+      return res.status(503).json({ error: `The ${PLANS[parsed.tier].label} plan has no Stripe price configured yet.` });
+    }
+
+    const [tenant] = await db.select().from(tenantsTable).where(eq(tenantsTable.id, req.params.id)).limit(1);
+    if (!tenant) return res.status(404).json({ error: "Campaign not found" });
+
+    if (tenant.stripeSubscriptionStatus === "active" || tenant.stripeSubscriptionStatus === "trialing") {
+      return res.status(409).json({ error: "This campaign already has an active Stripe subscription." });
+    }
+    // Stripe requires a customer email for the receipt; we can't guess it
+    // platform-side the way self-serve checkout falls back to the signed-in
+    // admin, because the person paying is the campaign, not the operator.
+    if (!tenant.billingEmail) {
+      return res.status(400).json({ error: "This campaign has no billing email on file. Ask them to set one under Settings → Plan & Billing, then retry." });
+    }
+
+    // Preserve remaining trial days in the checkout window — same courtesy as
+    // self-serve upgrades, so an early payer isn't penalised.
+    const effective = getEffectivePlan(tenant);
+    const customerId = await ensureCustomer({
+      tenantId: tenant.id,
+      tenantName: tenant.name,
+      tenantSlug: tenant.slug,
+      email: tenant.billingEmail,
+      existingCustomerId: tenant.stripeCustomerId,
+      trialEndsAt: effective.isTrial ? effective.trialEndsAt : null,
+    });
+    if (customerId !== tenant.stripeCustomerId) {
+      await db.update(tenantsTable).set({ stripeCustomerId: customerId }).where(eq(tenantsTable.id, tenant.id));
+    }
+
+    // Serialize expire+create per campaign: without the advisory lock, two
+    // concurrent clicks could both see zero open sessions and each issue a
+    // payable link — the double-subscription bug this section exists to kill.
+    const lockKey = tenant.id;
+    const lockClient = await pool.connect();
+    try {
+      const { rows: lockRows } = await lockClient.query<{ got: boolean }>(
+        "SELECT pg_try_advisory_lock(hashtext($1), 7177) AS got",
+        [`checkout-link:${lockKey}`],
+      );
+      if (!lockRows[0]?.got) {
+        return res.status(409).json({ error: "A payment link is already being generated for this campaign. Try again in a moment." });
+      }
+
+      // One payable link at a time: an earlier link stays open until Stripe
+      // expires it, and a payer completing BOTH would double-subscribe the
+      // customer. Expire any open sessions for this customer before issuing
+      // the replacement.
+      const expiredCount = await expireOpenCheckoutSessions(customerId);
+
+      const base = platformUrl();
+      const session = await createCheckoutSession({
+        customerId,
+        priceId,
+        tenantId: tenant.id,
+        trialDaysRemaining: effective.isTrial ? effective.trialDaysLeft : null,
+        // The payer is the campaign, not a signed-in operator. Tenant portals
+        // are domain-based (no /:slug path route), so land on the public app
+        // root — HomeRedirect takes signed-in users to their dashboard and
+        // everyone else to the marketing home. Never a 404.
+        successUrl: `${base}/?checkout=success`,
+        cancelUrl: `${base}/?checkout=cancelled`,
+        // Explicit 24 h expiry so "the link dies tomorrow" is a contract,
+        // not a Stripe default.
+        expiresAt: Math.floor(Date.now() / 1000) + 86_400,
+      });
+
+      await recordPlatformAction(req, {
+        action: "platform.tenant.checkout-link",
+        resource: "tenant",
+        tenantId: tenant.id,
+        resourceId: tenant.id,
+        details: {
+          slug: tenant.slug,
+          name: tenant.name,
+          tier: parsed.tier,
+          sessionId: session.id,
+          expiredPrevious: expiredCount,
+        },
+      });
+
+      return res.json({ url: session.url, tier: parsed.tier, planLabel: PLANS[parsed.tier].label, expiresAt: new Date((Math.floor(Date.now() / 1000) + 86_400) * 1000).toISOString() });
+    } finally {
+      await lockClient.query("SELECT pg_advisory_unlock(hashtext($1), 7177)", [`checkout-link:${lockKey}`]).catch(() => {});
+      lockClient.release();
+    }
   } catch (err: any) {
     logger.error({ err }, "request failed");
     res.status(500).json({ error: "Something went wrong. Please try again." });

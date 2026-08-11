@@ -4,6 +4,7 @@ import {
   DollarSign, TrendingUp, Users, AlertTriangle, Calendar, Mail,
   CheckCircle2, XCircle, Clock, ChevronDown, ChevronUp, Loader2,
   Search, Filter, Crown, Zap,
+  Link2, Copy,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { Button } from "@/components/ui/button";
@@ -133,6 +134,10 @@ export default function PlatformBilling() {
   const [selectedTenant, setSelectedTenant] = useState<Tenant | null>(null);
   const [grantPlan, setGrantPlan] = useState<"free" | "pro" | "enterprise">("pro");
   const [grantMonths, setGrantMonths] = useState("12");
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [linkTier, setLinkTier] = useState<"pro" | "enterprise">("pro");
+  const [generatedLink, setGeneratedLink] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [expandedEmails, setExpandedEmails] = useState(false);
 
   const { data: summary, isLoading: summaryLoading } = useQuery<BillingSummary>({
@@ -168,6 +173,21 @@ export default function PlatformBilling() {
       setSelectedTenant(null);
     },
     onError: (err: Error) => toast({ title: "Grant failed", description: err.message, variant: "destructive" }),
+  });
+
+  const checkoutLinkMutation = useMutation({
+    mutationFn: ({ id, tier }: { id: number; tier: string }) =>
+      apiFetch(`/api/platform/tenants/${id}/checkout-link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tier }),
+      }),
+    onSuccess: (data: { url: string; planLabel: string }) => {
+      setGeneratedLink(data.url);
+      setLinkCopied(false);
+      toast({ title: `${data.planLabel} payment link ready`, description: "Send it to the campaign to complete payment." });
+    },
+    onError: (err: Error) => toast({ title: "Could not create link", description: err.message, variant: "destructive" }),
   });
 
   const handleGrantPlan = () => {
@@ -480,7 +500,20 @@ export default function PlatformBilling() {
                           )}
                         </td>
                         <td className="px-4 py-3 text-right">{tenant.userCount}</td>
-                        <td className="px-4 py-3 text-right">
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setSelectedTenant(tenant);
+                              setGeneratedLink(null);
+                              setLinkCopied(false);
+                              setLinkDialogOpen(true);
+                            }}
+                          >
+                            <Link2 className="h-3.5 w-3.5 mr-1.5" />
+                            Link
+                          </Button>
                           <Button
                             variant="ghost"
                             size="sm"
@@ -546,6 +579,67 @@ export default function PlatformBilling() {
             <Button onClick={handleGrantPlan} disabled={grantPlanMutation.isPending}>
               {grantPlanMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Crown className="h-4 w-4 mr-2" />}
               Grant Plan
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Payment link dialog */}
+      <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Payment Link</DialogTitle>
+            <DialogDescription>
+              Generate a Stripe checkout link for <strong>{selectedTenant?.name}</strong>. The campaign completes
+              payment themselves; the subscription activates automatically.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label className="font-semibold">Plan</Label>
+              <Select value={linkTier} onValueChange={(v) => { setLinkTier(v as typeof linkTier); setGeneratedLink(null); }}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pro">Pro</SelectItem>
+                  <SelectItem value="enterprise">Enterprise</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {generatedLink && (
+              <div className="space-y-2">
+                <Label className="font-semibold">Checkout link</Label>
+                <div className="flex gap-2">
+                  <Input readOnly value={generatedLink} className="font-mono text-xs" onFocus={(e) => e.target.select()} />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      navigator.clipboard.writeText(generatedLink);
+                      setLinkCopied(true);
+                    }}
+                  >
+                    <Copy className="h-3.5 w-3.5 mr-1" />
+                    {linkCopied ? "Copied" : "Copy"}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Links expire after 24 hours. Uses the campaign's billing email on file.
+                </p>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setLinkDialogOpen(false)}>
+              Close
+            </Button>
+            <Button
+              onClick={() => selectedTenant && checkoutLinkMutation.mutate({ id: selectedTenant.id, tier: linkTier })}
+              disabled={checkoutLinkMutation.isPending}
+            >
+              {checkoutLinkMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Link2 className="h-4 w-4 mr-2" />}
+              {generatedLink ? "Regenerate" : "Generate Link"}
             </Button>
           </DialogFooter>
         </DialogContent>
