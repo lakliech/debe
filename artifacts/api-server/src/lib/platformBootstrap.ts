@@ -119,6 +119,32 @@ export async function promoteToPlatformOperator(
     .returning({ id: usersTable.id });
   if (updated) changed = true;
 
+  // Alert on the flag flip only, never on the role top-up below: this function
+  // re-runs for every allowlisted account on every boot, and the UPDATE's
+  // is_global_admin = false predicate is what makes "someone gained global
+  // admin" a genuinely new event rather than a restart.
+  if (updated) {
+    // Imported lazily — platformBootstrap runs during startup, and a static
+    // import would drag the email stack into the boot path.
+    void import("./securityAlerts")
+      .then(({ sendSecurityAlert }) =>
+        sendSecurityAlert({
+          subjectLine: "Security: a new global administrator was granted",
+          summary:
+            "An account was granted platform-operator standing (global admin). This bypasses every campaign-scoped access check.",
+          details: [
+            `Account: ${verifiedEmail ?? "(email unavailable)"}`,
+            `User id: ${userId}`,
+            "Granted via: PLATFORM_ADMIN_EMAILS allowlist",
+            "If this was not expected, remove the address from PLATFORM_ADMIN_EMAILS and revoke the account immediately.",
+          ],
+        }),
+      )
+      .catch((err) =>
+        logger.error({ err }, "Platform bootstrap: failed to dispatch global-admin security alert"),
+      );
+  }
+
   const [role] = await db
     .select({ id: rolesTable.id })
     .from(rolesTable)

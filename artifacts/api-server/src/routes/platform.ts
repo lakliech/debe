@@ -37,17 +37,75 @@ import {
   constituenciesTable,
   wardsTable,
   auditLogsTable,
+  emailLogsTable,
 } from "@workspace/db";
 import { eq, sql, and, or, isNull, isNotNull, notExists, lt, gt, ne, ilike, desc, inArray } from "drizzle-orm";
 import { bustActorCache } from "../middlewares/rbac";
 import { requireLevel } from "../middlewares/rbac";
 import { grantCampaignAdminByEmail } from "../lib/grantCampaignAdmin";
 import { recordPlatformAction } from "../lib/platformAudit";
+import { sendEmailAsync } from "../lib/email";
+import { platformUrl } from "../lib/stripe";
 import { z } from "zod";
 import { validate } from "../lib/validate";
 import { PLANS, PLAN_TIERS, getEffectivePlan, type PlanTier } from "../lib/plans";
 
 const router = Router();
+
+/** Where a suspended campaign is told to write. */
+function supportEmail(): string {
+  return process.env.SUPPORT_EMAIL ?? "support@example.com";
+}
+
+/**
+ * The campaign's public-facing name. Branding is what the admin recognises;
+ * tenants.name is the internal label and only a fallback.
+ */
+async function brandedName(tenantId: string, fallback: string): Promise<string> {
+  const [b] = await db
+    .select({ campaignName: brandingTable.campaignName })
+    .from(brandingTable)
+    .where(eq(brandingTable.tenantId, tenantId))
+    .limit(1);
+  return b?.campaignName || fallback;
+}
+
+/** Display name of the operator making the request, for "X invited you". */
+async function actorName(clerkId: string | undefined): Promise<string | undefined> {
+  if (!clerkId) return undefined;
+  const [u] = await db
+    .select({ fullName: usersTable.fullName })
+    .from(usersTable)
+    .where(eq(usersTable.clerkId, clerkId))
+    .limit(1);
+  return u?.fullName || undefined;
+}
+
+/**
+ * Notify a newly-granted campaign administrator.
+ *
+ * Membership is granted directly (see grantCampaignAdmin.ts) rather than via a
+ * pending invitation, so the link goes straight to the dashboard — by the time
+ * this lands, the access already exists.
+ */
+async function notifyCampaignAdminInvited(
+  tenantId: string,
+  tenantName: string,
+  adminEmail: string,
+  clerkId: string | undefined,
+): Promise<void> {
+  sendEmailAsync({
+    to: adminEmail,
+    tenantId,
+    template: "staff_invitation",
+    data: {
+      campaignName: await brandedName(tenantId, tenantName),
+      inviterName: await actorName(clerkId),
+      acceptUrl: `${platformUrl()}/dashboard`,
+      roleName: "Campaign Administrator",
+    },
+  });
+}
 
 const activityQuerySchema = z.object({
   userId: z.string().uuid().optional(),
@@ -56,6 +114,10 @@ const activityQuerySchema = z.object({
   email: z.string().trim().max(320).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0),
+});
+
+const tenantEmailsQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 
 const platformUsersQuerySchema = z.object({
@@ -337,6 +399,9 @@ router.post("/tenants", requireAuth, requireLevel(0), async (req: any, res: any)
           tenantId: tenant.id,
           details: { email: adminEmail, role: "super-admin", via: "tenant-create" },
         });
+        // Tell the admin they have access. Non-blocking: the campaign exists
+        // and the grant is written whether or not the mail goes out.
+        await notifyCampaignAdminInvited(tenant.id, tenant.name, adminEmail, req.clerkId);
       }
     }
 
@@ -426,15 +491,58 @@ router.get("/tenants/:id", requireAuth, requireLevel(0), async (req: any, res: a
   }
 });
 
+// ── GET /api/platform/tenants/:id/emails ─────────────────────────────────────
+// Transactional email log for ONE campaign. The platform-wide list lives at
+// /billing/emails; this is the per-tenant slice an operator needs when a
+// campaign says "we never got the email" — it answers whether it was sent,
+// skipped for want of a provider, or failed, without provider dashboard access.
+router.get("/tenants/:id/emails", requireAuth, requireLevel(0), async (req: any, res: any) => {
+  try {
+    const { id } = req.params;
+    const q = validate(tenantEmailsQuerySchema, req.query, res);
+    if (!q) return;
+
+    const [tenant] = await db
+      .select({ id: tenantsTable.id })
+      .from(tenantsTable)
+      .where(eq(tenantsTable.id, id))
+      .limit(1);
+    if (!tenant) return res.status(404).json({ error: "Tenant not found" });
+
+    const emails = await db
+      .select({
+        id: emailLogsTable.id,
+        recipient: emailLogsTable.recipient,
+        template: emailLogsTable.template,
+        subject: emailLogsTable.subject,
+        status: emailLogsTable.status,
+        error: emailLogsTable.error,
+        sentAt: emailLogsTable.sentAt,
+      })
+      .from(emailLogsTable)
+      .where(eq(emailLogsTable.tenantId, id))
+      .orderBy(desc(emailLogsTable.sentAt))
+      .limit(q.limit);
+
+    res.json({ emails });
+  } catch (err: any) {
+    logger.error({ err }, "request failed");
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
 // ── PATCH /api/platform/tenants/:id/suspend ───────────────────────────────────
 router.patch("/tenants/:id/suspend", requireAuth, requireLevel(0), async (req: any, res: any) => {
   try {
     const { id } = req.params;
-    const { isSuspended } = req.body as { isSuspended?: boolean };
+    const { isSuspended, reason } = req.body as { isSuspended?: boolean; reason?: string };
 
     if (typeof isSuspended !== "boolean") {
       return res.status(400).json({ error: "isSuspended (boolean) is required" });
     }
+
+    const suspensionReason =
+      typeof reason === "string" && reason.trim() ? reason.trim().slice(0, 500) : undefined;
 
     let tenant: any;
     await db.transaction(async (tx) => {
@@ -453,13 +561,36 @@ router.patch("/tenants/:id/suspend", requireAuth, requireLevel(0), async (req: a
           resource: "tenant",
           tenantId: tenant.id,
           resourceId: tenant.id,
-          details: { slug: tenant.slug, name: tenant.name },
+          details: { slug: tenant.slug, name: tenant.name, reason: suspensionReason ?? null },
         },
         tx,
       );
     });
 
     if (!tenant) return res.status(404).json({ error: "Tenant not found" });
+
+    // Tell the campaign what happened to it. Sent after the transaction has
+    // committed and fire-and-forget: a mail failure must not undo the
+    // suspension, and a campaign locked out with no explanation is the exact
+    // support blind spot this notice exists to close.
+    if (tenant.billingEmail) {
+      const campaignName = await brandedName(tenant.id, tenant.name);
+      if (isSuspended) {
+        sendEmailAsync({
+          to: tenant.billingEmail,
+          tenantId: tenant.id,
+          template: "campaign_suspended",
+          data: { campaignName, reason: suspensionReason, supportEmail: supportEmail() },
+        });
+      } else {
+        sendEmailAsync({
+          to: tenant.billingEmail,
+          tenantId: tenant.id,
+          template: "campaign_reactivated",
+          data: { campaignName, dashboardUrl: `${platformUrl()}/dashboard` },
+        });
+      }
+    }
 
     res.json(tenant);
   } catch (err: any) {
@@ -503,6 +634,8 @@ router.post("/tenants/:id/invite", requireAuth, requireLevel(0), async (req: any
       tenantId: tenant.id,
       details: { email: adminEmail, role: "super-admin", via: "invite" },
     });
+
+    await notifyCampaignAdminInvited(tenant.id, tenant.name, adminEmail, req.clerkId);
 
     res.json({ message: `${adminEmail} now has campaign administrator access.` });
   } catch (err: any) {

@@ -4,6 +4,7 @@ import { db } from "@workspace/db";
 import { rolesTable, permissionsTable, rolePermissionsTable } from "@workspace/db";
 import { eq, inArray, sql } from "drizzle-orm";
 import { requireLevel } from "../middlewares/rbac";
+import { sendSecurityAlert } from "../lib/securityAlerts";
 
 const router = Router();
 
@@ -75,6 +76,13 @@ router.put("/:id/permissions", requireAuth, canMutatePermissions, async (req: an
   const { permissionIds } = req.body;
   if (!Array.isArray(permissionIds)) return res.status(400).json({ error: "permissionIds must be an array" });
 
+  // Snapshot the outgoing grant before it is replaced — the security digest
+  // below is only meaningful if it can say what actually changed.
+  const before = await db
+    .select({ permissionId: rolePermissionsTable.permissionId })
+    .from(rolePermissionsTable)
+    .where(eq(rolePermissionsTable.roleId, req.params.id));
+
   // Replace all permissions for this role
   await db.delete(rolePermissionsTable).where(eq(rolePermissionsTable.roleId, req.params.id));
 
@@ -82,6 +90,42 @@ router.put("/:id/permissions", requireAuth, canMutatePermissions, async (req: an
     await db.insert(rolePermissionsTable).values(
       permissionIds.map((pid: string) => ({ roleId: req.params.id, permissionId: pid }))
     );
+  }
+
+  // This rewrites the permission set for EVERY user holding this role, in every
+  // campaign — the widest-blast-radius change the API allows. Tell the platform
+  // team out of band, after the write, so a quiet privilege grab leaves a trace
+  // outside the database. Only report real deltas; a no-op save is not news.
+  const beforeIds = new Set(before.map((p) => p.permissionId));
+  const afterIds = new Set<string>(permissionIds);
+  const added = [...afterIds].filter((p) => !beforeIds.has(p));
+  const removed = [...beforeIds].filter((p) => !afterIds.has(p));
+
+  if (added.length > 0 || removed.length > 0) {
+    const [role] = await db
+      .select({ name: rolesTable.name, slug: rolesTable.slug, level: rolesTable.level })
+      .from(rolesTable)
+      .where(eq(rolesTable.id, req.params.id))
+      .limit(1);
+
+    const { userRolesTable } = await import("@workspace/db");
+    const [holders] = await db
+      .select({ count: sql<number>`cast(count(*) as int)` })
+      .from(userRolesTable)
+      .where(eq(userRolesTable.roleId, req.params.id));
+
+    sendSecurityAlert({
+      subjectLine: `Security: permissions changed for role "${role?.name ?? req.params.id}"`,
+      summary:
+        "A role's permission set was rewritten. Every user holding this role, across every campaign, is affected immediately.",
+      details: [
+        `Role: ${role?.name ?? "(unknown)"} (${role?.slug ?? req.params.id}), level ${role?.level ?? "?"}`,
+        `Users affected: ${holders?.count ?? 0}`,
+        `Permissions added: ${added.length}`,
+        `Permissions removed: ${removed.length}`,
+        `Total permissions after change: ${afterIds.size}`,
+      ],
+    });
   }
 
   const perms = await db

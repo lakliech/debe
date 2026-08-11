@@ -45,6 +45,16 @@ const PLAN_TIERS: { value: PlanTier; label: string; blurb: string }[] = [
   { value: "enterprise", label: "Enterprise", blurb: "White-label mobile build and a dedicated support SLA" },
 ];
 
+interface TenantEmailLog {
+  id: string;
+  recipient: string;
+  template: string;
+  subject: string | null;
+  status: "sent" | "failed" | "skipped";
+  error: string | null;
+  sentAt: string;
+}
+
 interface TenantDetail extends TenantRow {
   /** Tier actually in force today — a lapsed grant reads back as "free". */
   effectivePlan?: PlanTier;
@@ -293,6 +303,87 @@ function PlanPanel({
   );
 }
 
+// ── Email log ─────────────────────────────────────────────────────────────────
+// "We never got the email" is one of the most common support openers, and the
+// answer is usually one of three very different things: it was never attempted,
+// it was skipped because no provider is configured in this environment, or the
+// provider rejected it. Show the status verbatim rather than collapsing them.
+const EMAIL_STATUS_STYLES: Record<string, string> = {
+  sent: "border-green-500 text-green-600",
+  failed: "border-destructive text-destructive",
+  skipped: "border-amber-500 text-amber-600",
+};
+
+/** Template keys are stable identifiers; give operators readable labels. */
+function templateLabel(key: string): string {
+  return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function EmailLogPanel({ tenantId }: { tenantId: string }) {
+  const { data, isLoading, isError } = useQuery<{ emails: TenantEmailLog[] }>({
+    queryKey: ["platform-tenant-emails", tenantId],
+    queryFn: () => apiFetch(`/tenants/${tenantId}/emails?limit=20`),
+  });
+
+  const emails = data?.emails ?? [];
+
+  return (
+    <div className="rounded-sm border border-border p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] font-black tracking-widest text-muted-foreground uppercase">Email Log</p>
+        <span className="text-[10px] text-muted-foreground">Last 20</span>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading email log…
+        </div>
+      ) : isError ? (
+        <p className="text-sm text-destructive">Could not load the email log.</p>
+      ) : emails.length === 0 ? (
+        <p className="text-sm text-muted-foreground italic">
+          No transactional email has been sent to this campaign yet.
+        </p>
+      ) : (
+        <ul className="divide-y divide-border -mx-1">
+          {emails.map((e) => (
+            <li key={e.id} className="px-1 py-2.5 space-y-1">
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-sm font-semibold leading-tight">
+                  {e.subject || templateLabel(e.template)}
+                </p>
+                <Badge
+                  variant="outline"
+                  className={cn("shrink-0 text-[10px] capitalize", EMAIL_STATUS_STYLES[e.status])}
+                >
+                  {e.status}
+                </Badge>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+                <span className="font-mono">{e.recipient}</span>
+                <span>·</span>
+                <span>{templateLabel(e.template)}</span>
+                <span>·</span>
+                <span>
+                  {new Date(e.sentAt).toLocaleString("en-KE", {
+                    day: "numeric",
+                    month: "short",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </span>
+              </div>
+              {e.error && (
+                <p className="text-xs text-destructive font-mono break-all">{e.error}</p>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function TenantDetail({ tenant, onClose }: { tenant: TenantRow; onClose: () => void }) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -454,7 +545,7 @@ function TenantDetail({ tenant, onClose }: { tenant: TenantRow; onClose: () => v
         <div className="rounded-sm border border-border p-4 space-y-3">
           <p className="text-[10px] font-black tracking-widest text-muted-foreground uppercase">Invite Admin</p>
           <p className="text-xs text-muted-foreground">
-            Send a Clerk org invitation. The recipient joins the campaign's organisation and can be assigned campaign roles from the Users page.
+            Grants campaign administrator access and emails the recipient. They must already have an account — ask them to sign up first if they don't.
           </p>
           <div className="flex gap-2">
             <Input
@@ -476,6 +567,9 @@ function TenantDetail({ tenant, onClose }: { tenant: TenantRow; onClose: () => v
             </Button>
           </div>
         </div>
+
+        {/* Email log */}
+        <EmailLogPanel tenantId={tenant.id} />
 
         {/* Public portal URL */}
         <div className="rounded-sm border border-border p-4 space-y-2">
