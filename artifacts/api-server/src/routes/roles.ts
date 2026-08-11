@@ -3,8 +3,7 @@ import { getAuth } from "@clerk/express";
 import { db } from "@workspace/db";
 import { rolesTable, permissionsTable, rolePermissionsTable } from "@workspace/db";
 import { eq, inArray, sql } from "drizzle-orm";
-import { requireRoles } from "../middlewares/rbac";
-import { assertTenant } from '../lib/withTenant';
+import { requireLevel } from "../middlewares/rbac";
 
 const router = Router();
 
@@ -15,12 +14,10 @@ function requireAuth(req: any, res: any, next: any) {
   next();
 }
 
-// Only super-admins and senior security/legal roles may mutate permissions
-const canMutatePermissions = requireRoles([
-  "legal-officer",
-  "security-admin",
-  "data-protection-officer",
-]);
+// Role definitions and their permission mappings are GLOBAL platform
+// configuration — only platform operators (level 0) may mutate them.
+// Campaign roles must never edit the catalogue every tenant shares.
+const canMutatePermissions = requireLevel(0);
 
 // GET /api/roles
 router.get("/", requireAuth, async (req: any, res: any) => {
@@ -36,20 +33,23 @@ router.get("/", requireAuth, async (req: any, res: any) => {
     .from(rolesTable)
     .orderBy(rolesTable.level);
 
-  // Count users per role — scoped to the active tenant so no cross-tenant disclosure
-  const t = assertTenant(req);
-  const { userRolesTable } = await import("@workspace/db");
-  const counts = await db
-    .select({
-      roleId: userRolesTable.roleId,
-      count: sql<number>`cast(count(*) as int)`,
-    })
-    .from(userRolesTable)
-    .where(eq(userRolesTable.tenantId, t.id))
-    .groupBy(userRolesTable.roleId);
-
+  // Count users per role — scoped to the active tenant so no cross-tenant
+  // disclosure. Platform operators without an active campaign see the
+  // catalogue with zero counts instead of a 409.
+  const t = (req as any).tenant ?? null;
   const countMap: Record<string, number> = {};
-  for (const c of counts) countMap[c.roleId] = c.count;
+  if (t) {
+    const { userRolesTable } = await import("@workspace/db");
+    const counts = await db
+      .select({
+        roleId: userRolesTable.roleId,
+        count: sql<number>`cast(count(*) as int)`,
+      })
+      .from(userRolesTable)
+      .where(eq(userRolesTable.tenantId, t.id))
+      .groupBy(userRolesTable.roleId);
+    for (const c of counts) countMap[c.roleId] = c.count;
+  }
 
   res.json(roles.map((r) => ({ ...r, userCount: countMap[r.id] || 0 })));
 });

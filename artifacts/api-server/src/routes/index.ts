@@ -99,7 +99,7 @@ function withTenantMixed(subrouter: IRouter) {
 // Mounted before the campaign-scoped users router so it wins the /me path.
 router.use("/users", identityRouter);
 router.use("/users", withTenant(usersRouter));
-router.use("/roles", withTenant(rolesRouter));
+router.use("/roles", resolveTenantOptional, rolesRouter);
 // Geography is shared reference data, but when the caller has campaign
 // context the list endpoints are filtered to the campaign's scope — a
 // Nairobi senatorial campaign only sees Nairobi's hierarchy. Scope-SELECTION

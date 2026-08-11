@@ -74,7 +74,6 @@ const campaignAdminNav = [
   { name: "Branding", href: "/settings/branding", icon: Flag },
   { name: "System Config", href: "/settings/system", icon: Settings },
   { name: "User Management", href: "/users", icon: Users },
-  { name: "Roles & Permissions", href: "/roles", icon: Shield },
   { name: "Audit Log", href: "/audit", icon: Search },
   { name: "Data Requests", href: "/data-requests", icon: Activity },
   { name: "Compliance", href: "/compliance", icon: Lock },
@@ -91,6 +90,7 @@ const platformNav = [
   { name: "Billing & Revenue", href: "/platform/billing", icon: CreditCard },
   { name: "Tenant Lifecycle", href: "/platform/lifecycle", icon: LifeBuoy },
   { name: "User Search", href: "/platform/users", icon: Search },
+  { name: "Roles & Permissions", href: "/roles", icon: Shield },
   { name: "Operations Monitor", href: "/platform/ops", icon: Radio },
   { name: "Activity Log", href: "/platform/activity", icon: Activity },
   { name: "Geography", href: "/geography", icon: MapPin },
@@ -461,6 +461,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const isPlatformRoute =
     location.startsWith("/platform-admin") ||
     location.startsWith("/platform/") ||
+    location.startsWith("/roles") ||
     location.startsWith("/geography");
   const needsCampaign = !inCampaignContext && !isPlatformRoute;
 
@@ -516,7 +517,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
             { label: "Campaign Admin", items: campaignAdminNav },
             { label: "Platform", items: platformNav },
           ] as const)
-            .filter((s) => (s.label === "Platform" ? true : inCampaignContext))
+            .filter((s) => (s.label === "Platform" ? isPlatformOperator : inCampaignContext))
             .filter((s) => SECTION_RULES[s.label](access))
             .map((section) => (
             <div key={section.label}>
